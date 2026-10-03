@@ -9,7 +9,7 @@ PyPI での配布名は `coopgame-py` で、import 名は `coopgame` である
 (PyPI の `coopgame` は別のパッケージが使っている)。
 
 ```bash
-pip install coopgame-py   # PyPI での公開後
+pip install coopgame-py
 ```
 
 ## ビルド
