@@ -1,0 +1,40 @@
+[package]
+name = "coopgame"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "TU協力ゲームの仁・プレ仁・カーネル・プレカーネルの計算と検証"
+license = "MIT"
+repository = "https://github.com/matsu7874/coopgame"
+documentation = "https://docs.rs/coopgame"
+readme = "README.md"
+keywords = ["game-theory", "nucleolus", "cooperative-game", "shapley", "kernel"]
+categories = ["science", "mathematics", "algorithms"]
+exclude = ["python/", "data/", "docs/", "scripts/"]
+
+[dependencies]
+microlp = "0.6.0"
+num-bigint = "0.4"
+num-rational = { version = "0.4.2", features = ["num-bigint"] }
+num-traits = "0.2.19"
+serde_json = { version = "1", optional = true }
+
+[features]
+default = []
+# プレイヤー名付きの JSON・CSV の読み書き (`io` モジュール)
+io = ["dep:serde_json"]
+# `coopgame` コマンド
+cli = ["io"]
+
+[[bin]]
+name = "coopgame"
+path = "src/bin/coopgame.rs"
+required-features = ["cli"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

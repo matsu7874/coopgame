@@ -1,0 +1,13 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "coopgame-py"
+version = "0.1.0"
+description = "TU 協力ゲームの仁・カーネル・Shapley 値などの計算と検証 (Rust 実装の Python バインディング)"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+[tool.maturin]
+module-name = "coopgame"
