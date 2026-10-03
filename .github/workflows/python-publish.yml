@@ -1,0 +1,145 @@
+# Python バインディング (coopgame-py) の wheel と sdist を作り、PyPI に公開する。
+# - `py-v*` のタグを push すると、ビルドしてから PyPI に公開する (Trusted Publishing、environment `pypi`)。
+# - 手動で起動 (workflow_dispatch) した時はビルドだけを行い、公開はしない。
+name: python-publish
+
+on:
+  push:
+    tags: ["py-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: タグと pyproject.toml の版が一致するか確かめる
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' python/pyproject.toml)
+          if [ "py-v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "タグ ${GITHUB_REF_NAME} と python/pyproject.toml の版 ${version} が一致しない" >&2
+            exit 1
+          fi
+
+  linux:
+    needs: check-version
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          target: ${{ matrix.target }}
+          manylinux: auto
+          rust-toolchain: stable
+          args: --release --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: python/dist
+
+  macos:
+    needs: check-version
+    runs-on: macos-14
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          target: ${{ matrix.target }}
+          rust-toolchain: stable
+          args: --release --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.target }}
+          path: python/dist
+
+  windows:
+    needs: check-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          target: x64
+          rust-toolchain: stable
+          args: --release --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-x64
+          path: python/dist
+
+  sdist:
+    needs: check-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: python/dist
+
+  # できた wheel を各 OS でインストールし、テストを通す (Linux x86_64・macOS arm64・Windows x64)。
+  test:
+    needs: [linux, macos, windows]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: wheels-linux-x86_64
+          - os: macos-14
+            artifact: wheels-macos-aarch64
+          - os: windows-latest
+            artifact: wheels-windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.9"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist
+      - name: wheel をインストールしてテストする
+        shell: bash
+        run: |
+          python -m pip install pytest
+          python -m pip install --no-index --find-links dist coopgame-py
+          python -m pytest python/tests
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [linux, macos, windows, sdist, test]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
