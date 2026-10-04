@@ -133,6 +133,13 @@ python3 scripts/verify_claims.py         # 文書の数値を CSV から計算�
    ```
 
 3. `cargo publish` で crates.io に公開する。
+   公開したコミットに `v<版>` のタグ (例: `v0.2.0`) を付けて push する。
+   デモ ([coopgame-demo](https://github.com/matsu7874/coopgame-demo)) は、依存している版のタグから `docs/examples.md` を取得してサンプルコードを表示する。
+
+   ```bash
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
 4. Python バインディングは、`py-v<版>` のタグ (例: `py-v0.1.0`) を push すると GitHub Actions (`.github/workflows/python-publish.yml`) が PyPI に `coopgame-py` として公開する。
    Linux・macOS・Windows の wheel と sdist を作り、テストを通してから、Trusted Publishing (environment `pypi`) でアップロードする。
    タグと `python/pyproject.toml` の版が一致しないと公開しない。
