@@ -8,7 +8,9 @@
 //! - 全提携を列挙しない大きいゲームは、超過の大きい順に提携を返すオラクルとして扱う([`oracle`])。
 //! - 破産ゲームの仁は閉じた形の解 (タルムード則) で求められる([`bankruptcy`])。
 //! - 人数の多いゲーム (データ評価など) では、サンプリングした提携に制限した仁で近似する([`sampled`])。
-//! - Shapley 値・Banzhaf 値は厳密計算とサンプリング近似を用意する([`values`])。
+//! - Shapley 値・Banzhaf 値は厳密計算とサンプリング近似を用意する([`values`])。solidarity 値も求められる。
+//! - tau 値・Gately 点([`compromise`])、通信グラフのもとでの Myerson 値([`communication`])、
+//!   単純ゲームの投票力指数 (Johnston・Deegan–Packel・Public Good・Coleman、[`power`]) を求められる。
 //! - 浮動小数点で求めた仁は、有理数で厳密に検証できる([`exact`])。
 //! - 使い方は、古典的な論文の結果を再現する[チュートリアル](https://github.com/matsu7874/coopgame/tree/main/docs/tutorial)で学べる。
 //! - 計算結果は Kohlberg 基準([`kohlberg`])と最大余剰の釣り合い条件([`kernel::kernel_violation`])で検証できる。
@@ -19,6 +21,8 @@ pub mod auto;
 pub mod bankruptcy;
 pub mod bargaining;
 pub mod coalition;
+pub mod communication;
+pub mod compromise;
 pub mod convex;
 pub mod cost;
 pub mod error;
@@ -39,6 +43,7 @@ pub mod nucleolus;
 pub mod oracle;
 pub mod partition;
 pub mod plot;
+pub mod power;
 pub mod properties;
 pub mod sampled;
 pub mod search;

@@ -13,8 +13,9 @@ use coopgame::oracle::airport::AirportGame;
 use coopgame::structure;
 use coopgame::verify::{Verified, VerifyOptions};
 use coopgame::{
-    Domain, ExplicitGame, bankruptcy, bargaining, default_tolerance, exact, explain, generators,
-    io, kohlberg, nucleolus, partition, plot, uncertainty, values, variants,
+    Domain, ExplicitGame, bankruptcy, bargaining, communication, compromise, default_tolerance,
+    exact, explain, generators, io, kohlberg, nucleolus, partition, plot, power, uncertainty,
+    values, variants,
 };
 
 const USAGE: &str = "\
@@ -35,6 +36,12 @@ const USAGE: &str = "\
   coopgame convex-nucleolus <v.txt> [--lex] [--assume]   凸ゲームの手法で仁 (--assume は凸と仮定して試し、事後検証する)
   coopgame shapley    <v.txt> [--lex] [--samples N] [--seed S]
   coopgame banzhaf    <v.txt> [--lex] [--samples N] [--seed S] [--normalize]
+  coopgame solidarity <v.txt> [--lex]   solidarity 値 (Nowak & Radzik 1994)
+  coopgame tau        <v.txt> [--lex]   tau 値 (Tijs 1981)。理想の支払いと最小の権利は標準エラーに出す
+  coopgame gately     <v.txt> [--lex]   Gately 点 (Gately 1974)
+  coopgame myerson    <v.txt> --edges 1-2,2-3 [--lex]   通信グラフ (辺は 1 始まりの番号の組) のもとでの Myerson 値
+  coopgame power      <v.txt> [--lex]   単純ゲーム (値が 0 か 1) の投票力指数の表
+                      (Shapley-Shubik・正規化 Banzhaf・Johnston・Deegan-Packel・Public Good・Coleman の阻止力と発議力)
   coopgame kernel     <v.txt> [--pre] [--lex] [--max-iter N]
   coopgame kernel-set <v.txt> [--pre] [--lex] [--max-nodes N] [--merge]
   coopgame verify     <v.txt> <sol.txt> [--pre] [--lex]
@@ -138,6 +145,7 @@ impl Args {
             "--delta",
             "--missing",
             "--blocks",
+            "--edges",
         ];
         let mut positional = Vec::new();
         let mut flags = Vec::new();
@@ -385,6 +393,86 @@ fn run(raw: &[String]) -> CliResult<()> {
             let result = nucleolus::least_core(&game, args.domain())?;
             eprintln!("epsilon={}", result.epsilon);
             print_allocation(&result.allocation);
+        }
+        "solidarity" | "tau" | "gately" => {
+            args.check_known(&["--lex"])?;
+            let game = read_game(args.file(0)?, args.has("--lex"))?;
+            let allocation = match command.as_str() {
+                "solidarity" => values::solidarity(&game),
+                "tau" => {
+                    eprintln!(
+                        "utopia={:?} minimal_rights={:?}",
+                        compromise::utopia_payoffs(&game),
+                        compromise::minimal_rights(&game)
+                    );
+                    compromise::tau_value(&game)?
+                }
+                _ => compromise::gately_point(&game)?,
+            };
+            print_allocation(&allocation);
+        }
+        "myerson" => {
+            args.check_known(&["--edges", "--lex"])?;
+            let game = read_game(args.file(0)?, args.has("--lex"))?;
+            let text = args.value("--edges")?.ok_or("--edges が必要")?;
+            let edges: Vec<(usize, usize)> = text
+                .split(',')
+                .filter(|edge| !edge.trim().is_empty())
+                .map(|edge| {
+                    let ends = parse_list::<usize>(&edge.replace('-', ","), "--edges")?;
+                    match ends[..] {
+                        [a, b] if a >= 1 && b >= 1 => Ok((a - 1, b - 1)),
+                        _ => Err(format!("--edges の辺 {edge:?} は「番号-番号」(1 始まり)").into()),
+                    }
+                })
+                .collect::<CliResult<_>>()?;
+            print_allocation(&communication::myerson(&game, &edges)?);
+        }
+        "power" => {
+            args.check_known(&["--lex"])?;
+            let game = read_game(args.file(0)?, args.has("--lex"))?;
+            let simple = power::SimpleGame::new(&game)?;
+            let n = game.players();
+            let missing = || vec![f64::NAN; n];
+            let columns = [
+                ("shapley_shubik", values::shapley(&game)),
+                ("banzhaf", values::normalize(&values::banzhaf(&game))),
+                ("johnston", simple.johnston().unwrap_or_else(|_| missing())),
+                (
+                    "deegan_packel",
+                    simple.deegan_packel().unwrap_or_else(|_| missing()),
+                ),
+                (
+                    "public_good",
+                    simple.public_good().unwrap_or_else(|_| missing()),
+                ),
+                (
+                    "coleman_prevent",
+                    simple.coleman_prevent().unwrap_or_else(|_| missing()),
+                ),
+                (
+                    "coleman_initiative",
+                    simple.coleman_initiative().unwrap_or_else(|_| missing()),
+                ),
+            ];
+            let names =
+                LOADED.with(|loaded| loaded.borrow().as_ref().map(|data| data.names.clone()));
+            let header: Vec<&str> = columns.iter().map(|(name, _)| *name).collect();
+            println!("player\t{}\tswings", header.join("\t"));
+            for i in 0..n {
+                let label = match &names {
+                    Some(names) if names.len() == n => names[i].clone(),
+                    _ => (i + 1).to_string(),
+                };
+                let row: Vec<String> = columns.iter().map(|(_, v)| v[i].to_string()).collect();
+                println!("{label}\t{}\t{}", row.join("\t"), simple.swings[i]);
+            }
+            eprintln!(
+                "winning={} minimal_winning={} coleman_collectivity={}",
+                simple.winning.len(),
+                simple.minimal_winning.len(),
+                simple.coleman_collectivity()
+            );
         }
         "per-capita" | "proportional" | "modiclus" => {
             let known: &[&str] = if command == "modiclus" {

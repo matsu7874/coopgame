@@ -1,4 +1,4 @@
-//! Shapley 値と Banzhaf 値。
+//! Shapley 値・Banzhaf 値・solidarity 値。
 //!
 //! - 厳密計算: 明示ゲームで全提携を走査する (`O(n 2^n)`)。
 //! - サンプリング: 任意人数の [`SetFunction`] で、限界貢献の標本平均と標準誤差を返す。
@@ -7,6 +7,9 @@
 //!
 //! Banzhaf 値は正規化しない値 `(1 / 2^(n-1)) sum_{S not containing i} (v(S ∪ {i}) - v(S))` を返す。
 //! 投票ゲームの正規化 Banzhaf 指数は [`normalize`] で和を 1 にする。
+//!
+//! solidarity 値 (Nowak & Radzik 1994) は、Shapley 値の限界貢献 `v(S) - v(S \ {i})` を、
+//! 提携 `S` のメンバーの限界貢献の平均 `A(S) = (1/|S|) sum_{k in S} (v(S) - v(S \ {k}))` に置き換えた値である。
 
 use crate::coalition::Coalition;
 use crate::game::ExplicitGame;
@@ -31,6 +34,35 @@ pub fn shapley(game: &ExplicitGame) -> Vec<f64> {
 pub fn banzhaf(game: &ExplicitGame) -> Vec<f64> {
     let weight = 1.0 / (1u64 << (game.players() - 1)) as f64;
     marginal_sums(game, |_| weight)
+}
+
+/// 厳密な solidarity 値 (Nowak & Radzik 1994):
+/// `psi_i = sum_{S containing i} (|S| - 1)! (n - |S|)! / n! A(S)`、
+/// `A(S) = (1/|S|) sum_{k in S} (v(S) - v(S \ {k}))`。
+pub fn solidarity(game: &ExplicitGame) -> Vec<f64> {
+    let n = game.players();
+    // weights[s] = (s - 1)! (n - s)! / n! = 1 / (n C(n - 1, s - 1)) (s = 1..=n)
+    let mut weights = vec![0.0; n + 1];
+    let mut binomial = 1.0;
+    for (s, weight) in weights.iter_mut().enumerate().skip(1) {
+        *weight = 1.0 / (n as f64 * binomial);
+        binomial = binomial * (n - s) as f64 / s as f64;
+    }
+    let mut values = vec![0.0; n];
+    for mask in 1..1u64 << n {
+        let coalition = Coalition(mask);
+        let value = game.value(coalition);
+        let size = coalition.len();
+        let average = coalition
+            .players()
+            .map(|k| value - game.value(Coalition(mask & !(1 << k))))
+            .sum::<f64>()
+            / size as f64;
+        for i in coalition.players() {
+            values[i] += weights[size] * average;
+        }
+    }
+    values
 }
 
 /// 和が 1 になるように正規化する (正規化 Banzhaf 指数など)。和が 0 ならそのまま返す。
@@ -201,6 +233,24 @@ mod tests {
         assert!((phi.iter().sum::<f64>() - game.value(game.grand())).abs() < 1e-9);
         let symmetric = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 60.0, 60.0, 60.0, 72.0]).unwrap();
         assert_close(&shapley(&symmetric), &[24.0; 3], "対称ゲーム");
+    }
+
+    #[test]
+    fn solidarity_is_efficient_and_differs_from_shapley_on_null_player() {
+        // v(S) = 1 iff 0 ∈ S (プレイヤー 1, 2 はナルプレイヤー)。Shapley 値は (1, 0, 0) だが、
+        // solidarity 値はナルプレイヤーにも正の値を与える。
+        // 手計算: A({0}) = 1、A({0,j}) = 1/2、A({0,1,2}) = 1/3、0 を含まない提携は A = 0。
+        // psi_0 = (1/3)(1) + 2 (1/6)(1/2) + (1/3)(1/3) = 11/18、psi_1 = psi_2 = (1/6)(1/2) + (1/3)(1/3) = 7/36。
+        let game = ExplicitGame::from_lex(&[1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0]).unwrap();
+        assert_close(&shapley(&game), &[1.0, 0.0, 0.0], "Shapley 値");
+        assert_close(
+            &solidarity(&game),
+            &[11.0 / 18.0, 7.0 / 36.0, 7.0 / 36.0],
+            "solidarity 値",
+        );
+        let random = generators::bnf(1, 6, 7).unwrap();
+        let psi = solidarity(&random);
+        assert!((psi.iter().sum::<f64>() - random.value(random.grand())).abs() < 1e-9);
     }
 
     #[test]

@@ -15,6 +15,10 @@ LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を�
 | カーネル・プレカーネルの 1 点 | `kernel::kernel_point` | Maschler/Stearns の transfer scheme |
 | カーネル・プレカーネル全体 (6 人まで) | `kernel_set::kernel_set`、`KernelSet::merge_collinear_segments` | 最大余剰を与える提携の場合分けを LP で枝刈りしながら探索し、多面体の和集合として返す。同じ直線上でつながる線分は 1 本にまとめられる |
 | Shapley 値・Banzhaf 値 | `values::{shapley, banzhaf, shapley_sampling, banzhaf_sampling, normalize}` | 厳密計算 (`O(n 2^n)`) と、任意人数のゲームでのサンプリング推定 (標準誤差付き) |
+| solidarity 値 | `values::solidarity` | 定義どおりに全提携を走査 (`O(n 2^n)`)。限界貢献の代わりに提携内の限界貢献の平均を使う (Nowak & Radzik 1994) |
+| tau 値・Gately 点 | `compromise::{tau_value, gately_point, utopia_payoffs, minimal_rights}` | 理想の支払い `M_i = v(N) - v(N \ {i})` と最小の権利から閉じた形で求める。tau 値は準平衡なゲームだけで定義し、それ以外はエラー (Tijs 1981、Gately 1974) |
+| Myerson 値 | `communication::{myerson, graph_restricted}` | 通信グラフで制限したゲーム (連結成分ごとの値の和) の Shapley 値 (Myerson 1977) |
+| 投票力指数 | `power::SimpleGame::{johnston, deegan_packel, public_good, coleman_prevent, coleman_initiative, coleman_collectivity}` | 単純ゲームの勝利提携・最小勝利提携・決定票を数えて求める。Shapley–Shubik 指数と Banzhaf 指数は `values` |
 | per capita 仁・比例仁・modiclus | `variants::{per_capita_nucleolus, proportional_nucleolus, modiclus}` | 不満をアフィン関数に一般化した逐次 LP (`variants::lexicographic_minimum`)。modiclus は 7 人まで |
 | 提携構造・事前の連合 | `partition::{CoalitionStructure, aumann_dreze, owen, nucleolus, quotient_game}` | Aumann–Drèze 値 (ブロック内の Shapley 値)、提携構造つきの仁 (各ブロックで `x(B) = v(B)`)、Owen 値 (事前の連合) |
 | 超過・最大余剰 `s_ij` | `surplus::excesses`, `surplus::max_surplus` | 超過の上位の提携だけを部分ソートして走査 |
