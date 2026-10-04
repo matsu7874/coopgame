@@ -6,6 +6,7 @@ rust-version = "1.88"
 description = "TU協力ゲームの仁・プレ仁・カーネル・プレカーネルの計算と検証"
 license = "MIT"
 repository = "https://github.com/matsu7874/coopgame"
+homepage = "https://matsu7874.github.io/coopgame-demo/"
 documentation = "https://docs.rs/coopgame"
 readme = "README.md"
 keywords = ["game-theory", "nucleolus", "cooperative-game", "shapley", "kernel"]

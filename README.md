@@ -2,6 +2,8 @@
 
 TU 協力ゲームの仁・カーネル・Shapley 値などの解を計算し、検証する Rust ライブラリと CLI。
 
+ブラウザで動かせるデモ: https://matsu7874.github.io/coopgame-demo/ (配分三角形、タルムードの遺産分割、議会の投票力、水道管の費用分担、どの解を使うかの早見図。ソースは [coopgame-demo](https://github.com/matsu7874/coopgame-demo))
+
 ## 機能
 
 - **解を求める**

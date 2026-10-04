@@ -19,6 +19,7 @@ classifiers = [
 ]
 
 [project.urls]
+Homepage = "https://matsu7874.github.io/coopgame-demo/"
 Repository = "https://github.com/matsu7874/coopgame"
 Documentation = "https://github.com/matsu7874/coopgame/blob/main/python/README.md"
 
