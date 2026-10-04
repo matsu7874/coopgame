@@ -298,7 +298,7 @@ fn main() -> coopgame::Result<()> {
 import coopgame
 
 game = coopgame.Game([0, 0, 0, 4, 6, 8, 12], order="lex")
-print([round(v, 4) for v in coopgame.disruption_nucleolus(game)])  # => [2.6667, 4.0, 5.3333]
+print([round(v, 4) for v in coopgame.disruption_nucleolus(game)["allocation"]])  # => [2.6667, 4.0, 5.3333]
 ```
 
 このゲームでは Gately 点と同じ配分になる。
@@ -428,11 +428,11 @@ fn main() -> coopgame::Result<()> {
 import coopgame
 
 shared = coopgame.Game([0, 0, 0, 4, 6, 8, 12], order="lex")
-print([round(v, 4) for v in coopgame.anti_prenucleolus(shared)])  # => [4.0, 4.0, 4.0]
+print([round(v, 4) for v in coopgame.anti_prenucleolus(shared)["allocation"]])  # => [4.0, 4.0, 4.0]
 
 game = coopgame.Game([0, 0, 0, 6, 10, 10, 12], order="lex")
-print([round(v, 4) for v in coopgame.anti_prenucleolus(game)])  # => [4.0, 4.0, 4.0]
-print([round(v, 4) for v in coopgame.anti_nucleolus(game)])  # => [3.0, 3.0, 6.0]
+print([round(v, 4) for v in coopgame.anti_prenucleolus(game)["allocation"]])  # => [4.0, 4.0, 4.0]
+print([round(v, 4) for v in coopgame.anti_nucleolus(game)["allocation"]])  # => [3.0, 3.0, 6.0]
 ```
 
 2 つ目のゲームでは、anti-prenucleolus (4, 4, 4) がプレイヤー 3 の下限 6 を下回るので、anti-nucleolus は下限に張り付いた (3, 3, 6) になる。

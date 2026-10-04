@@ -431,6 +431,13 @@ pub fn anti_prenucleolus(game: &ExplicitGame) -> Result<crate::nucleolus::Nucleo
 /// anti-nucleolus: anti-imputation の集合 `{x(N) = v(N), x_i >= v(N) - v(N \ {i})}` の上での anti-prenucleolus。
 /// 双対ゲームの仁として求める。この集合が空 (`sum_i (v(N) - v(N \ {i})) > v(N)`) ならエラーを返す。
 pub fn anti_nucleolus(game: &ExplicitGame) -> Result<crate::nucleolus::NucleolusResult> {
+    let utopia: f64 = crate::compromise::utopia_payoffs(game).iter().sum();
+    let total = game.value(game.grand());
+    if utopia > total + default_tolerance(game) {
+        return Err(Error::InvalidArgument(format!(
+            "anti-imputation の集合が空: 理想の支払い v(N) - v(N \\ {{i}}) の和 {utopia} が v(N) = {total} を超える"
+        )));
+    }
     crate::nucleolus::nucleolus(&game.dual())
 }
 

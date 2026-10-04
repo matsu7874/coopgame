@@ -1058,27 +1058,27 @@ fn power_indices<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDic
 }
 
 /// disruption nucleolus (Littlechild & Vaidya 1976)。コアが空なら ValueError。
+/// 戻り値は `per_capita_nucleolus` と同じ形の辞書。
 #[pyfunction]
-fn disruption_nucleolus(game: &Game) -> PyResult<Vec<f64>> {
-    Ok(variants::disruption_nucleolus(&game.inner)
-        .map_err(to_py_err)?
-        .allocation)
+fn disruption_nucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
+    let result = variants::disruption_nucleolus(&game.inner).map_err(to_py_err)?;
+    lexicographic_dict(py, result)
 }
 
 /// anti-prenucleolus (双対ゲームのプレ仁、Funaki & Meinhardt 2006)。
+/// 戻り値は `nucleolus` と同じ形の辞書 (`levels` は双対ゲームの超過の段)。
 #[pyfunction]
-fn anti_prenucleolus(game: &Game) -> PyResult<Vec<f64>> {
-    Ok(variants::anti_prenucleolus(&game.inner)
-        .map_err(to_py_err)?
-        .allocation)
+fn anti_prenucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
+    let result = variants::anti_prenucleolus(&game.inner).map_err(to_py_err)?;
+    nucleolus_dict(py, result)
 }
 
 /// anti-nucleolus (双対ゲームの仁)。anti-imputation の集合が空なら ValueError。
+/// 戻り値は `nucleolus` と同じ形の辞書 (`levels` は双対ゲームの超過の段)。
 #[pyfunction]
-fn anti_nucleolus(game: &Game) -> PyResult<Vec<f64>> {
-    Ok(variants::anti_nucleolus(&game.inner)
-        .map_err(to_py_err)?
-        .allocation)
+fn anti_nucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
+    let result = variants::anti_nucleolus(&game.inner).map_err(to_py_err)?;
+    nucleolus_dict(py, result)
 }
 
 /// 双対ゲーム `v*(S) = v(N) - v(N \ S)`。
