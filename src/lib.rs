@@ -69,6 +69,8 @@ mod docs {
     struct Tutorial04;
     #[doc = include_str!("../README.md")]
     struct Readme;
+    #[doc = include_str!("../docs/examples.md")]
+    struct Examples;
 }
 
 pub use num_bigint;

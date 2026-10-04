@@ -83,6 +83,7 @@ cargo build --no-default-features       # feature なしでビルドできるこ
 - カーネル全体: 凸ゲームでは仁の 1 点になること、各多面体の頂点と重心がカーネル条件を満たすこと(健全性)、
   仁とランダムな初期点からの transfer scheme の到達点が和集合に含まれること(網羅性)
 - チュートリアル (`docs/tutorial/`) のコード例が、論文の値と一致すること (doctest。`src/lib.rs` の `#[cfg(doctest)]` で読み込む)
+- 解ごとのサンプルコード (`docs/examples.md`) に書いた出力が、実際の計算結果と一致すること (Rust は doctest、Python は `python/tests/test_examples.py`)
 
 ## 公開 API の方針
 
