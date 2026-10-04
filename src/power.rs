@@ -38,7 +38,8 @@ pub struct SimpleGame {
 }
 
 impl SimpleGame {
-    /// 明示ゲームを単純ゲームとして読む。値が 0 と 1 以外の提携があればエラーを返す。
+    /// 明示ゲームを単純ゲームとして読む。値が 0 と 1 以外の提携があるか、単調でない
+    /// (勝利提携に人を加えると負ける) 場合はエラーを返す。
     pub fn new(game: &ExplicitGame) -> Result<SimpleGame> {
         let n = game.players();
         let mut wins = vec![false; 1usize << n];
@@ -53,6 +54,17 @@ impl SimpleGame {
                     "単純ゲームではない: 提携 {mask:#b} の値が {value} (0 か 1 のみ)"
                 )));
             };
+        }
+        // 単調性: 勝利提携に 1 人加えても勝つ。最小勝利提携を 1 人ずつ抜いて判定するのはこの前提による。
+        for mask in 1..1u64 << n {
+            if let Some(i) = (0..n).find(|&i| {
+                mask >> i & 1 == 0 && wins[mask as usize] && !wins[(mask | 1 << i) as usize]
+            }) {
+                return Err(Error::InvalidArgument(format!(
+                    "単調でない: 勝利提携 {mask:#b} にプレイヤー {} を加えると負ける",
+                    i + 1
+                )));
+            }
         }
         let mut winning = Vec::new();
         let mut minimal_winning = Vec::new();
@@ -248,8 +260,41 @@ mod tests {
     }
 
     #[test]
-    fn non_simple_game_is_rejected() {
+    fn non_simple_or_non_monotone_game_is_rejected() {
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0]).unwrap();
         assert!(SimpleGame::new(&game).is_err());
+        // {0} は勝つが {0, 1} は負ける。
+        let game = ExplicitGame::from_lex(&[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]).unwrap();
+        assert!(SimpleGame::new(&game).is_err());
+    }
+
+    #[test]
+    fn indices_match_coopgame_examples() {
+        // CoopGame 0.2.2 のヘルプの例 [51; 35, 20, 15, 15, 15]
+        // (deeganPackelIndex は Holler & Illing 2006、publicGoodIndex は Holler 2011 の例として掲載)。
+        let game = voting(&[35, 20, 15, 15, 15], 51);
+        assert_close(
+            &game.deegan_packel().unwrap(),
+            &[
+                18.0 / 60.0,
+                9.0 / 60.0,
+                11.0 / 60.0,
+                11.0 / 60.0,
+                11.0 / 60.0,
+            ],
+        );
+        assert_close(
+            &game.public_good().unwrap(),
+            &[4.0 / 15.0, 2.0 / 15.0, 0.2, 0.2, 0.2],
+        );
+        // Coleman の指数: [5; 3, 2, 1, 1] (Apt の講義資料 "Simple games" の Example 15)。
+        let game = voting(&[3, 2, 1, 1], 5);
+        assert_eq!(game.swings, vec![5, 3, 1, 1]);
+        assert_close(&game.coleman_prevent().unwrap(), &[1.0, 0.6, 0.2, 0.2]);
+        assert_close(
+            &game.coleman_initiative().unwrap(),
+            &[5.0 / 11.0, 3.0 / 11.0, 1.0 / 11.0, 1.0 / 11.0],
+        );
+        assert!((game.coleman_collectivity() - 5.0 / 16.0).abs() < 1e-12);
     }
 }

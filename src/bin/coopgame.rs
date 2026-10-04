@@ -33,6 +33,8 @@ const USAGE: &str = "\
   coopgame per-capita   <v.txt> [--pre] [--lex]   per capita 仁
   coopgame proportional <v.txt> [--pre] [--lex]   比例仁 (非負のゲーム)
   coopgame modiclus     <v.txt> [--lex]           modiclus (準配分)
+  coopgame disruption   <v.txt> [--lex]           disruption nucleolus (コアが空でないゲーム)
+  coopgame anti-nucleolus <v.txt> [--pre] [--lex] anti-nucleolus (--pre で anti-prenucleolus)。双対ゲームの仁 (プレ仁)
   coopgame convex-nucleolus <v.txt> [--lex] [--assume]   凸ゲームの手法で仁 (--assume は凸と仮定して試し、事後検証する)
   coopgame shapley    <v.txt> [--lex] [--samples N] [--seed S]
   coopgame banzhaf    <v.txt> [--lex] [--samples N] [--seed S] [--normalize]
@@ -392,6 +394,23 @@ fn run(raw: &[String]) -> CliResult<()> {
             let game = read_game(args.file(0)?, args.has("--lex"))?;
             let result = nucleolus::least_core(&game, args.domain())?;
             eprintln!("epsilon={}", result.epsilon);
+            print_allocation(&result.allocation);
+        }
+        "disruption" => {
+            args.check_known(&["--lex"])?;
+            let game = read_game(args.file(0)?, args.has("--lex"))?;
+            let result = variants::disruption_nucleolus(&game)?;
+            eprintln!("lp_solves={} levels={:?}", result.lp_solves, result.levels);
+            print_allocation(&result.allocation);
+        }
+        "anti-nucleolus" => {
+            args.check_known(&["--pre", "--lex"])?;
+            let game = read_game(args.file(0)?, args.has("--lex"))?;
+            let result = if args.has("--pre") {
+                variants::anti_prenucleolus(&game)?
+            } else {
+                variants::anti_nucleolus(&game)?
+            };
             print_allocation(&result.allocation);
         }
         "solidarity" | "tau" | "gately" => {

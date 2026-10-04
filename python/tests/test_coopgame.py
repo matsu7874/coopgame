@@ -449,3 +449,14 @@ def test_power_indices_of_weighted_voting_game():
     assert close(power["coleman_prevent"], [1, 1 / 3, 1 / 3])
     assert close(power["coleman_initiative"], [0.6, 0.2, 0.2])
     assert math.isclose(power["coleman_collectivity"], 3 / 8)
+
+
+def test_disruption_and_anti_nucleolus():
+    # CoopGame の disruptionNucleolus のヘルプの例 (小数 6 桁に丸めた掲載値)
+    game = coopgame.Game([0, 0, 0, 0, 2, 3, 4, 1, 3, 2, 8, 11, 6.5, 9.5, 14], order="lex")
+    assert close(coopgame.disruption_nucleolus(game), [3.193548, 4.754839, 2.129032, 3.922581], 1e-6)
+    # Funaki & Meinhardt (2006) Example 4.1
+    w = coopgame.Game([60, 80, 120, 140, 150, 150, 150], order="lex")
+    assert close(coopgame.anti_prenucleolus(w), [30, 40, 80])
+    assert close(coopgame.anti_nucleolus(w), [30, 40, 80])
+    assert close(coopgame.prenucleolus(coopgame.dual(w))["allocation"], [30, 40, 80])

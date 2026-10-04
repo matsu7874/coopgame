@@ -20,6 +20,8 @@ LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を�
 | Myerson 値 | `communication::{myerson, graph_restricted}` | 通信グラフで制限したゲーム (連結成分ごとの値の和) の Shapley 値 (Myerson 1977) |
 | 投票力指数 | `power::SimpleGame::{johnston, deegan_packel, public_good, coleman_prevent, coleman_initiative, coleman_collectivity}` | 単純ゲームの勝利提携・最小勝利提携・決定票を数えて求める。Shapley–Shubik 指数と Banzhaf 指数は `values` |
 | per capita 仁・比例仁・modiclus | `variants::{per_capita_nucleolus, proportional_nucleolus, modiclus}` | 不満をアフィン関数に一般化した逐次 LP (`variants::lexicographic_minimum`)。modiclus は 7 人まで |
+| disruption nucleolus | `variants::disruption_nucleolus` | 抜ける傾向を、コアの上で `e(S, x) / (v(N) - v(S) - v(N \ S))` の辞書式最小化に直して同じ逐次 LP で解く (Littlechild & Vaidya 1976)。コアが空でないゲームに限る |
+| anti-prenucleolus・anti-nucleolus | `variants::{anti_prenucleolus, anti_nucleolus}`、`ExplicitGame::dual` | 超過を小さい順に辞書式に最大化する解。双対ゲーム `v*(S) = v(N) - v(N \ S)` のプレ仁・仁として求める (Funaki & Meinhardt 2006) |
 | 提携構造・事前の連合 | `partition::{CoalitionStructure, aumann_dreze, owen, nucleolus, quotient_game}` | Aumann–Drèze 値 (ブロック内の Shapley 値)、提携構造つきの仁 (各ブロックで `x(B) = v(B)`)、Owen 値 (事前の連合) |
 | 超過・最大余剰 `s_ij` | `surplus::excesses`, `surplus::max_surplus` | 超過の上位の提携だけを部分ソートして走査 |
 

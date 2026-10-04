@@ -248,6 +248,13 @@ mod tests {
             &[11.0 / 18.0, 7.0 / 36.0, 7.0 / 36.0],
             "solidarity 値",
         );
+        // Nowak & Radzik の例 (Diffo Lambo 2015 の Example 2 が再掲): 全員一致ゲーム u_{1,2} で (7/18, 7/18, 4/18)。
+        let unanimity = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0]).unwrap();
+        assert_close(
+            &solidarity(&unanimity),
+            &[7.0 / 18.0, 7.0 / 18.0, 4.0 / 18.0],
+            "u_{1,2}",
+        );
         let random = generators::bnf(1, 6, 7).unwrap();
         let psi = solidarity(&random);
         assert!((psi.iter().sum::<f64>() - random.value(random.grand())).abs() < 1e-9);

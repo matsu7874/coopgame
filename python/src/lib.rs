@@ -1057,6 +1057,38 @@ fn power_indices<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDic
     Ok(dict)
 }
 
+/// disruption nucleolus (Littlechild & Vaidya 1976)。コアが空なら ValueError。
+#[pyfunction]
+fn disruption_nucleolus(game: &Game) -> PyResult<Vec<f64>> {
+    Ok(variants::disruption_nucleolus(&game.inner)
+        .map_err(to_py_err)?
+        .allocation)
+}
+
+/// anti-prenucleolus (双対ゲームのプレ仁、Funaki & Meinhardt 2006)。
+#[pyfunction]
+fn anti_prenucleolus(game: &Game) -> PyResult<Vec<f64>> {
+    Ok(variants::anti_prenucleolus(&game.inner)
+        .map_err(to_py_err)?
+        .allocation)
+}
+
+/// anti-nucleolus (双対ゲームの仁)。anti-imputation の集合が空なら ValueError。
+#[pyfunction]
+fn anti_nucleolus(game: &Game) -> PyResult<Vec<f64>> {
+    Ok(variants::anti_nucleolus(&game.inner)
+        .map_err(to_py_err)?
+        .allocation)
+}
+
+/// 双対ゲーム `v*(S) = v(N) - v(N \ S)`。
+#[pyfunction]
+fn dual(game: &Game) -> Game {
+    Game {
+        inner: game.inner.dual(),
+    }
+}
+
 /// 和が 1 になるように割る。
 #[pyfunction]
 fn normalize(values: Vec<f64>) -> Vec<f64> {
@@ -1532,6 +1564,10 @@ fn coopgame_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(myerson, m)?)?;
     m.add_function(wrap_pyfunction!(graph_restricted, m)?)?;
     m.add_function(wrap_pyfunction!(power_indices, m)?)?;
+    m.add_function(wrap_pyfunction!(disruption_nucleolus, m)?)?;
+    m.add_function(wrap_pyfunction!(anti_prenucleolus, m)?)?;
+    m.add_function(wrap_pyfunction!(anti_nucleolus, m)?)?;
+    m.add_function(wrap_pyfunction!(dual, m)?)?;
     m.add_function(wrap_pyfunction!(shapley_sampling, m)?)?;
     m.add_function(wrap_pyfunction!(banzhaf_sampling, m)?)?;
     m.add_function(wrap_pyfunction!(sampled_nucleolus, m)?)?;

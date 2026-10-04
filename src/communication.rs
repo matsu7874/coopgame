@@ -99,6 +99,16 @@ mod tests {
     }
 
     #[test]
+    fn glove_game_on_a_path_matches_myerson_package_example() {
+        // Python の myerson パッケージの Get Started の例: 手袋ゲームを道 1 - 2 - 3 に制限すると (1/2, 1/2, 0)。
+        let glove = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0]).unwrap();
+        assert_close(
+            &myerson(&glove, &[(0, 1), (1, 2)]).unwrap(),
+            &[0.5, 0.5, 0.0],
+        );
+    }
+
+    #[test]
     fn isolated_player_receives_standalone_value() {
         // 辺のない頂点は誰とも協力できないので、Myerson 値は v({i})。
         let game = generators::bnf(1, 4, 9).unwrap();

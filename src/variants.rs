@@ -1,4 +1,5 @@
-//! 超過の測り方を変えた仁 (per capita 仁・比例仁・modiclus) を、一般化した逐次 LP で求める。
+//! 超過の測り方を変えた仁 (per capita 仁・比例仁・modiclus・disruption nucleolus・anti-nucleolus) を求める。
+//! anti-nucleolus 以外は、一般化した逐次 LP で求める。
 //!
 //! 仁は「提携の不満 (超過) のベクトルを辞書式に最小化する配分」だった。不満をアフィン関数
 //!
@@ -22,6 +23,19 @@
 //! | [`per_capita_nucleolus`] | `e(S, x) / abs(S)` (空でない真部分提携) | 指定 (CoopGame は配分) |
 //! | [`proportional_nucleolus`] | `e(S, x) / v(S)` (`v(S) > 0` の真部分提携)。`v(S) = 0` の提携は制約 `x(S) >= 0` | 指定 (CoopGame は配分)。非負のゲームに限る |
 //! | [`modiclus`] | `e(S, x) - e(T, x)` (空でない真部分提携 `S != T` の組) | 準配分 |
+//! | [`disruption_nucleolus`] | `e(S, x) / b(S)`、`b(S) = v(N) - v(S) - v(N \ S)` (`b(S) > 0` の真部分提携) | コア (空でないゲームに限る) |
+//!
+//! disruption nucleolus (Littlechild & Vaidya 1976) は、提携 `S` の「抜ける傾向」
+//! `(x(N \ S) - v(N \ S)) / (x(S) - v(S))` の大きい順に辞書式に最小化した配分である。
+//! コアの上では `x(N \ S) = v(N) - x(S)` なので、これは `(x(S) - v(S)) / b(S)` を小さい順に
+//! 辞書式に最大化すること、すなわち上の不満を辞書式に最小化することと同じになる (CoopGame と同じ定式化)。
+//!
+//! anti-prenucleolus は、超過を小さい順に並べたベクトルを準配分の上で辞書式に最大化した配分である。
+//! 双対ゲーム `v*(S) = v(N) - v(N \ S)` では `e_{v*}(S, x) = -e_v(N \ S, x)` なので、
+//! anti-prenucleolus は双対ゲームのプレ仁に一致する (Funaki & Meinhardt 2006)。
+//! プレ仁は一般に双対ゲームのプレ仁と一致しないので、anti-prenucleolus はプレ仁とは別の解である。
+//! anti-nucleolus は、同じ最大化を anti-imputation の集合 `{x : x(N) = v(N), x_i >= M_i}`
+//! (`M_i = v(N) - v(N \ {i})`、双対ゲームの配分集合) の上で行った配分で、双対ゲームの仁に一致する。
 //!
 //! 不満の数は per capita 仁・比例仁で `2^n`、modiclus で約 `4^n` なので、明示的に全ての行を LP に入れる。
 
@@ -379,6 +393,47 @@ pub fn per_capita_nucleolus(game: &ExplicitGame, domain: Domain) -> Result<Lexic
     )
 }
 
+/// disruption nucleolus (Littlechild & Vaidya 1976): 提携の抜ける傾向を辞書式に最小化するコアの点。
+///
+/// コアが空のゲームではエラーを返す。`b(S) = v(N) - v(S) - v(N \ S) = 0` の提携は、コアの上で
+/// `x(S) = v(S)` に固定されるので不満にしない。
+pub fn disruption_nucleolus(game: &ExplicitGame) -> Result<LexicographicResult> {
+    let n = game.players();
+    let tolerance = default_tolerance(game);
+    if !crate::properties::has_nonempty_core(game)? {
+        return Err(Error::InvalidArgument(
+            "disruption nucleolus はコアが空でないゲームに限る".into(),
+        ));
+    }
+    let total = game.value(game.grand());
+    let mut feasible = Feasible {
+        total,
+        lower: None,
+        constraints: Vec::new(),
+    };
+    let mut complaints = Vec::new();
+    for s in proper_coalitions(game) {
+        feasible.constraints.push((indicator(s, n), game.value(s)));
+        let gap = total - game.value(s) - game.value(Coalition(game.grand().0 & !s.0));
+        if gap > tolerance {
+            complaints.push(excess_complaint(game, s, gap));
+        }
+    }
+    lexicographic_minimum(n, &feasible, &complaints, tolerance)
+}
+
+/// anti-prenucleolus: 超過を小さい順に並べたベクトルを準配分の上で辞書式に最大化した配分。
+/// 双対ゲームのプレ仁として求める (Funaki & Meinhardt 2006)。`levels` は双対ゲームの超過の段。
+pub fn anti_prenucleolus(game: &ExplicitGame) -> Result<crate::nucleolus::NucleolusResult> {
+    crate::nucleolus::prenucleolus(&game.dual())
+}
+
+/// anti-nucleolus: anti-imputation の集合 `{x(N) = v(N), x_i >= v(N) - v(N \ {i})}` の上での anti-prenucleolus。
+/// 双対ゲームの仁として求める。この集合が空 (`sum_i (v(N) - v(N \ {i})) > v(N)`) ならエラーを返す。
+pub fn anti_nucleolus(game: &ExplicitGame) -> Result<crate::nucleolus::NucleolusResult> {
+    crate::nucleolus::nucleolus(&game.dual())
+}
+
 /// 比例仁: 超過を提携の値で割った `e(S, x) / v(S)` を辞書式に最小化する。
 ///
 /// 非負のゲーム (`v(S) >= 0`) に限る。`v(S) = 0` の提携は不満にせず、制約 `x(S) >= 0` にする
@@ -495,5 +550,60 @@ mod tests {
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]).unwrap();
         let err = proportional_nucleolus(&game, Domain::Imputation).unwrap_err();
         assert!(matches!(err, Error::InvalidArgument(_)), "{err}");
+    }
+
+    #[test]
+    fn disruption_nucleolus_matches_coopgame_example() {
+        // CoopGame 0.2.2 の disruptionNucleolus のヘルプの例 (掲載値は小数 6 桁に丸めた値)。
+        let game = ExplicitGame::from_lex(&[
+            0.0, 0.0, 0.0, 0.0, 2.0, 3.0, 4.0, 1.0, 3.0, 2.0, 8.0, 11.0, 6.5, 9.5, 14.0,
+        ])
+        .unwrap();
+        let x = disruption_nucleolus(&game).unwrap().allocation;
+        for (a, e) in x.iter().zip([3.193548, 4.754839, 2.129032, 3.922581]) {
+            assert!((a - e).abs() < 1e-6, "{x:?}");
+        }
+        // コアが空のゲームは対象外。
+        let empty = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 80.0, 80.0, 80.0, 90.0]).unwrap();
+        assert!(disruption_nucleolus(&empty).is_err());
+    }
+
+    #[test]
+    fn anti_prenucleolus_of_bankruptcy_example() {
+        // Funaki & Meinhardt (2006) Example 4.1: E = 150、d = (60, 80, 120)。
+        // 破産ゲーム v のプレ仁と、その双対 w = v* の anti-prenucleolus はともに (30, 40, 80)。
+        let v = ExplicitGame::from_lex(&[0.0, 0.0, 10.0, 30.0, 70.0, 90.0, 150.0]).unwrap();
+        let w = ExplicitGame::from_lex(&[60.0, 80.0, 120.0, 140.0, 150.0, 150.0, 150.0]).unwrap();
+        assert_eq!(v.dual().values(), w.values());
+        assert_eq!(w.dual().values(), v.values());
+        let expected = [30.0, 40.0, 80.0];
+        let close = |x: &[f64]| x.iter().zip(&expected).all(|(a, e)| (a - e).abs() < 1e-6);
+        assert!(close(
+            &crate::nucleolus::prenucleolus(&v).unwrap().allocation
+        ));
+        assert!(close(&anti_prenucleolus(&w).unwrap().allocation));
+        assert!(close(&anti_nucleolus(&w).unwrap().allocation));
+        // w のプレ仁は (30, 40, 80) ではない (プレ仁は双対をとると一般に変わる)。
+        assert!(!close(
+            &crate::nucleolus::prenucleolus(&w).unwrap().allocation
+        ));
+    }
+
+    #[test]
+    fn anti_prenucleolus_maximizes_the_smallest_excess() {
+        // 最小の超過は、anti-prenucleolus で最大になる (定義の第 1 段)。プレ仁や Shapley 値と比べる。
+        for seed in 0..5 {
+            let game = crate::generators::bnf(1, 5, seed).unwrap();
+            let min_excess = |x: &[f64]| {
+                proper_coalitions(&game)
+                    .map(|s| crate::surplus::excess(&game, s, x))
+                    .fold(f64::INFINITY, f64::min)
+            };
+            let anti = anti_prenucleolus(&game).unwrap().allocation;
+            let pre = crate::nucleolus::prenucleolus(&game).unwrap().allocation;
+            let shapley = crate::values::shapley(&game);
+            assert!(min_excess(&anti) >= min_excess(&pre) - 1e-6);
+            assert!(min_excess(&anti) >= min_excess(&shapley) - 1e-6);
+        }
     }
 }

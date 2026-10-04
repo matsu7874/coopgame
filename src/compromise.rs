@@ -9,6 +9,8 @@
 //! - Gately 点 (Gately 1974): 各人の「抜ける傾向」`d_i(x) = (x(N \ {i}) - v(N \ {i})) / (x_i - v({i}))`
 //!   を全員で等しくする効率的な配分。`x(N) = v(N)` を使うと `d_i(x) = (M_i - x_i) / (x_i - v({i}))` なので、
 //!   解は `x_i = v({i}) + t (M_i - v({i}))`、`t = (v(N) - sum v({j})) / sum (M_j - v({j}))` になる。
+//!   これが配分 (`x_i >= v({i})`) になるのは、`v(N) > sum v({j})` で、`M_i - v({i})` の符号が全員でそろう
+//!   (0 を含んでよいが全員 0 ではない) 場合である (Staudacher & Anwander 2019)。それ以外はエラーを返す。
 
 use crate::coalition::Coalition;
 use crate::error::{Error, Result};
@@ -79,17 +81,28 @@ pub fn tau_value(game: &ExplicitGame) -> Result<Vec<f64>> {
         .collect())
 }
 
-/// Gately 点 (Gately 1974)。`sum_j (M_j - v({j})) = 0` のときは抜ける傾向を等しくする点が
-/// 一意に決まらないのでエラーを返す。
+/// Gately 点 (Gately 1974)。次の場合は抜ける傾向を等しくする配分がないか一意でないので、エラーを返す。
+///
+/// - `v(N) <= sum v({i})` (本質的でない)。
+/// - `M_i - v({i})` の符号が人によって異なるか、全員 0。
 pub fn gately_point(game: &ExplicitGame) -> Result<Vec<f64>> {
     let utopia = utopia_payoffs(game);
     let singles = game.singleton_values();
     let total = game.value(game.grand());
+    let tol = tolerance(game);
     let surplus = total - singles.iter().sum::<f64>();
-    let spread: f64 = utopia.iter().zip(&singles).map(|(m, s)| m - s).sum();
-    if spread.abs() <= tolerance(game) {
+    if surplus <= tol {
         return Err(Error::InvalidArgument(
-            "sum (M_i - v({i})) = 0 のため Gately 点が定まらない".into(),
+            "v(N) <= sum v({i}) (本質的でない) ため Gately 点が定まらない".into(),
+        ));
+    }
+    let gaps: Vec<f64> = utopia.iter().zip(&singles).map(|(m, s)| m - s).collect();
+    let spread: f64 = gaps.iter().sum();
+    let mixed = gaps.iter().any(|&g| g > tol) && gaps.iter().any(|&g| g < -tol);
+    if mixed || spread.abs() <= tol {
+        return Err(Error::InvalidArgument(
+            "M_i - v({i}) の符号が人によって異なるか全員 0 のため、Gately 点が配分として定まらない"
+                .into(),
         ));
     }
     let t = surplus / spread;
@@ -136,6 +149,36 @@ mod tests {
         // コアが空の対称ゲーム v(ij) = 80, v(N) = 90: M = 10 だが m = 80 - 10 = 70 > M。
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 80.0, 80.0, 80.0, 90.0]).unwrap();
         assert!(tau_value(&game).is_err());
+    }
+
+    #[test]
+    fn gately_point_matches_coopgame_examples() {
+        // CoopGame 0.2.2 の gatelyValue のヘルプの例 (分数の例と、Gately 1974 の 3 地域の例)。
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 3.0, 6.0]).unwrap();
+        assert_close(
+            &gately_point(&game).unwrap(),
+            &[18.0 / 11.0, 36.0 / 11.0, 12.0 / 11.0],
+        );
+        let gately =
+            ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1170.0, 770.0, 210.0, 1530.0]).unwrap();
+        let x = gately_point(&gately).unwrap();
+        for (a, e) in x.iter().zip([827.7049, 476.5574, 225.7377]) {
+            assert!((a - e).abs() < 1e-4, "{x:?}");
+        }
+    }
+
+    #[test]
+    fn gately_point_rejects_mixed_signs() {
+        // M - v({i}) = (-1, 2, 2) の符号がそろわず、式の値 (-1, 2, 2) は個人合理性を満たさない。
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 1.0, 4.0, 3.0]).unwrap();
+        assert!(gately_point(&game).is_err());
+    }
+
+    #[test]
+    fn tau_value_matches_coopgame_example() {
+        // CoopGame 0.2.2 の tauValue のヘルプの例 (Stach 2011)。
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 2.0, 1.0, 3.0]).unwrap();
+        assert_close(&tau_value(&game).unwrap(), &[1.2, 0.6, 1.2]);
     }
 
     #[test]

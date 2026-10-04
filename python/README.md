@@ -68,6 +68,8 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 | `certify_rational(values, x, domain, order)` | 有理数の値 (`Fraction`・`"8/3"`・`"0.1"`) のゲームで厳密に検証 |
 | `verify`, `certify` | Kohlberg 基準による検証 (浮動小数点、有理数) |
 | `shapley`, `banzhaf`, `normalize`, `shapley_sampling`, `banzhaf_sampling` | Shapley 値・Banzhaf 値 |
+| `disruption_nucleolus(game)` | disruption nucleolus (Littlechild & Vaidya 1976、コアが空なら ValueError) |
+| `anti_prenucleolus(game)`, `anti_nucleolus(game)`, `dual(game)` | anti-prenucleolus・anti-nucleolus (双対ゲームのプレ仁・仁、Funaki & Meinhardt 2006) と双対ゲーム |
 | `solidarity(game)` | solidarity 値 (Nowak & Radzik 1994) |
 | `tau_value(game)`, `utopia_payoffs(game)` | tau 値 (Tijs 1981、準平衡でなければ ValueError)。理想の支払いと最小の権利 |
 | `gately_point(game)` | Gately 点 (Gately 1974) |

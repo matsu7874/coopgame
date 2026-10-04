@@ -18,6 +18,8 @@ coopgame kernel v.txt                       # カーネルの 1 点 (--pre で�
 coopgame kernel-set v.txt                   # カーネル全体を多面体ごとの頂点で出す (--merge で線分をまとめる)
 coopgame shapley v.txt                      # Shapley 値 (--samples N でサンプリング推定)
 coopgame banzhaf v.txt --normalize          # 正規化 Banzhaf 指数
+coopgame disruption v.txt                   # disruption nucleolus (コアが空でないゲーム)
+coopgame anti-nucleolus v.txt               # anti-nucleolus (--pre で anti-prenucleolus)
 coopgame solidarity v.txt                   # solidarity 値
 coopgame tau v.txt                          # tau 値 (準平衡でなければエラー)
 coopgame gately v.txt                       # Gately 点

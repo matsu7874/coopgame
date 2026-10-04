@@ -10,7 +10,7 @@ TU 協力ゲームの仁・カーネル・Shapley 値などの解を計算し、
   - Shapley 値・Banzhaf 値の厳密計算とサンプリング推定、solidarity 値 (`values`)
   - tau 値・Gately 点 (`compromise`)、通信グラフのもとでの Myerson 値 (`communication`)
   - 単純ゲームの投票力指数: Johnston・Deegan–Packel・Public Good (Holler)・Coleman (`power`)
-  - per capita 仁・比例仁・modiclus (`variants`)
+  - per capita 仁・比例仁・modiclus・disruption nucleolus・anti-nucleolus (`variants`)
   - 提携構造のある解: Aumann–Drèze 値・Owen 値・提携構造つきの仁 (`partition`)
 - **結果を検証する**
   - 仁の Kohlberg 基準 (`kohlberg`) と、有理数による厳密な検証 (`exact`)
