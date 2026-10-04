@@ -97,3 +97,34 @@ v(1) = 2、v(2) = 6、v(3) = 5、v(12) = 15、v(13) = 1、v(23) = 18、v(N) = 14
 文献でカーネル全体の答えが示された例は、この環境で確認できる資料に見つからなかった。
 代わりに、上の例の答えの点が `kernel_set` で求めたカーネル (プレカーネル) に含まれることを確かめた
 (`literature_examples_lie_in_kernel_set`)。仁はカーネルに属する (MPS1979) ので、これは必要条件の確認である。
+
+## tau 値・Gately 点・solidarity 値・Myerson 値・投票力指数・仁の変種
+
+テストは各モジュールの単体テスト (`src/compromise.rs`、`src/values.rs`、`src/communication.rs`、`src/power.rs`、`src/variants.rs`) にある。
+特性関数は辞書式順、重み付き投票ゲームは `[基準; 重み]` で書く。
+
+| 例 | 出典 | ゲーム | 答え | 答えの裏付け |
+|---|---|---|---|---|
+| tau 値 | CoopGame の `tauValue` のヘルプ (Stach 2011 の例) | 0, 0, 0, 1, 2, 1, 3 | (1.2, 0.6, 1.2) | 引用元の記載 |
+| tau 値 | 手計算 | 0, 0, 0, 4, 6, 8, 12 | M = (4, 6, 8)、m = (0, 0, 2)、tau = (5/2, 15/4, 23/4) | 手計算 (`three_player_tau_value_by_hand`) |
+| Gately 点 | CoopGame の `gatelyValue` のヘルプ | 0, 0, 0, 4, 0, 3, 6 | (18/11, 36/11, 12/11) | 引用元の記載 |
+| Gately 点 | CoopGame の `gatelyValue` のヘルプ (Gately 1974 の 3 地域の例) | 0, 0, 0, 1170, 770, 210, 1530 | (827.7049, 476.5574, 225.7377) | 引用元の記載 (小数 4 桁) |
+| solidarity 値 | Nowak & Radzik の例 (Diffo Lambo 2015 の Example 2 が再掲) | 0, 0, 0, 1, 0, 0, 1 | (7/18, 7/18, 4/18) | 引用元の記載 |
+| Myerson 値 | Python の myerson パッケージの Get Started | 手袋ゲーム 0, 0, 0, 1, 1, 0, 1、道 1 - 2 - 3 | (1/2, 1/2, 0) | 引用元の記載 |
+| Johnston 指数 | CoopGame の `johnstonIndex` のヘルプ | [4; 3, 2, 1] | (2/3, 1/6, 1/6) | 引用元の記載、手計算 |
+| Deegan–Packel 指数 | CoopGame の `deeganPackelIndex` のヘルプ (Holler & Illing 2006 の例) | [51; 35, 20, 15, 15, 15] | (18, 9, 11, 11, 11) / 60 | 引用元の記載 |
+| Public Good 指数 | CoopGame の `publicGoodIndex` のヘルプ (Holler 2011 の例) | [51; 35, 20, 15, 15, 15] | (4/15, 2/15, 1/5, 1/5, 1/5) | 引用元の記載、最小勝利提携の数え上げ |
+| Coleman の指数 | Apt の講義資料 Simple games の Example 15 | [5; 3, 2, 1, 1] | 阻止力 (1, 3/5, 1/5, 1/5)、発議力 (5, 3, 1, 1) / 11、集団の行動力 5/16 | 引用元の記載 |
+| disruption nucleolus | CoopGame の `disruptionNucleolus` のヘルプ | 0,0,0,0,2,3,4,1,3,2,8,11,6.5,9.5,14 | (3.193548, 4.754839, 2.129032, 3.922581) | 引用元の記載 (小数 6 桁) |
+| anti-prenucleolus | FM2006 Example 4.1 | 破産問題 E = 150、d = (60, 80, 120) の双対 w = 60, 80, 120, 140, 150, 150, 150 | (30, 40, 80) (破産ゲームのプレ仁と同じ) | 論文の記載、タルムード則 |
+
+### 他の実装との照合
+
+tucoopy 0.1.0 (PyPI) と、BNF タイプ 1, 2, 4・凸ゲーム・優加法的ゲーム・重み付き投票ゲーム (n = 3-7、各 6 個、計 180 ゲーム) で比べた。
+
+- Myerson 値 (ランダムなグラフ)、Johnston・Deegan–Packel・Public Good・Coleman の指数は全て一致した (相対差 2e-16 以下)。
+- tau 値は、本実装が値を返す 84 ゲームで一致した。残りの 96 ゲームは準平衡でなく、本実装はエラーを返す (tucoopy は 95 ゲームで値を返す)。
+- solidarity 値と Gately 点は一致しない。tucoopy の `solidarity_value` は Harsanyi 配当を提携のメンバーで等分する式で、これは Shapley 値の式である (180 ゲームで tucoopy の Shapley 値との差は 1.2e-13 以下)。
+  tucoopy の `gately_point` は抜ける傾向を `(v(N) - x_i) / (x_i - v({i}))` としており、Gately (1974) の分子 `x(N \ {i}) - v(N \ {i})` から `v(N \ {i})` が落ちている。
+  本実装は、上の表の CoopGame の例と、手計算 (solidarity 値) で確かめた。
+

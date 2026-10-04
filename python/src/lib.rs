@@ -29,7 +29,7 @@ use coopgame::uncertainty as uncertainty_core;
 use coopgame::verify::{self as verify_core, Check, Verified, VerifyOptions};
 use coopgame::{Coalition, Domain, ExplicitGame, bankruptcy, generators, kohlberg, properties};
 use coopgame::{Concept, Guarantee, Solution};
-use coopgame::{bargaining, sampled, values, variants};
+use coopgame::{bargaining, communication, compromise, power, sampled, values, variants};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
@@ -993,6 +993,102 @@ fn banzhaf(game: &Game) -> Vec<f64> {
     values::banzhaf(&game.inner)
 }
 
+/// solidarity 値 (Nowak & Radzik 1994)。
+#[pyfunction]
+fn solidarity(game: &Game) -> Vec<f64> {
+    values::solidarity(&game.inner)
+}
+
+/// tau 値 (Tijs 1981)。準平衡でないゲームでは ValueError。
+#[pyfunction]
+fn tau_value(game: &Game) -> PyResult<Vec<f64>> {
+    compromise::tau_value(&game.inner).map_err(to_py_err)
+}
+
+/// Gately 点 (Gately 1974)。
+#[pyfunction]
+fn gately_point(game: &Game) -> PyResult<Vec<f64>> {
+    compromise::gately_point(&game.inner).map_err(to_py_err)
+}
+
+/// 理想の支払い `M_i = v(N) - v(N \ {i})` と最小の権利 `m_i` を `{"utopia", "minimal_rights"}` で返す。
+#[pyfunction]
+fn utopia_payoffs<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    dict.set_item("utopia", compromise::utopia_payoffs(&game.inner))?;
+    dict.set_item("minimal_rights", compromise::minimal_rights(&game.inner))?;
+    Ok(dict)
+}
+
+/// Myerson 値: 通信グラフ `edges` (プレイヤー番号の組の列) で制限したゲームの Shapley 値 (Myerson 1977)。
+#[pyfunction]
+fn myerson(game: &Game, edges: Vec<(usize, usize)>) -> PyResult<Vec<f64>> {
+    communication::myerson(&game.inner, &edges).map_err(to_py_err)
+}
+
+/// グラフ制限ゲーム `v^g(S) = sum_{C in S/g} v(C)`。
+#[pyfunction]
+fn graph_restricted(game: &Game, edges: Vec<(usize, usize)>) -> PyResult<Game> {
+    let inner = communication::graph_restricted(&game.inner, &edges).map_err(to_py_err)?;
+    Ok(Game { inner })
+}
+
+/// 単純ゲーム (値が 0 か 1) の投票力指数をまとめて返す。
+/// 値は `johnston`・`deegan_packel`・`public_good` (Holler)・`coleman_prevent`・`coleman_initiative`
+/// (定義されない場合は None)、`coleman_collectivity`、`swings` (決定票の数)、
+/// `minimal_winning` (最小勝利提携、プレイヤー番号のリスト)。
+#[pyfunction]
+fn power_indices<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
+    let simple = power::SimpleGame::new(&game.inner).map_err(to_py_err)?;
+    let dict = PyDict::new(py);
+    dict.set_item("johnston", simple.johnston().ok())?;
+    dict.set_item("deegan_packel", simple.deegan_packel().ok())?;
+    dict.set_item("public_good", simple.public_good().ok())?;
+    dict.set_item("coleman_prevent", simple.coleman_prevent().ok())?;
+    dict.set_item("coleman_initiative", simple.coleman_initiative().ok())?;
+    dict.set_item("coleman_collectivity", simple.coleman_collectivity())?;
+    dict.set_item("swings", simple.swings.clone())?;
+    let minimal: Vec<Vec<usize>> = simple
+        .minimal_winning
+        .iter()
+        .map(|c| c.players().collect())
+        .collect();
+    dict.set_item("minimal_winning", minimal)?;
+    Ok(dict)
+}
+
+/// disruption nucleolus (Littlechild & Vaidya 1976)。コアが空なら ValueError。
+/// 戻り値は `per_capita_nucleolus` と同じ形の辞書。
+#[pyfunction]
+fn disruption_nucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
+    let result = variants::disruption_nucleolus(&game.inner).map_err(to_py_err)?;
+    lexicographic_dict(py, result)
+}
+
+/// anti-prenucleolus (双対ゲームのプレ仁、Funaki & Meinhardt 2006)。
+/// 戻り値は `nucleolus` と同じ形の辞書 (`levels` は双対ゲームの超過の段)。
+#[pyfunction]
+fn anti_prenucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
+    let result = variants::anti_prenucleolus(&game.inner).map_err(to_py_err)?;
+    nucleolus_dict(py, result)
+}
+
+/// anti-nucleolus (双対ゲームの仁)。anti-imputation の集合が空なら ValueError。
+/// 戻り値は `nucleolus` と同じ形の辞書 (`levels` は双対ゲームの超過の段)。
+#[pyfunction]
+fn anti_nucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
+    let result = variants::anti_nucleolus(&game.inner).map_err(to_py_err)?;
+    nucleolus_dict(py, result)
+}
+
+/// 双対ゲーム `v*(S) = v(N) - v(N \ S)`。
+#[pyfunction]
+fn dual(game: &Game) -> Game {
+    Game {
+        inner: game.inner.dual(),
+    }
+}
+
 /// 和が 1 になるように割る。
 #[pyfunction]
 fn normalize(values: Vec<f64>) -> Vec<f64> {
@@ -1461,6 +1557,17 @@ fn coopgame_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(shapley, m)?)?;
     m.add_function(wrap_pyfunction!(banzhaf, m)?)?;
     m.add_function(wrap_pyfunction!(normalize, m)?)?;
+    m.add_function(wrap_pyfunction!(solidarity, m)?)?;
+    m.add_function(wrap_pyfunction!(tau_value, m)?)?;
+    m.add_function(wrap_pyfunction!(gately_point, m)?)?;
+    m.add_function(wrap_pyfunction!(utopia_payoffs, m)?)?;
+    m.add_function(wrap_pyfunction!(myerson, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_restricted, m)?)?;
+    m.add_function(wrap_pyfunction!(power_indices, m)?)?;
+    m.add_function(wrap_pyfunction!(disruption_nucleolus, m)?)?;
+    m.add_function(wrap_pyfunction!(anti_prenucleolus, m)?)?;
+    m.add_function(wrap_pyfunction!(anti_nucleolus, m)?)?;
+    m.add_function(wrap_pyfunction!(dual, m)?)?;
     m.add_function(wrap_pyfunction!(shapley_sampling, m)?)?;
     m.add_function(wrap_pyfunction!(banzhaf_sampling, m)?)?;
     m.add_function(wrap_pyfunction!(sampled_nucleolus, m)?)?;

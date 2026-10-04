@@ -7,8 +7,10 @@ TU 協力ゲームの仁・カーネル・Shapley 値などの解を計算し、
 - **解を求める**
   - 仁・プレ仁・最小コア (`nucleolus`)。有理数による厳密な計算にも対応 (`exact`)
   - カーネル・プレカーネルの 1 点 (`kernel`) と、6 人までの全体 (`kernel_set`)
-  - Shapley 値・Banzhaf 値の厳密計算とサンプリング推定 (`values`)
-  - per capita 仁・比例仁・modiclus (`variants`)
+  - Shapley 値・Banzhaf 値の厳密計算とサンプリング推定、solidarity 値 (`values`)
+  - tau 値・Gately 点 (`compromise`)、通信グラフのもとでの Myerson 値 (`communication`)
+  - 単純ゲームの投票力指数: Johnston・Deegan–Packel・Public Good (Holler)・Coleman (`power`)
+  - per capita 仁・比例仁・modiclus・disruption nucleolus・anti-nucleolus (`variants`)
   - 提携構造のある解: Aumann–Drèze 値・Owen 値・提携構造つきの仁 (`partition`)
 - **結果を検証する**
   - 仁の Kohlberg 基準 (`kohlberg`) と、有理数による厳密な検証 (`exact`)
@@ -27,7 +29,7 @@ TU 協力ゲームの仁・カーネル・Shapley 値などの解を計算し、
 - **入出力**
   - プレイヤー名付きの JSON・CSV (`io`)、ランダムなゲームの生成 (`generators`)
 
-関数と手法の一覧は [docs/api-overview.md](docs/api-overview.md) にある。
+関数と手法の一覧は [docs/api-overview.md](docs/api-overview.md)、知りたいことから解を選ぶ早見図は [docs/choosing.md](docs/choosing.md) にある。
 LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を使うので、外部のソルバーは不要。
 
 ## インストール

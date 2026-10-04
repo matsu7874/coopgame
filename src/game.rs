@@ -135,6 +135,18 @@ impl ExplicitGame {
         self.values.iter().fold(0.0, |acc, v| acc.max(v.abs()))
     }
 
+    /// 双対ゲーム `v*(S) = v(N) - v(N \ S)`。
+    pub fn dual(&self) -> ExplicitGame {
+        let grand = self.values.len() - 1;
+        let total = self.values[grand];
+        ExplicitGame {
+            players: self.players,
+            values: (0..self.values.len())
+                .map(|mask| total - self.values[grand & !mask])
+                .collect(),
+        }
+    }
+
     /// 符号を反転したゲーム。費用ゲーム `c` の仁は `-(-c の仁)` で求まる。
     pub fn negated(&self) -> ExplicitGame {
         ExplicitGame {

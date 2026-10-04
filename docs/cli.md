@@ -18,6 +18,13 @@ coopgame kernel v.txt                       # カーネルの 1 点 (--pre で�
 coopgame kernel-set v.txt                   # カーネル全体を多面体ごとの頂点で出す (--merge で線分をまとめる)
 coopgame shapley v.txt                      # Shapley 値 (--samples N でサンプリング推定)
 coopgame banzhaf v.txt --normalize          # 正規化 Banzhaf 指数
+coopgame disruption v.txt                   # disruption nucleolus (コアが空でないゲーム)
+coopgame anti-nucleolus v.txt               # anti-nucleolus (--pre で anti-prenucleolus)
+coopgame solidarity v.txt                   # solidarity 値
+coopgame tau v.txt                          # tau 値 (準平衡でなければエラー)
+coopgame gately v.txt                       # Gately 点
+coopgame myerson v.txt --edges 1-2,2-3      # 通信グラフ (1 始まりの番号の組) のもとでの Myerson 値
+coopgame power v.txt                        # 単純ゲームの投票力指数の表 (Shapley–Shubik・Banzhaf・Johnston・Deegan–Packel・Public Good・Coleman)
 coopgame per-capita v.txt                   # per capita 仁 (proportional で比例仁、modiclus で modiclus)
 coopgame structure v.txt --blocks "1,2|3,4,5"   # 提携構造の Aumann–Drèze 値・提携構造つきの仁・Owen 値
 coopgame convex-nucleolus v.txt             # 凸ゲームの手法で仁 (凸でなければエラー。--assume で凸と仮定して試し、事後検証する)

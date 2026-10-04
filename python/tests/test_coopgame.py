@@ -404,3 +404,59 @@ def test_plot_svg():
     assert len(figure["core_vertices"]) >= 1
     with pytest.raises(ValueError):
         coopgame.plot_svg(coopgame.Game([0, 0, 1], order="lex"))
+
+
+# ---------------------------------------------------------------- tau 値・Gately 点・solidarity 値・Myerson 値・投票力指数
+# 手計算は Rust 側の単体テスト (src/compromise.rs、src/values.rs、src/communication.rs、src/power.rs) と同じ。
+
+
+def test_tau_value_and_utopia_payoffs():
+    game = coopgame.Game([0, 0, 0, 4, 6, 8, 12], order="lex")
+    bounds = coopgame.utopia_payoffs(game)
+    assert close(bounds["utopia"], [4, 6, 8])
+    assert close(bounds["minimal_rights"], [0, 0, 2])
+    assert close(coopgame.tau_value(game), [2.5, 3.75, 5.75])
+    with pytest.raises(ValueError):
+        coopgame.tau_value(coopgame.Game([0, 0, 0, 80, 80, 80, 90], order="lex"))
+
+
+def test_gately_point_is_efficient():
+    game = coopgame.Game([1, 0, 2, 4, 6, 8, 12], order="lex")
+    assert close(coopgame.gately_point(game), [2.8, 3.6, 5.6])
+
+
+def test_solidarity_gives_null_players_a_share():
+    game = coopgame.Game([1, 0, 0, 1, 1, 0, 1], order="lex")
+    assert close(coopgame.shapley(game), [1, 0, 0])
+    assert close(coopgame.solidarity(game), [11 / 18, 7 / 36, 7 / 36])
+
+
+def test_myerson_value_on_a_line():
+    majority = coopgame.Game([0, 0, 0, 1, 1, 1, 1], order="lex")
+    assert close(coopgame.myerson(majority, [(0, 1), (1, 2)]), [1 / 6, 2 / 3, 1 / 6])
+    restricted = coopgame.graph_restricted(majority, [(0, 1), (1, 2)])
+    assert close(coopgame.shapley(restricted), [1 / 6, 2 / 3, 1 / 6])
+
+
+def test_power_indices_of_weighted_voting_game():
+    game = coopgame.Game.weighted_voting([3, 2, 1], 4)
+    power = coopgame.power_indices(game)
+    assert power["swings"] == [3, 1, 1]
+    assert sorted(power["minimal_winning"]) == [[0, 1], [0, 2]]
+    assert close(power["johnston"], [2 / 3, 1 / 6, 1 / 6])
+    assert close(power["deegan_packel"], [0.5, 0.25, 0.25])
+    assert close(power["public_good"], [0.5, 0.25, 0.25])
+    assert close(power["coleman_prevent"], [1, 1 / 3, 1 / 3])
+    assert close(power["coleman_initiative"], [0.6, 0.2, 0.2])
+    assert math.isclose(power["coleman_collectivity"], 3 / 8)
+
+
+def test_disruption_and_anti_nucleolus():
+    # CoopGame の disruptionNucleolus のヘルプの例 (小数 6 桁に丸めた掲載値)
+    game = coopgame.Game([0, 0, 0, 0, 2, 3, 4, 1, 3, 2, 8, 11, 6.5, 9.5, 14], order="lex")
+    assert close(coopgame.disruption_nucleolus(game)["allocation"], [3.193548, 4.754839, 2.129032, 3.922581], 1e-6)
+    # Funaki & Meinhardt (2006) Example 4.1
+    w = coopgame.Game([60, 80, 120, 140, 150, 150, 150], order="lex")
+    assert close(coopgame.anti_prenucleolus(w)["allocation"], [30, 40, 80])
+    assert close(coopgame.anti_nucleolus(w)["allocation"], [30, 40, 80])
+    assert close(coopgame.prenucleolus(coopgame.dual(w))["allocation"], [30, 40, 80])

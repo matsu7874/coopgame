@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "coopgame-py"
-version = "0.1.0"
+version = "0.1.1"
 description = "TU 協力ゲームの仁・カーネル・Shapley 値などの計算と検証 (Rust 実装の Python バインディング)"
 readme = "README.md"
 requires-python = ">=3.9"
