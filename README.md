@@ -29,7 +29,7 @@ TU 協力ゲームの仁・カーネル・Shapley 値などの解を計算し、
 - **入出力**
   - プレイヤー名付きの JSON・CSV (`io`)、ランダムなゲームの生成 (`generators`)
 
-関数と手法の一覧は [docs/api-overview.md](docs/api-overview.md) にある。
+関数と手法の一覧は [docs/api-overview.md](docs/api-overview.md)、知りたいことから解を選ぶ早見図は [docs/choosing.md](docs/choosing.md) にある。
 LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を使うので、外部のソルバーは不要。
 
 ## インストール
