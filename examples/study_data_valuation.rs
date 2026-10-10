@@ -279,7 +279,9 @@ fn main() {
             seeds,
         }) => valuation(&sizes, &budgets, seeds),
         None => {
-            eprintln!("使い方: study_data_valuation convergence | valuation <n,...> <予算,...> <seed 数>")
+            eprintln!(
+                "使い方: study_data_valuation convergence | valuation <n,...> <予算,...> <seed 数>"
+            )
         }
     }
 }

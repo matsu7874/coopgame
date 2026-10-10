@@ -37,6 +37,8 @@ cargo build --release --features cli   # target/release/coopgame
 - 同じ解を別の手法で求めるものは、解のモジュールの下に公開のサブモジュールとして置く (例: `nucleolus::exact`・`nucleolus::oracle`)。
 - 1 つのモジュールをファイルに分けるだけのときは、サブモジュールを非公開にして親から `pub use` する (例: `kernel` の `set.rs`)。
   公開パスは 1 つにし、説明は公開している項目の文書コメントに書く。
+- 公開モジュールを足したら、使い方の例 (`examples/` の `bench_`・`study_` 以外) のどれかで使う。
+  使い方の例は `Cargo.toml` で `test = true`・`harness = false` にし、`cargo test` で実行させる (どちらも `tests/examples_coverage.rs` が確かめる)。
 - 依存は下の段から上の段への一方向にする。各モジュールは自分より下の段にあるモジュールだけを参照し、同じ段どうしは参照しない (テストのコードは除く)。
 
 | 段 | モジュール |
@@ -58,7 +60,7 @@ CI は使っていないので、コミット前に次を実行する。
 ```bash
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
-cargo test --release --all-features
+cargo test --release --all-features     # 使い方の例 (examples/ の bench_・study_ 以外) も実行する
 # Python バインディングを変更した場合
 (cd python && cargo fmt --check && cargo clippy -- -D warnings && maturin develop --release && pytest tests)
 ```

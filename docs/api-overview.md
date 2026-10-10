@@ -2,6 +2,7 @@
 
 coopgame のモジュールと関数、使っている手法の一覧である。
 各関数の詳しい説明は [docs.rs](https://docs.rs/coopgame) を参照。
+モジュールを組み合わせて使う例は [使い方の例](../examples/README.md) にある。
 
 LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を使う。外部の商用ソルバーは不要。
 
