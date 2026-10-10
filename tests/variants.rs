@@ -7,7 +7,8 @@ mod common;
 use common::assert_close;
 use coopgame::generators::{self, SplitMix64};
 use coopgame::kernel::{self, TransferOptions};
-use coopgame::{Domain, ExplicitGame, bargaining, nucleolus, properties, values, variants};
+use coopgame::nucleolus::variants;
+use coopgame::{Domain, ExplicitGame, bargaining, nucleolus, properties, values};
 
 /// CoopGame の `modiclus` のヘルプにある 4 人ゲームの値 (4.25, 5.25, 5.75, 5.75)。
 #[test]
@@ -94,7 +95,7 @@ fn per_capita_and_proportional_lie_in_nonempty_core() {
             generators::random_convex(5, seed).unwrap(),
             generators::bnf(1, 5, seed).unwrap(),
         ] {
-            if !properties::has_nonempty_core(&game).unwrap() {
+            if !nucleolus::has_nonempty_core(&game).unwrap() {
                 continue;
             }
             let tolerance = 1e-6 * game.max_abs_value().max(1.0);

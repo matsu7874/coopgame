@@ -6,7 +6,7 @@
 
 use coopgame::kernel::{self, TransferOptions};
 use coopgame::nucleolus::{self, NucleolusResult};
-use coopgame::{Domain, ExplicitGame, generators, kohlberg};
+use coopgame::{Domain, ExplicitGame, generators, verify};
 
 fn random_games() -> Vec<(String, ExplicitGame)> {
     let mut games = Vec::new();
@@ -40,7 +40,7 @@ fn nucleoli_satisfy_kohlberg_and_lie_in_kernel() {
         for domain in [Domain::Imputation, Domain::Preimputation] {
             let result = solve(&game, domain);
             let x = &result.allocation;
-            let report = kohlberg::verify(&game, x, domain).unwrap();
+            let report = verify::kohlberg(&game, x, domain).unwrap();
             assert!(
                 report.satisfied,
                 "{name} {domain:?}: {:?} {:?}",
@@ -74,7 +74,7 @@ fn kohlberg_rejects_perturbed_nucleolus() {
         let step = 1e-3 * game.max_abs_value().max(1.0);
         x[i] += step;
         x[j] -= step;
-        let report = kohlberg::verify(&game, &x, Domain::Imputation).unwrap();
+        let report = verify::kohlberg(&game, &x, Domain::Imputation).unwrap();
         assert!(!report.satisfied, "{name}: {x:?}");
     }
 }

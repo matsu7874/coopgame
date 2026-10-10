@@ -3,38 +3,10 @@
 //! [`bnf`] は blrzsvrzs/nucleolus (Benedek ら) の `gen_game` と同じ分布でゲームを作る。
 //! 乱数生成器が異なるため、同じ seed でも値は一致しない。
 
-use crate::coalition::Coalition;
 use crate::error::{Error, Result};
-use crate::game::{CharacteristicFunction, ExplicitGame};
+use crate::game::ExplicitGame;
 
-/// 再現性のための小さな疑似乱数生成器 (SplitMix64)。
-#[derive(Clone, Debug)]
-pub struct SplitMix64(u64);
-
-impl SplitMix64 {
-    pub fn new(seed: u64) -> SplitMix64 {
-        SplitMix64(seed)
-    }
-
-    pub fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    /// `[0, 1)` の一様乱数。
-    pub fn next_f64(&mut self) -> f64 {
-        (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
-    }
-
-    /// `[low, high]` の一様な整数。
-    pub fn range(&mut self, low: u64, high: u64) -> u64 {
-        debug_assert!(low <= high);
-        low + self.next_u64() % (high - low + 1)
-    }
-}
+pub use crate::rng::SplitMix64;
 
 /// BNF 実装のゲームタイプ 1-5。
 ///
@@ -112,44 +84,24 @@ pub fn bnf(kind: u8, n: usize, seed: u64) -> Result<ExplicitGame> {
 
 /// 重み付き投票ゲーム: 重みの和が `quota` 以上なら 1、そうでなければ 0。
 pub fn weighted_voting(weights: &[f64], quota: f64) -> Result<ExplicitGame> {
-    struct Voting<'a> {
-        weights: &'a [f64],
-        quota: f64,
-    }
-    impl CharacteristicFunction for Voting<'_> {
-        fn players(&self) -> usize {
-            self.weights.len()
-        }
-        fn value(&self, coalition: Coalition) -> f64 {
-            let weight: f64 = coalition.players().map(|i| self.weights[i]).sum();
-            if weight >= self.quota { 1.0 } else { 0.0 }
-        }
-    }
-    ExplicitGame::tabulate(&Voting { weights, quota })
+    ExplicitGame::from_fn(weights.len(), |coalition| {
+        let weight: f64 = coalition.players().map(|i| weights[i]).sum();
+        if weight >= quota { 1.0 } else { 0.0 }
+    })
 }
 
 /// 破産ゲーム: `v(S) = max(0, E - sum_{j not in S} d_j)`。仁はタルムード則と一致する。
 pub fn bankruptcy(estate: f64, claims: &[f64]) -> Result<ExplicitGame> {
-    struct Bankruptcy<'a> {
-        estate: f64,
-        claims: &'a [f64],
-    }
-    impl CharacteristicFunction for Bankruptcy<'_> {
-        fn players(&self) -> usize {
-            self.claims.len()
-        }
-        fn value(&self, coalition: Coalition) -> f64 {
-            let outside: f64 = (0..self.claims.len())
-                .filter(|&j| !coalition.contains(j))
-                .map(|j| self.claims[j])
-                .sum();
-            (self.estate - outside).max(0.0)
-        }
-    }
     if claims.iter().any(|d| *d < 0.0) || estate < 0.0 {
         return Err(Error::InvalidArgument("請求額と遺産は非負".into()));
     }
-    ExplicitGame::tabulate(&Bankruptcy { estate, claims })
+    ExplicitGame::from_fn(claims.len(), |coalition| {
+        let outside: f64 = (0..claims.len())
+            .filter(|&j| !coalition.contains(j))
+            .map(|j| claims[j])
+            .sum();
+        (estate - outside).max(0.0)
+    })
 }
 
 /// 非負の Harsanyi 配当を持つ凸ゲーム。配当は `[0, 1)` の一様乱数。
@@ -224,12 +176,12 @@ pub fn by_class(class: &str, n: usize, seed: u64) -> Result<ExplicitGame> {
 /// [`random_superadditive`] と同じ乱数で、優加法的な被覆を有理数のまま計算したゲーム。
 ///
 /// [`random_superadditive`] は `v(S) = max(v(S), v(T) + v(S \ T))` を浮動小数点数の和で計算するので、
-/// 有理数では等しいはずの値の間に丸め誤差が残り、厳密な検証 ([`crate::exact::certify`]) が成り立たないことがある。
+/// 有理数では等しいはずの値の間に丸め誤差が残り、厳密な検証 ([`crate::verify::certify`]) が成り立たないことがある。
 /// こちらは乱数の値を 2 進数の値どおりの有理数にしてから、和と最大値を有理数で計算する。
-/// 浮動小数点の手法には [`crate::exact::ExactGame::to_explicit`] で変換して渡し、
-/// 検証には [`crate::exact::certify_exact`] を使う。
-pub fn random_superadditive_exact(n: usize, seed: u64) -> Result<crate::exact::ExactGame> {
-    use crate::exact::{Rational, to_rational};
+/// 浮動小数点の手法には [`crate::game::exact::ExactGame::to_explicit`] で変換して渡し、
+/// 検証には [`crate::verify::certify_exact`] を使う。
+pub fn random_superadditive_exact(n: usize, seed: u64) -> Result<crate::game::exact::ExactGame> {
+    use crate::game::exact::{Rational, to_rational};
     if n == 0 || n > crate::game::MAX_PLAYERS {
         return Err(Error::TooManyPlayers {
             players: n,
@@ -244,7 +196,7 @@ pub fn random_superadditive_exact(n: usize, seed: u64) -> Result<crate::exact::E
     }
     superadditive_cover(&mut values, |a, b| a + b);
     values.remove(0);
-    crate::exact::ExactGame::from_binary(values)
+    crate::game::exact::ExactGame::from_binary(values)
 }
 
 /// 重みを `[1, 10]` の一様な整数、基準を重みの総和の過半数とする重み付き投票ゲーム。
@@ -258,6 +210,7 @@ pub fn random_weighted_voting(n: usize, seed: u64) -> Result<ExplicitGame> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::Coalition;
 
     #[test]
     fn bnf_type5_is_weighted_voting() {

@@ -4,8 +4,8 @@
 //! (導出は各テストのコメントと docs/literature-cases.md)。
 
 use coopgame::generators;
-use coopgame::kernel_set::{SetOptions, kernel_set};
-use coopgame::{Domain, ExplicitGame, kohlberg, nucleolus};
+use coopgame::kernel::{SetOptions, kernel_set};
+use coopgame::{Domain, ExplicitGame, nucleolus, verify};
 
 mod common;
 use common::talmud_rule;
@@ -24,7 +24,7 @@ fn check_nucleolus(game: &ExplicitGame, domain: Domain, expected: &[f64], label:
     .unwrap();
     assert_close(&result.allocation, expected, label);
     assert!(
-        kohlberg::verify(game, expected, domain).unwrap().satisfied,
+        verify::kohlberg(game, expected, domain).unwrap().satisfied,
         "{label}"
     );
 }
@@ -169,8 +169,8 @@ fn literature_examples_lie_in_kernel_set() {
 
 // ---------------------------------------------------------------- Shapley 値・Banzhaf 値
 
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::generators::SplitMix64;
-use coopgame::oracle::voting::WeightedVotingGame;
 use coopgame::values;
 
 /// 手袋ゲーム: v(S) = min(S の左手袋の数, S の右手袋の数)。

@@ -6,11 +6,14 @@
 
 mod common;
 
-use coopgame::bankruptcy::{constrained_equal_awards, constrained_equal_losses, talmud_rule};
-use coopgame::exact::{self, Rational};
+use coopgame::game::exact::Rational;
+use coopgame::games::bankruptcy::BankruptcyGame;
+use coopgame::games::bankruptcy::{
+    constrained_equal_awards, constrained_equal_losses, talmud_rule,
+};
 use coopgame::generators::{self, SplitMix64};
-use coopgame::oracle::bankruptcy::BankruptcyGame;
-use coopgame::oracle::nucleolus as oracle_nucleolus;
+use coopgame::nucleolus::oracle as oracle_nucleolus;
+use coopgame::verify;
 use coopgame::{Domain, nucleolus};
 
 fn random_problem(rng: &mut SplitMix64, n: usize) -> (u64, Vec<u64>) {
@@ -47,7 +50,7 @@ fn equals_certified_nucleolus_exactly() {
         )
         .unwrap();
         let x = nucleolus::nucleolus(&game).unwrap().allocation;
-        let report = exact::certify(&game, &x, Domain::Imputation).unwrap();
+        let report = verify::certify(&game, &x, Domain::Imputation).unwrap();
         assert!(report.satisfied, "case {case}: {:?}", report.reason);
         let exact_claims: Vec<Rational> = claims
             .iter()

@@ -94,11 +94,11 @@ epsilon が 0 以下であることは、コアが空でないことと同じで
 3 人ゲームについて、コア (英: core) が空でないかと、凸ゲーム (英: convex game) かを判定する。
 
 ```rust
-use coopgame::{ExplicitGame, properties};
+use coopgame::{ExplicitGame, nucleolus, properties};
 
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
-    let nonempty = properties::has_nonempty_core(&game)?;
+    let nonempty = nucleolus::has_nonempty_core(&game)?;
     let convex = properties::is_convex(&game);
     println!("{nonempty} {convex}"); // true false
 
@@ -281,7 +281,8 @@ print([round(v, 4) for v in coopgame.gately_point(game)])  # => [2.6667, 4.0, 5.
 提携の抜ける傾向を辞書式に小さくするコアの点で、コアが空でないゲームだけで定義される。
 
 ```rust
-use coopgame::{ExplicitGame, variants};
+use coopgame::ExplicitGame;
+use coopgame::nucleolus::variants;
 
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
@@ -310,7 +311,8 @@ print([round(v, 4) for v in coopgame.disruption_nucleolus(game)["allocation"]]) 
 超過を提携の人数で割った値を辞書式に最小にする配分である。
 
 ```rust
-use coopgame::{Domain, ExplicitGame, variants};
+use coopgame::nucleolus::variants;
+use coopgame::{Domain, ExplicitGame};
 
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
@@ -340,7 +342,8 @@ print([round(v, 4) for v in result["allocation"]])  # => [2.0, 4.0, 6.0]
 超過を提携の値で割った値を辞書式に最小にする配分である。値が負の提携があるゲームでは定義されない。
 
 ```rust
-use coopgame::{Domain, ExplicitGame, variants};
+use coopgame::nucleolus::variants;
+use coopgame::{Domain, ExplicitGame};
 
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
@@ -370,7 +373,8 @@ print([round(v, 4) for v in result["allocation"]])  # => [1.3333, 4.0, 6.6667]
 提携どうしの超過の差を辞書式に最小にする準配分 (英: preimputation) で、7 人までのゲームで計算できる。
 
 ```rust
-use coopgame::{ExplicitGame, variants};
+use coopgame::ExplicitGame;
+use coopgame::nucleolus::variants;
 
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
@@ -401,7 +405,8 @@ anti-nucleolus は x_i ≥ v(N) - v(N \ {i}) の範囲で探すので、理想�
 共通の 3 人ゲームは理想の支払いの合計が 18 > 12 なので、anti-nucleolus には別のゲーム `[0, 0, 0, 6, 10, 10, 12]` (理想の支払い 2, 2, 6) を使う。
 
 ```rust
-use coopgame::{ExplicitGame, variants};
+use coopgame::ExplicitGame;
+use coopgame::nucleolus::variants;
 
 fn main() -> coopgame::Result<()> {
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
@@ -444,8 +449,7 @@ print([round(v, 4) for v in coopgame.anti_nucleolus(game)["allocation"]])  # => 
 カーネルは、どの 2 人の間でも、相手を含まず自分を含む提携で得られる最大の余剰が釣り合っている配分の集合である。
 
 ```rust
-use coopgame::kernel::{self, TransferOptions};
-use coopgame::kernel_set::{self, SetOptions};
+use coopgame::kernel::{self, SetOptions, TransferOptions};
 use coopgame::{Domain, ExplicitGame};
 
 fn main() -> coopgame::Result<()> {
@@ -453,7 +457,7 @@ fn main() -> coopgame::Result<()> {
     let point = kernel::kernel_point(&game, Domain::Imputation, None, TransferOptions::for_game(&game))?;
     println!("{:.4?}", point.allocation); // [2.0000, 4.0000, 6.0000]
 
-    let set = kernel_set::kernel_set(&game, Domain::Imputation, SetOptions::for_game(&game))?;
+    let set = kernel::kernel_set(&game, Domain::Imputation, SetOptions::for_game(&game))?;
     println!("{} {}", set.pieces.len(), set.pieces[0].dimension); // 1 0
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
@@ -487,7 +491,7 @@ print(len(pieces), pieces[0]["dimension"], [round(v, 4) for v in pieces[0]["poin
 タルムード則は、破産ゲーム v(S) = max(0, 遺産 - S の外の請求の合計) の仁に一致する。
 
 ```rust
-use coopgame::bankruptcy;
+use coopgame::games::bankruptcy;
 
 fn main() -> coopgame::Result<()> {
     let shares = bankruptcy::talmud_rule(200.0, &[100.0, 200.0, 300.0])?;
@@ -514,7 +518,7 @@ print([round(v, 4) for v in coopgame.talmud(200, [100, 200, 300])])  # => [50.0,
 CEA は請求を上限に全員に同じ額を配り、CEL は全員の損失 (請求 - 受取額) を 0 以上の範囲で同じにする。
 
 ```rust
-use coopgame::bankruptcy;
+use coopgame::games::bankruptcy;
 
 fn main() -> coopgame::Result<()> {
     let claims = [100.0, 200.0, 300.0];
@@ -547,7 +551,7 @@ CEL では、請求 100 の人の損失が請求額で頭打ちになるため�
 提携の費用は、提携の中で最も大きい費用である。Shapley 値と仁による費用の分担を求める。
 
 ```rust
-use coopgame::oracle::airport::AirportGame;
+use coopgame::games::airport::AirportGame;
 
 fn main() -> coopgame::Result<()> {
     let game = AirportGame::new(vec![3.0, 6.0, 12.0])?;
@@ -580,8 +584,8 @@ Shapley 値は、区間 [0, 3] の費用 3 を 3 機で、[3, 6] の費用 3 を
 Bird 規則 (最小全域木で各人から供給元側への辺の費用を払う) と、仁による費用の分担を求める。
 
 ```rust
-use coopgame::oracle::spanning_tree::SpanningTreeGame;
-use coopgame::oracle::PlayerSet;
+use coopgame::PlayerSet;
+use coopgame::games::spanning_tree::SpanningTreeGame;
 
 fn main() -> coopgame::Result<()> {
     let game = SpanningTreeGame::new(vec![
@@ -630,7 +634,7 @@ print([round(v, 4) for v in result["nucleolus"]])  # => [2.5, 1.5, 5.0]
 3 人が資源 (2, 1)、(1, 2)、(3, 3) を持ち寄るとき、資源の影の価格 (英: shadow price) で各人の資源を評価した配分 (Owen 配分) を求める。
 
 ```rust
-use coopgame::oracle::production::LinearProductionGame;
+use coopgame::games::production::LinearProductionGame;
 
 fn main() -> coopgame::Result<()> {
     let game = LinearProductionGame::new(
@@ -672,7 +676,7 @@ print([round(v, 4) for v in result["owen"]], round(result["value"], 4))  # => [4
 
 ```rust
 use coopgame::ExplicitGame;
-use coopgame::cost::CostGame;
+use coopgame::games::cost::CostGame;
 
 fn main() -> coopgame::Result<()> {
     let game = CostGame::new(ExplicitGame::from_lex(&[6.0, 6.0, 8.0, 9.0, 11.0, 12.0, 15.0])?);
@@ -778,11 +782,12 @@ Aumann–Drèze 値は {1, 2} の中の Shapley 値なので v({1, 2}) = 4 を�
 重み付き投票ゲームを全提携の表に直し、Shapley 値を求める。
 
 ```rust
-use coopgame::oracle::{tabulate, voting::WeightedVotingGame};
+use coopgame::ExplicitGame;
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::values;
 
 fn main() -> coopgame::Result<()> {
-    let game = tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
+    let game = ExplicitGame::tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
     let index = values::shapley(&game);
     println!("{index:.4?}"); // [0.4500, 0.2000, 0.1167, 0.1167, 0.1167]
 
@@ -807,11 +812,12 @@ print([round(v, 4) for v in coopgame.shapley(game)])  # => [0.45, 0.2, 0.1167, 0
 同じ重み付き投票ゲームで、Banzhaf 値と、合計を 1 にした (正規化した) Banzhaf 指数を求める。
 
 ```rust
-use coopgame::oracle::{tabulate, voting::WeightedVotingGame};
+use coopgame::ExplicitGame;
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::values;
 
 fn main() -> coopgame::Result<()> {
-    let game = tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
+    let game = ExplicitGame::tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
     let raw = values::banzhaf(&game);
     let index = values::normalize(&raw);
     println!("{raw:.4?}"); // [0.6875, 0.3125, 0.1875, 0.1875, 0.1875]
@@ -842,11 +848,12 @@ Banzhaf 値は、その党を除く 4 党の 16 通りの組み合わせのう�
 各勝利提携で決定票を持つ党の間で 1 を等分し、全ての勝利提携で足し合わせて正規化した指数である。
 
 ```rust
-use coopgame::oracle::{tabulate, voting::WeightedVotingGame};
+use coopgame::ExplicitGame;
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::power::SimpleGame;
 
 fn main() -> coopgame::Result<()> {
-    let game = tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
+    let game = ExplicitGame::tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
     let index = SimpleGame::new(&game)?.johnston()?;
     println!("{index:.4?}"); // [0.5833, 0.1875, 0.0764, 0.0764, 0.0764]
 
@@ -873,11 +880,12 @@ print([round(v, 4) for v in indices["johnston"]])  # => [0.5833, 0.1875, 0.0764,
 最小勝利提携 (誰か 1 人でも抜けると否決になる勝利提携) だけを同じ確率で考え、各提携のメンバーで等分した指数である。
 
 ```rust
-use coopgame::oracle::{tabulate, voting::WeightedVotingGame};
+use coopgame::ExplicitGame;
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::power::SimpleGame;
 
 fn main() -> coopgame::Result<()> {
-    let game = tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
+    let game = ExplicitGame::tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
     let simple = SimpleGame::new(&game)?;
     let index = simple.deegan_packel()?;
     println!("{}", simple.minimal_winning.len()); // 5
@@ -908,11 +916,12 @@ print([round(v, 4) for v in indices["deegan_packel"]])  # => [0.3, 0.15, 0.1833,
 各党が入っている最小勝利提携の数を数え、合計を 1 に正規化した指数である。
 
 ```rust
-use coopgame::oracle::{tabulate, voting::WeightedVotingGame};
+use coopgame::ExplicitGame;
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::power::SimpleGame;
 
 fn main() -> coopgame::Result<()> {
-    let game = tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
+    let game = ExplicitGame::tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
     let index = SimpleGame::new(&game)?.public_good()?;
     println!("{index:.4?}"); // [0.2667, 0.1333, 0.2000, 0.2000, 0.2000]
 
@@ -939,11 +948,12 @@ print([round(v, 4) for v in indices["public_good"]])  # => [0.2667, 0.1333, 0.2,
 阻止力は勝利提携のうちその党が抜けると否決になるものの割合、発議力は敗北提携のうちその党が加わると可決になるものの割合である。
 
 ```rust
-use coopgame::oracle::{tabulate, voting::WeightedVotingGame};
+use coopgame::ExplicitGame;
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::power::SimpleGame;
 
 fn main() -> coopgame::Result<()> {
-    let game = tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
+    let game = ExplicitGame::tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
     let simple = SimpleGame::new(&game)?;
     let prevent = simple.coleman_prevent()?;
     let initiate = simple.coleman_initiative()?;
@@ -975,11 +985,12 @@ print([round(v, 4) for v in indices["coleman_initiative"]])  # => [0.5789, 0.263
 全ての提携 (32 個) のうち勝利提携の割合で、議会全体として可決しやすいかを表す。
 
 ```rust
-use coopgame::oracle::{tabulate, voting::WeightedVotingGame};
+use coopgame::ExplicitGame;
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::power::SimpleGame;
 
 fn main() -> coopgame::Result<()> {
-    let game = tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
+    let game = ExplicitGame::tabulate(&WeightedVotingGame::new(vec![35, 20, 15, 15, 15], 51)?)?;
     let power = SimpleGame::new(&game)?.coleman_collectivity();
     println!("{power:.4}"); // 0.4062
 
@@ -1005,12 +1016,12 @@ print(coopgame.power_indices(game)["coleman_collectivity"])  # => 0.40625
 3 人ゲームで、仁 (2, 4, 6) と、別の配分 (6, 3, 3) がコアに入るかを判定し、(6, 3, 3) で最も不満な提携を調べる。
 
 ```rust
-use coopgame::explain::{self, ExplainOptions};
+use coopgame::analysis::explain::{self, ExplainOptions};
 use coopgame::{ExplicitGame, properties};
 
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
-    let tolerance = coopgame::default_tolerance(&game);
+    let tolerance = coopgame::game::default_tolerance(&game);
     let nucleolus_in_core = properties::is_in_core(&game, &[2.0, 4.0, 6.0], tolerance);
     let other_in_core = properties::is_in_core(&game, &[6.0, 3.0, 3.0], tolerance);
     println!("{nucleolus_in_core} {other_in_core}"); // true false
@@ -1045,15 +1056,15 @@ print(round(report["max_excess"], 4), report["levels"][0]["coalitions"])  # => 2
 仁から少しずらした配分 (2.5, 3.5, 6) は基準を満たさない。
 
 ```rust
-use coopgame::{Domain, ExplicitGame, exact, kohlberg};
+use coopgame::{Domain, ExplicitGame, verify};
 
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
-    let report = kohlberg::verify(&game, &[2.0, 4.0, 6.0], Domain::Imputation)?;
-    let shifted = kohlberg::verify(&game, &[2.5, 3.5, 6.0], Domain::Imputation)?;
+    let report = verify::kohlberg(&game, &[2.0, 4.0, 6.0], Domain::Imputation)?;
+    let shifted = verify::kohlberg(&game, &[2.5, 3.5, 6.0], Domain::Imputation)?;
     println!("{} {}", report.satisfied, shifted.satisfied); // true false
 
-    let certified = exact::certify(&game, &[2.0, 4.0, 6.0], Domain::Imputation)?;
+    let certified = verify::certify(&game, &[2.0, 4.0, 6.0], Domain::Imputation)?;
     let allocation: Vec<String> = certified.allocation.iter().map(|v| v.to_string()).collect();
     println!("{} {allocation:?}", certified.satisfied); // true ["2", "4", "6"]
 
@@ -1089,7 +1100,7 @@ use coopgame::{Domain, ExplicitGame, bargaining};
 
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
-    let tolerance = 10.0 * coopgame::default_tolerance(&game);
+    let tolerance = 10.0 * coopgame::game::default_tolerance(&game);
     let nucleolus = bargaining::check(&game, &[2.0, 4.0, 6.0], Domain::Imputation, tolerance)?;
     let other = bargaining::check(&game, &[6.0, 3.0, 3.0], Domain::Imputation, tolerance)?;
     println!("{} {}", nucleolus.is_member(), other.is_member()); // true false
@@ -1124,7 +1135,7 @@ print(objection["objector"], objection["target"], objection["coalition"])  # => 
 3 人ゲームの各提携の値が ±10% の範囲で一様に揺れるとして、50 個のゲームを引き (乱数の種 1)、それぞれの仁の平均を求める。
 
 ```rust
-use coopgame::uncertainty::{self, IntervalGame};
+use coopgame::analysis::uncertainty::{self, IntervalGame};
 use coopgame::{ExplicitGame, nucleolus};
 
 fn main() -> coopgame::Result<()> {

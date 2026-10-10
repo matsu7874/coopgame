@@ -1,4 +1,4 @@
-//! 凸ゲームの仁 (`convex::nucleolus`) の計測。CSV を標準出力に出す。
+//! 凸ゲームの仁 (`nucleolus::convex::nucleolus`) の計測。CSV を標準出力に出す。
 //!
 //! ```bash
 //! cargo run --release --example convex_scaling -- bankruptcy 10,20,40 3   # タルムード則と比べる
@@ -13,11 +13,11 @@
 
 use std::time::Instant;
 
-use coopgame::convex::{self, ConvexOptions};
+use coopgame::ExplicitGame;
+use coopgame::games::bankruptcy::BankruptcyGame;
+use coopgame::games::graph::InducedSubgraphGame;
 use coopgame::generators::SplitMix64;
-use coopgame::oracle::bankruptcy::BankruptcyGame;
-use coopgame::oracle::graph::InducedSubgraphGame;
-use coopgame::oracle::tabulate;
+use coopgame::nucleolus::convex::{self, ConvexOptions};
 use coopgame::verify::{self, Check, VerifyOptions};
 use coopgame::{Concept, Guarantee, Property, Solution, nucleolus};
 
@@ -25,21 +25,34 @@ use coopgame::{Concept, Guarantee, Property, Solution, nucleolus};
 mod common;
 use common::max_abs_difference;
 
-fn main() {
+/// コマンドライン引数。
+struct Args {
+    kind: String,
+    sizes: Vec<usize>,
+    seeds: u64,
+}
+
+/// `[種類] [人数,...] [seed 数]` を読む。省略した引数は既定値 (graph、10,16、3) にする。
+fn parse_args() -> Args {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let kind = args.first().map(String::as_str).unwrap_or("graph");
-    let sizes: Vec<usize> = args
+    let kind = args.first().map_or("graph", String::as_str).to_string();
+    let sizes = args
         .get(1)
         .map_or("10,16", String::as_str)
         .split(',')
         .map(|s| s.parse().expect("人数"))
         .collect();
-    let seeds: u64 = args.get(2).map_or(3, |s| s.parse().expect("seed 数"));
+    let seeds = args.get(2).map_or(3, |s| s.parse().expect("seed 数"));
+    Args { kind, sizes, seeds }
+}
+
+fn main() {
+    let Args { kind, sizes, seeds } = parse_args();
     println!("kind,n,seed,seconds,sweeps,transfers,minimizations,evaluations,max_error,pair_check");
     for &n in &sizes {
         for seed in 0..seeds {
             let mut rng = SplitMix64::new(1000 * n as u64 + seed);
-            match kind {
+            match kind.as_str() {
                 "bankruptcy" => {
                     let claims: Vec<f64> = (0..n).map(|_| rng.range(1, 100) as f64).collect();
                     let estate = (rng.next_f64() * claims.iter().sum::<f64>()).round();
@@ -72,7 +85,7 @@ fn main() {
                     let (error, pair_check) = if n > verify::MAX_PAIR_CHECK_PLAYERS {
                         (String::new(), "not_checked".to_string())
                     } else if n <= 16 {
-                        let explicit = tabulate(&game).unwrap();
+                        let explicit = ExplicitGame::tabulate(&game).unwrap();
                         let lp = nucleolus::nucleolus(&explicit).unwrap().allocation;
                         (
                             format!("{:.2e}", max_abs_difference(&solution.allocation, &lp)),

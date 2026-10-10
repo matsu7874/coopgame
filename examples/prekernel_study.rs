@@ -10,9 +10,9 @@
 use std::time::Instant;
 
 use coopgame::generators::{self, SplitMix64};
-use coopgame::kernel_set::{KernelSet, SetOptions, kernel_set};
-use coopgame::properties;
+use coopgame::kernel::{KernelSet, SetOptions, kernel_set};
 use coopgame::{Domain, Error, ExplicitGame};
+use coopgame::{nucleolus, properties};
 
 const CLASSES: [&str; 6] = ["bnf1", "bnf2", "bnf4", "superadditive", "convex", "voting"];
 const PERTURBATIONS: usize = 5;
@@ -99,11 +99,29 @@ fn kernel_in_core(game: &ExplicitGame, set: &KernelSet) -> &'static str {
     if all { "yes" } else { "no" }
 }
 
-fn main() {
+/// コマンドライン引数。
+struct Args {
+    max_players: usize,
+    seeds: u64,
+    min_players: usize,
+}
+
+/// `[最大人数] [seed 数] [最小人数]` を読む。省略した引数は既定値 (5、20、3) にする。
+fn parse_args() -> Args {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let max_players: usize = args.first().map_or(5, |a| a.parse().expect("最大人数"));
-    let seeds: u64 = args.get(1).map_or(20, |a| a.parse().expect("seed 数"));
-    let min_players: usize = args.get(2).map_or(3, |a| a.parse().expect("最小人数"));
+    Args {
+        max_players: args.first().map_or(5, |a| a.parse().expect("最大人数")),
+        seeds: args.get(1).map_or(20, |a| a.parse().expect("seed 数")),
+        min_players: args.get(2).map_or(3, |a| a.parse().expect("最小人数")),
+    }
+}
+
+fn main() {
+    let Args {
+        max_players,
+        seeds,
+        min_players,
+    } = parse_args();
 
     println!(
         "class,n,seed,superadditive,convex,zero_monotonic,core_nonempty,\
@@ -115,7 +133,7 @@ fn main() {
         for class in CLASSES {
             for seed in 0..seeds {
                 let game = generate(class, n, seed);
-                let core_nonempty = properties::has_nonempty_core(&game).unwrap_or(false);
+                let core_nonempty = nucleolus::has_nonempty_core(&game).unwrap_or(false);
                 let pre = shape(&game, Domain::Preimputation);
                 let ker = shape(&game, Domain::Imputation);
                 let in_core = match (&ker.set, core_nonempty) {

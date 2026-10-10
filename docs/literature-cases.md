@@ -100,7 +100,7 @@ v(1) = 2、v(2) = 6、v(3) = 5、v(12) = 15、v(13) = 1、v(23) = 18、v(N) = 14
 
 ## tau 値・Gately 点・solidarity 値・Myerson 値・投票力指数・仁の変種
 
-テストは各モジュールの単体テスト (`src/compromise.rs`、`src/values.rs`、`src/communication.rs`、`src/power.rs`、`src/variants.rs`) にある。
+テストは各モジュールの単体テスト (`src/compromise.rs`、`src/values.rs`、`src/communication.rs`、`src/power.rs`、`src/nucleolus/variants.rs`) にある。
 特性関数は辞書式順、重み付き投票ゲームは `[基準; 重み]` で書く。
 
 | 例 | 出典 | ゲーム | 答え | 答えの裏付け |

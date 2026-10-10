@@ -95,15 +95,15 @@ x* は、同じインスタンスで coopgame-rs の配分から復元し、合�
 
 ## 仁の変種 (per capita 仁・比例仁・modiclus)
 
-`variants::{per_capita_nucleolus, proportional_nucleolus, modiclus}` を CoopGame 0.2.2 の
+`nucleolus::variants::{per_capita_nucleolus, proportional_nucleolus, modiclus}` を CoopGame 0.2.2 の
 `perCapitaNucleolus`・`proportionalNucleolus`・`modiclus` と比べた (`scripts/compare/check_variants.py`)。
 
 - ゲーム: BNF タイプ 1, 2, 4 の n = 3, 4, 5、seed 0-3 (36 個) と、CoopGame のヘルプの例など 5 個。
 - 結果: 3 つの解とも 41 ゲーム全てで一致した。差は相対 9.1e-14 以下。
 - 比例仁は負の値を持つゲームでは定義しない。そのようなゲーム 1 個で、両方とも計算しなかった。
 
-実装は、不満をアフィン関数に一般化した逐次 LP (`variants::lexicographic_minimum`) である。
-不満の定義は CoopGame のソースと同じにした (`src/variants.rs` の表を参照)。
+実装は、不満をアフィン関数に一般化した逐次 LP (`nucleolus::variants::lexicographic_minimum`) である。
+不満の定義は CoopGame のソースと同じにした (`src/nucleolus/variants.rs` の表を参照)。
 
 ## 再現
 

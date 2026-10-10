@@ -3,12 +3,12 @@
 mod common;
 
 use common::assert_close;
-use coopgame::cost::CostGame;
+use coopgame::game::{PlayerSet, SetFunction};
+use coopgame::games::airport::AirportGame;
+use coopgame::games::cost::CostGame;
+use coopgame::games::production::LinearProductionGame;
+use coopgame::games::spanning_tree::SpanningTreeGame;
 use coopgame::generators::SplitMix64;
-use coopgame::oracle::airport::AirportGame;
-use coopgame::oracle::production::LinearProductionGame;
-use coopgame::oracle::spanning_tree::SpanningTreeGame;
-use coopgame::oracle::{PlayerSet, SetFunction, tabulate};
 use coopgame::{Coalition, ExplicitGame, properties};
 
 /// 費用の分担 `y` がコア (全ての提携で `y(S) <= c(S)`、`y(N) = c(N)`) に属するか。
@@ -46,7 +46,7 @@ fn airport_game_matches_explicit_cost_game() {
         let explicit = airport_cost_game(&costs);
         let label = format!("case {case}: {costs:?}");
         // 節約ゲームは凸 (構造的な主張を全提携で確かめる)。
-        let savings = tabulate(&airport).unwrap();
+        let savings = ExplicitGame::tabulate(&airport).unwrap();
         assert_eq!(savings, explicit.savings_game().unwrap(), "{label}");
         assert!(properties::is_convex(&savings), "{label}");
         assert_close(&airport.shapley_costs(), &explicit.shapley(), 1e-9, &label);
@@ -145,7 +145,7 @@ fn owen_allocation_lies_in_core() {
             .collect();
         let game = LinearProductionGame::new(technology, prices, resources).unwrap();
         let x = game.owen_allocation().unwrap();
-        let explicit = tabulate(&game).unwrap();
+        let explicit = ExplicitGame::tabulate(&game).unwrap();
         let total = game.value(&PlayerSet::full(n));
         assert!(
             (x.iter().sum::<f64>() - total).abs() < 1e-6 * total.max(1.0),

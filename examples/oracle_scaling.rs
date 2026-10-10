@@ -12,30 +12,46 @@
 
 use std::time::Instant;
 
+use coopgame::games::bankruptcy::BankruptcyGame;
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::generators::SplitMix64;
-use coopgame::oracle::bankruptcy::BankruptcyGame;
-use coopgame::oracle::nucleolus as oracle_nucleolus;
-use coopgame::oracle::voting::WeightedVotingGame;
+use coopgame::nucleolus::oracle as oracle_nucleolus;
 
 #[path = "../tests/common/mod.rs"]
 mod common;
 
-fn main() {
+/// コマンドライン引数。
+struct Args {
+    kind: String,
+    sizes: Vec<usize>,
+    seeds: u64,
+}
+
+/// `[種類] [人数,...] [seed 数]` を読む。省略した引数は既定値 (bankruptcy、10,20,40、1) にする。
+fn parse_args() -> Args {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let kind = args.first().map(String::as_str).unwrap_or("bankruptcy");
-    let sizes: Vec<usize> = args
+    let kind = args
+        .first()
+        .map_or("bankruptcy", String::as_str)
+        .to_string();
+    let sizes = args
         .get(1)
-        .map_or("10,20,40".into(), |s| s.clone())
+        .map_or("10,20,40", String::as_str)
         .split(',')
         .map(|s| s.parse().expect("人数"))
         .collect();
-    let seeds: u64 = args.get(2).map_or(1, |s| s.parse().expect("seed 数"));
+    let seeds = args.get(2).map_or(1, |s| s.parse().expect("seed 数"));
+    Args { kind, sizes, seeds }
+}
+
+fn main() {
+    let Args { kind, sizes, seeds } = parse_args();
     println!("kind,n,seed,seconds,levels,lp_solves,rows_added,max_error");
     for &n in &sizes {
         for seed in 0..seeds {
             let mut rng = SplitMix64::new(seed + 1000 * n as u64);
             let started = Instant::now();
-            let (result, expected) = match kind {
+            let (result, expected) = match kind.as_str() {
                 "bankruptcy" => {
                     let claims: Vec<f64> = (0..n).map(|_| rng.range(1, 100) as f64).collect();
                     let estate = (rng.next_f64() * claims.iter().sum::<f64>()).round();

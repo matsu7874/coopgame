@@ -81,41 +81,41 @@
 
 | 主張 | 文献 | リポジトリでの使い所 | 計算での確認 |
 |---|---|---|---|
-| カーネル・プレカーネルは最大余剰 `s_ij` の釣り合いで定義される | DM1965, PS2007 | `src/kernel.rs` | 手計算の例 (`kernel::tests`) |
-| 仁は超過ベクトルを辞書式に最小化する一意の配分で、コアが空でなければコアに属する | Sch1969 | `src/nucleolus.rs` | 手計算の例、`kernel_set` のデータでコアに属することを確認 |
-| 仁は逐次 LP で計算できる | Kop1967 | `src/nucleolus.rs` | 全行と制約生成の一致 (`constraint_generation_matches_full_lp`) |
-| 仁 (プレ仁) であることと、超過の各段の提携族が平衡であることは同値 | Koh1971 | `src/kohlberg.rs` | 仁を動かすと不成立になること (`kohlberg_rejects_perturbed_nucleolus`) |
-| transfer scheme はカーネルの点に収束する | Ste1968 | `src/kernel.rs` | 全テストゲームで収束 (`transfer_scheme_reaches_kernel`) |
+| カーネル・プレカーネルは最大余剰 `s_ij` の釣り合いで定義される | DM1965, PS2007 | `src/kernel/mod.rs` | 手計算の例 (`kernel::tests`) |
+| 仁は超過ベクトルを辞書式に最小化する一意の配分で、コアが空でなければコアに属する | Sch1969 | `src/nucleolus/mod.rs` | 手計算の例、`kernel_set` のデータでコアに属することを確認 |
+| 仁は逐次 LP で計算できる | Kop1967 | `src/nucleolus/mod.rs` | 全行と制約生成の一致 (`constraint_generation_matches_full_lp`) |
+| 仁 (プレ仁) であることと、超過の各段の提携族が平衡であることは同値 | Koh1971 | `src/verify/kohlberg.rs` | 仁を動かすと不成立になること (`kohlberg_rejects_perturbed_nucleolus`) |
+| transfer scheme はカーネルの点に収束する | Ste1968 | `src/kernel/mod.rs` | 全テストゲームで収束 (`transfer_scheme_reaches_kernel`) |
 | 凸ゲームのカーネルは仁の 1 点 | MPS1971 | `src/generators.rs`、`examples/prekernel_study.rs` | `kernel_equals_nucleolus_for_convex_games`、`convex_games_have_single_point_kernel`、分析の凸ゲーム 245 + 125 + 21 個 |
 | 仁はカーネルに属する。0-単調なゲームではカーネルとプレカーネルが一致する | MPS1979 | テストの前提、`examples/prekernel_study.rs` | `nucleoli_satisfy_kohlberg_and_lie_in_kernel`、`kernel_equals_prekernel_for_zero_monotonic_games`、分析の 0-単調なゲーム 805 個で形が一致 |
 | 1954 年の国連安全保障理事会で、Shapley–Shubik 指数の合計は常任 5 か国が 76/77、非常任 6 か国が 1/77 | SS1954 (p. 791) | `docs/tutorial/02-voting-power.md` | チュートリアルの doctest (1 か国あたり 76/385、1/462) |
 | Nassau 郡の議会 (1964 年、重み 31, 31, 21, 28, 2, 2、基準 58) で、North Hempstead、Glen Cove、Long Beach の Banzhaf 値は 0 | Ban1965 (数値は Colorado State University の講義資料 M130 notes 2.2.10。原論文 pp. 338–340 は未確認) | `docs/tutorial/02-voting-power.md` | チュートリアルの doctest |
 | 凸ゲームではコアが空でなく、Shapley 値がコアに属する | Sha1971 | `docs/tutorial/04-stability-and-verification.md` | チュートリアルの doctest (ランダムな凸ゲーム 20 個) |
-| 破産ゲームの仁はタルムード則に一致する | AM1985 | `src/bankruptcy.rs` (公開 API)、テスト | `bankruptcy_nucleolus_is_talmud_rule`、`talmud_cases_from_aumann_maschler`、`bankruptcy_nucleolus_matches_talmud_rule` (ランダムな 300 問)、オラクル版で n = 100 まで (`bankruptcy_oracle_matches_talmud_rule_for_large_n`)、有理数で検証した仁と分数として完全一致 (`equals_certified_nucleolus_exactly`) |
+| 破産ゲームの仁はタルムード則に一致する | AM1985 | `src/games/bankruptcy.rs` (公開 API)、テスト | `bankruptcy_nucleolus_is_talmud_rule`、`talmud_cases_from_aumann_maschler`、`bankruptcy_nucleolus_matches_talmud_rule` (ランダムな 300 問)、オラクル版で n = 100 まで (`bankruptcy_oracle_matches_talmud_rule_for_large_n`)、有理数で検証した仁と分数として完全一致 (`equals_certified_nucleolus_exactly`) |
 | Shapley 値・Banzhaf 値の定義 | Sha1953, Ban1965 | `src/values.rs` | CoopGame との照合 (`scripts/compare/check_values.py`)、手計算の例 |
 | Shapley 値は順列の限界貢献の平均で推定できる | CGT2009 | `values::shapley_sampling` | 厳密値との差が標準誤差の 5 倍以内 (`sampling_estimates_agree_with_exact_values`) |
 | 空港ゲーム (費用が提携内の最大値) の Shapley 値は、費用の増分を必要とする人数で等分した和 | LO1973 | テスト | `airport_game_shapley_matches_littlechild_owen` (ランダムな 100 問)、`ibn_ezra_inheritance_shapley_value` |
 | Ibn Ezra の相続問題の解は Shapley 値に一致する | Aum2010 (CoopGame の `shapleyValue` のヘルプが引用) | テスト | `ibn_ezra_inheritance_shapley_value` |
-| 重み付き投票ゲームの仁は擬多項式時間で計算できる | Pas2022 (EP2009 も同じ主張をしたが、アルゴリズムは仁を計算する保証がないと後続研究で指摘されている) | `src/oracle/voting.rs` の位置づけ | なし (本実装は制約生成で、計算量の保証はない) |
-| データ評価に最小コアを使い、提携をサンプリングして近似する | YP2021 (題名と要旨の範囲) | `src/sampled.rs`、`examples/data_valuation.rs` | 文献の実験は再現していない。本リポジトリの合成データでの比較のみ |
+| 重み付き投票ゲームの仁は擬多項式時間で計算できる | Pas2022 (EP2009 も同じ主張をしたが、アルゴリズムは仁を計算する保証がないと後続研究で指摘されている) | `src/games/voting.rs` の位置づけ | なし (本実装は制約生成で、計算量の保証はない) |
+| データ評価に最小コアを使い、提携をサンプリングして近似する | YP2021 (題名と要旨の範囲) | `src/nucleolus/sampled.rs`、`examples/data_valuation.rs` | 文献の実験は再現していない。本リポジトリの合成データでの比較のみ |
 | 交渉集合 (異議と反論) の定義 | AM1964, PS2007 | `src/bargaining.rs` | 3 人多数決ゲームの手計算 (`bargaining::tests`) |
 | カーネルは交渉集合に含まれる | DM1965 (原典の該当箇所は未確認) | `tests/variants.rs` | `kernel_points_lie_in_bargaining_set` (BNF タイプ 1-4、n = 3-6 の仁とカーネルの点) |
 | 凸ゲームの交渉集合はコアに一致する | MPS1971 (題名と、文献での引用) | `tests/variants.rs` | `bargaining_set_equals_core_for_convex_games` (15 ゲーム、300 配分) |
 | per capita 仁の数値例 (費用 15, 20, 55, 35, 61, 65, 78 の節約ゲーム) | You1985 (CoopGame のヘルプが p. 68 を引用) | `tests/variants.rs` | 手計算と一致 (`per_capita_nucleolus_young_1985`)、CoopGame と一致 |
-| 比例仁の定義 | YOH1982 (CoopGame が引用) | `src/variants.rs` | CoopGame と 40 ゲームで一致 |
-| modiclus は定和ゲームでプレ仁に一致し、凸ゲームではコアに属する | Sud1997 (要旨) | `src/variants.rs` | `modiclus_equals_prenucleolus_for_constant_sum_games`、`modiclus_lies_in_core_of_convex_games`、CoopGame と 41 ゲームで一致 |
-| 凸ゲームのカーネルは仁の 1 点で、transfer scheme はプレカーネルの点に収束する | MPS1971、MPS1979、Ste1968 | `src/convex.rs` | LP の仁と一致 (`convex::tests`、`convex_method_matches_talmud_and_lp`)、[guarantees.md](guarantees.md) |
+| 比例仁の定義 | YOH1982 (CoopGame が引用) | `src/nucleolus/variants.rs` | CoopGame と 40 ゲームで一致 |
+| modiclus は定和ゲームでプレ仁に一致し、凸ゲームではコアに属する | Sud1997 (要旨) | `src/nucleolus/variants.rs` | `modiclus_equals_prenucleolus_for_constant_sum_games`、`modiclus_lies_in_core_of_convex_games`、CoopGame と 41 ゲームで一致 |
+| 凸ゲームのカーネルは仁の 1 点で、transfer scheme はプレカーネルの点に収束する | MPS1971、MPS1979、Ste1968 | `src/nucleolus/convex.rs` | LP の仁と一致 (`nucleolus::convex::tests`、`convex_method_matches_talmud_and_lp`)、[guarantees.md](guarantees.md) |
 | 劣モジュラ関数の最小化は、基多面体の最小ノルム点 (Wolfe の方法で求める) から得られる | Fuj1980、Wol1976 | `src/submodular.rs` | ランダムな劣モジュラ関数 200 個で総当たりと一致 (`submodular::tests`) |
 | 最小超過を効率よく計算できればプレカーネルと最小コアの共通部分の点を効率よく計算でき、凸ゲームなどの仁が求まる | FKK2001 (要旨) | [guarantees.md](guarantees.md) の位置づけ | なし (本文を確認できず、実装は別の方法) |
-| 仁はカーネルに属する (カーネルは交渉集合に含まれる) | DM1965 (検索結果の要約) | `src/verify.rs` の否定の根拠 | `kernel_points_lie_in_bargaining_set` |
-| 空港ゲームの Shapley 値は費用の増分の等分の和 | LO1973 | `src/oracle/airport.rs` | 明示ゲームの Shapley 値と一致 (`airport_game_matches_explicit_cost_game`) |
-| 空港ゲームの仁には簡単な表現がある | Lit1974 (題名) | `src/oracle/airport.rs` の位置づけ | なし (本文を確認できず、式は実装していない。仁は凸ゲームの手法で求め、明示ゲームの LP と一致を確認) |
-| Bird 規則は最小全域木ゲームのコアに属する | Bir1976 | `src/oracle/spanning_tree.rs` | `bird_rule_and_nucleolus_lie_in_core` (30 ゲーム)、手計算の例 |
+| 仁はカーネルに属する (カーネルは交渉集合に含まれる) | DM1965 (検索結果の要約) | `src/verify/mod.rs` の否定の根拠 | `kernel_points_lie_in_bargaining_set` |
+| 空港ゲームの Shapley 値は費用の増分の等分の和 | LO1973 | `src/games/airport.rs` | 明示ゲームの Shapley 値と一致 (`airport_game_matches_explicit_cost_game`) |
+| 空港ゲームの仁には簡単な表現がある | Lit1974 (題名) | `src/games/airport.rs` の位置づけ | なし (本文を確認できず、式は実装していない。仁は凸ゲームの手法で求め、明示ゲームの LP と一致を確認) |
+| Bird 規則は最小全域木ゲームのコアに属する | Bir1976 | `src/games/spanning_tree.rs` | `bird_rule_and_nucleolus_lie_in_core` (30 ゲーム)、手計算の例 |
 | 最小全域木ゲームの仁の計算は NP 困難 | FKK1998 | 同上 (専用の手法を用意しない理由) | なし |
-| 線形生産ゲームで双対 LP の影の価格による配分はコアに属する | Owe1975 | `src/oracle/production.rs` | `owen_allocation_lies_in_core` (30 ゲーム) |
+| 線形生産ゲームで双対 LP の影の価格による配分はコアに属する | Owe1975 | `src/games/production.rs` | `owen_allocation_lies_in_core` (30 ゲーム) |
 | 提携構造の解 (Aumann–Drèze 値、提携構造つきの仁) | AD1974 (要旨) | `src/partition.rs` | 全員 1 つなら Shapley 値・仁、全員単独なら v({i})、ブロックごとの効率性 (`tests/partition.rs`) |
 | Owen 値の式 | Owe1977 (式は引用した文献で確認) | `src/partition.rs` | 自明な連合で Shapley 値に一致、連合の和が商ゲームの Shapley 値に一致 (`owen_value_properties`) |
-| Bland の規則で単体法は循環せずに停止する | Bla1977 | `src/exact/simplex.rs` | 浮動小数点の LP と判定が一致 (`rational_simplex_agrees_with_floating_lp`) |
+| Bland の規則で単体法は循環せずに停止する | Bla1977 | `src/rational/simplex.rs` | 浮動小数点の LP と判定が一致 (`rational_simplex_agrees_with_floating_lp`) |
 | 仁は一意である (誤りの判定の論拠: 厳密に合格した x* と異なる配分は仁ではない) | Sch1969 | `docs/comparison.md` | なし (定理として使う) |
 | 文献の数値例 (仁・プレ仁) | PS2007 Example 5.5.12、Fer | `tests/literature.rs`、[literature-cases.md](literature-cases.md) | 文献の値との一致と手計算 |
 | TUGLab の仁の計算方法 | PRA1996 | `docs/comparison.md` | なし (比較対象の説明) |
@@ -125,8 +125,8 @@
 | solidarity 値の定義 | NR1994 | `src/values.rs` | 手計算の例、全員一致ゲーム u_{1,2} で (7/18, 7/18, 4/18)。tucoopy 0.1.0 の `solidarity_value` は Harsanyi 配当を等分する式 (Shapley 値と同じ) で一致しない |
 | Myerson 値はグラフ制限ゲームの Shapley 値 | Mye1977 | `src/communication.rs` | 完全グラフで Shapley 値に一致、手計算の例、Python の myerson パッケージの例、tucoopy 0.1.0 と 180 ゲームで一致 |
 | Johnston・Deegan–Packel・Public Good・Coleman の指数の定義 | Joh1978、DP1978、Hol1982、Col1971 | `src/power.rs` | 手計算の例、CoopGame のヘルプの例 ([51; 35, 20, 15, 15, 15] など)、Apt の講義資料の例、tucoopy 0.1.0 とランダムな重み付き投票ゲーム 30 個で一致 |
-| disruption nucleolus は、コアの上で `e(S, x) / (v(N) - v(S) - v(N \ S))` を辞書式に最小化した配分 | LV1976 (定式化は CoopGame のソース) | `src/variants.rs` | CoopGame の `disruptionNucleolus` のヘルプの 4 人ゲームの例 |
-| anti-prenucleolus は双対ゲームのプレ仁に一致する。プレ仁は双対をとると一般に変わる | FM2006 (Theorem 3.2、Example 4.1) | `src/variants.rs` | 論文の Example 4.1、最小の超過がプレ仁と Shapley 値以上になること |
+| disruption nucleolus は、コアの上で `e(S, x) / (v(N) - v(S) - v(N \ S))` を辞書式に最小化した配分 | LV1976 (定式化は CoopGame のソース) | `src/nucleolus/variants.rs` | CoopGame の `disruptionNucleolus` のヘルプの 4 人ゲームの例 |
+| anti-prenucleolus は双対ゲームのプレ仁に一致する。プレ仁は双対をとると一般に変わる | FM2006 (Theorem 3.2、Example 4.1) | `src/nucleolus/variants.rs` | 論文の Example 4.1、最小の超過がプレ仁と Shapley 値以上になること |
 | 非負の Harsanyi 配当を持つゲームは凸 | (定義からの計算) | `generators::random_convex` | 優モジュラ性を直接判定 (`random_convex_is_supermodular`) |
 
 この表にない主張 (制約生成の正しさ、Kohlberg 判定の打ち切り条件、カーネル全体の探索の正しさ、

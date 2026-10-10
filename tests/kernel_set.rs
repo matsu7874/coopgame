@@ -2,7 +2,7 @@
 
 use coopgame::generators::{self, SplitMix64};
 use coopgame::kernel::{self, TransferOptions};
-use coopgame::kernel_set::{KernelSet, SetOptions, kernel_set};
+use coopgame::kernel::{KernelSet, SetOptions, kernel_set};
 use coopgame::{Domain, ExplicitGame, nucleolus};
 
 fn scale(game: &ExplicitGame) -> f64 {
@@ -136,7 +136,7 @@ fn five_player_games() {
 fn superadditive_game_with_segment_kernel() {
     let game = generators::random_superadditive(5, 18).unwrap();
     assert!(coopgame::properties::is_superadditive(&game));
-    assert!(coopgame::properties::has_nonempty_core(&game).unwrap());
+    assert!(coopgame::nucleolus::has_nonempty_core(&game).unwrap());
     let set = check("superadditive n=5 seed=18", &game, Domain::Imputation);
     assert!(
         set.pieces.iter().any(|piece| piece.dimension == 1),

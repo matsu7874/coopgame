@@ -1,4 +1,4 @@
-//! 凸ゲームの手法を、凸と仮定して (`structure::Assume::convex`) 一般のゲームに使い、
+//! 凸ゲームの手法を、凸と仮定して (`properties::Assume::convex`) 一般のゲームに使い、
 //! 結果を事後検証で分類する。CSV を標準出力に出す。
 //!
 //! ```bash
@@ -17,11 +17,11 @@
 
 use std::time::Instant;
 
-use coopgame::convex::{self, ConvexOptions};
-use coopgame::exact::ExactGame;
+use coopgame::game::exact::ExactGame;
 use coopgame::generators;
 use coopgame::kernel;
-use coopgame::structure::Assume;
+use coopgame::nucleolus::convex::{self, ConvexOptions};
+use coopgame::properties::Assume;
 use coopgame::verify::{Verified, VerifyOptions};
 use coopgame::{Domain, Error, ExplicitGame, nucleolus, properties};
 
@@ -50,15 +50,27 @@ fn distance(a: &[f64], b: Option<&Vec<f64>>, scale: f64) -> String {
     }
 }
 
-fn main() {
+/// コマンドライン引数。
+struct Args {
+    sizes: Vec<usize>,
+    seeds: u64,
+}
+
+/// `[人数,...] [seed 数]` を読む。省略した引数は既定値 (4,5,6 と 3) にする。
+fn parse_args() -> Args {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let sizes: Vec<usize> = args
+    let sizes = args
         .first()
         .map_or("4,5,6", String::as_str)
         .split(',')
         .map(|s| s.parse().expect("人数"))
         .collect();
-    let seeds: u64 = args.get(1).map_or(3, |s| s.parse().expect("seed 数"));
+    let seeds = args.get(1).map_or(3, |s| s.parse().expect("seed 数"));
+    Args { sizes, seeds }
+}
+
+fn main() {
+    let Args { sizes, seeds } = parse_args();
     let mut options = ConvexOptions::default();
     options.tolerance = None;
     options.max_sweeps = 2_000;
