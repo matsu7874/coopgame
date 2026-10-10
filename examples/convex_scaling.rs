@@ -25,21 +25,34 @@ use coopgame::{Concept, Guarantee, Property, Solution, nucleolus};
 mod common;
 use common::max_abs_difference;
 
-fn main() {
+/// コマンドライン引数。
+struct Args {
+    kind: String,
+    sizes: Vec<usize>,
+    seeds: u64,
+}
+
+/// `[種類] [人数,...] [seed 数]` を読む。省略した引数は既定値 (graph、10,16、3) にする。
+fn parse_args() -> Args {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let kind = args.first().map(String::as_str).unwrap_or("graph");
-    let sizes: Vec<usize> = args
+    let kind = args.first().map_or("graph", String::as_str).to_string();
+    let sizes = args
         .get(1)
         .map_or("10,16", String::as_str)
         .split(',')
         .map(|s| s.parse().expect("人数"))
         .collect();
-    let seeds: u64 = args.get(2).map_or(3, |s| s.parse().expect("seed 数"));
+    let seeds = args.get(2).map_or(3, |s| s.parse().expect("seed 数"));
+    Args { kind, sizes, seeds }
+}
+
+fn main() {
+    let Args { kind, sizes, seeds } = parse_args();
     println!("kind,n,seed,seconds,sweeps,transfers,minimizations,evaluations,max_error,pair_check");
     for &n in &sizes {
         for seed in 0..seeds {
             let mut rng = SplitMix64::new(1000 * n as u64 + seed);
-            match kind {
+            match kind.as_str() {
                 "bankruptcy" => {
                     let claims: Vec<f64> = (0..n).map(|_| rng.range(1, 100) as f64).collect();
                     let estate = (rng.next_f64() * claims.iter().sum::<f64>()).round();

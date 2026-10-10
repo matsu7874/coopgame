@@ -13,13 +13,18 @@ use coopgame::game::exact::ExactGame;
 use coopgame::verify;
 use coopgame::{Domain, generators, nucleolus};
 
-fn main() {
-    let sizes: Vec<usize> = std::env::args()
+/// コマンドライン引数 `[人数,...]` を読む。省略したら 3,4,5,6 にする。
+fn parse_sizes() -> Vec<usize> {
+    std::env::args()
         .nth(1)
         .map_or("3,4,5,6".to_string(), |s| s)
         .split(',')
         .map(|s| s.parse().expect("人数"))
-        .collect();
+        .collect()
+}
+
+fn main() {
+    let sizes = parse_sizes();
     println!("type,n,seconds,lp_solves,levels,matches_certified");
     for n in sizes {
         for kind in [1u8, 2, 4] {

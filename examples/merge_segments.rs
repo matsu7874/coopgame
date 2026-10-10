@@ -48,9 +48,14 @@ fn components(set: &KernelSet, tolerance: f64) -> usize {
     (0..count).filter(|&k| root(&mut parent, k) == k).count()
 }
 
+/// コマンドライン引数: `prekernel_study` が出力した CSV のパス (複数)。
+fn input_paths() -> Vec<String> {
+    std::env::args().skip(1).collect()
+}
+
 fn main() {
     println!("class,n,seed,domain,pieces,merged_pieces,merged_dimensions,components");
-    for path in std::env::args().skip(1) {
+    for path in input_paths() {
         let text = fs::read_to_string(&path).expect("CSV を読める");
         let mut lines = text.lines();
         let header: Vec<&str> = lines.next().expect("見出し").split(',').collect();
