@@ -1,11 +1,12 @@
 //! TU 協力ゲームの解 (仁・カーネル・Shapley 値など) を計算し、検証するライブラリ。
 //!
-//! モジュールは次の層に分かれる。
+//! モジュールを目的で分けると次のようになる。
 //!
-//! | 層 | モジュール |
+//! | 目的 | モジュール |
 //! |---|---|
 //! | ゲームの表現 | [`game`] (提携、特性関数、全提携の表、有理数のゲーム、オラクルの能力) |
 //! | 特定のクラスのゲーム | [`games`] (破産・空港・最小全域木・線形生産・重み付き投票・誘導部分グラフ・費用) |
+//! | 手法の自動選択 | [`auto`] (ゲームの型から、保証のある手法のうち最も速いものを選ぶ) |
 //! | 解 | [`nucleolus`] (仁・プレ仁・最小コアと、その別手法)、[`kernel`]、[`values`]、[`compromise`]、[`partition`]、[`communication`]、[`power`] |
 //! | 検証と性質 | [`verify`] (Kohlberg 基準、厳密な検証、事後検証)、[`bargaining`]、[`properties`]、[`solution`] (結果と保証の種類) |
 //! | 分析と可視化 | [`analysis`] (説明、不確かさ、図、反例の探索)、[`surplus`] (超過と最大余剰) |
@@ -13,13 +14,26 @@
 //!
 //! 同じ解を別の手法で求めるものは、解のモジュールの下に公開のサブモジュールとして置く
 //! (例: [`nucleolus::exact`]・[`nucleolus::oracle`]・[`nucleolus::convex`]・[`nucleolus::sampled`])。
-//! 迷ったら [`nucleolus::auto`] がゲームの型から保証のある手法を選ぶ。
+//! 迷ったら [`auto`] がゲームの型から保証のある手法を選ぶ。
+//!
+//! 依存の層 (下の行ほど上の層)。各モジュールは自分より上の行にあるモジュールだけに依存し、同じ行どうしは依存しない。
+//!
+//! | 段 | モジュール |
+//! |---|---|
+//! | 0 | `solution`、(内部) `rng` |
+//! | 1 | `game` |
+//! | 2 | `values`・`surplus`・`compromise`・`power`・`generators`、(内部) `lp`・`linalg`・`rational` |
+//! | 3 | `properties`・`kernel`・`bargaining`・`communication`、(内部) `submodular` |
+//! | 4 | `nucleolus` |
+//! | 5 | `games`・`verify`・`partition`・`io`・`analysis` |
+//! | 6 | `auto` |
 //!
 //! 使い方は、古典的な論文の結果を再現する[チュートリアル](https://github.com/matsu7874/coopgame/tree/main/docs/tutorial)で学べる。
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod analysis;
+pub mod auto;
 pub mod bargaining;
 pub mod communication;
 pub mod compromise;
@@ -38,6 +52,7 @@ pub mod partition;
 pub mod power;
 pub mod properties;
 pub(crate) mod rational;
+pub(crate) mod rng;
 pub mod solution;
 pub(crate) mod submodular;
 pub mod surplus;

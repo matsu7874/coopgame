@@ -1,6 +1,7 @@
 //! ゲームの性質: 判定する関数と、性質を型で表すラッパー。
 //!
-//! - 判定: [`is_convex`]・[`is_superadditive`]・[`is_zero_monotonic`]・[`has_nonempty_core`]・[`is_in_core`]
+//! - 判定: [`is_convex`]・[`is_superadditive`]・[`is_zero_monotonic`]・[`is_in_core`]
+//!   (コアが空でないかは最小コアの LP で判定するので、[`crate::nucleolus::has_nonempty_core`] にある)
 //! - 型: 性質を持つ根拠 ([`Proven`]・[`Assumed`]) を型で区別し、性質に基づく手法の保証を決める
 //!   ([`ConvexGame`]・[`ConvexChecked`]・[`Assume`])
 
@@ -8,12 +9,9 @@ mod proof;
 
 pub use proof::{Assume, Assumed, ConvexChecked, ConvexGame, Convexity, ProofKind, Proven};
 
-use crate::Domain;
-use crate::error::Result;
 use crate::game::ExplicitGame;
 use crate::game::coalition::Coalition;
 use crate::game::default_tolerance;
-use crate::nucleolus::least_core;
 
 /// 互いに素な `S, T` について `v(S ∪ T) >= v(S) + v(T)`。計算量は `3^n`。
 pub fn is_superadditive(game: &ExplicitGame) -> bool {
@@ -73,12 +71,6 @@ pub fn is_zero_monotonic(game: &ExplicitGame) -> bool {
     })
 }
 
-/// コアが空でないか(最小コアの `epsilon` が 0 以下か)。
-pub fn has_nonempty_core(game: &ExplicitGame) -> Result<bool> {
-    let least = least_core(game, Domain::Preimputation)?;
-    Ok(least.epsilon <= default_tolerance(game))
-}
-
 /// `x` がコアに属するか。
 pub fn is_in_core(game: &ExplicitGame, x: &[f64], tolerance: f64) -> bool {
     let total: f64 = x.iter().sum();
@@ -101,13 +93,11 @@ mod tests {
         assert!(is_convex(&convex));
         assert!(is_superadditive(&convex));
         assert!(is_zero_monotonic(&convex));
-        assert!(has_nonempty_core(&convex).unwrap());
 
         // 3 人多数決: 優加法的だが凸でなく、コアは空。
         let majority = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]).unwrap();
         assert!(is_superadditive(&majority));
         assert!(!is_convex(&majority));
-        assert!(!has_nonempty_core(&majority).unwrap());
 
         // v(12) = 5 > v(123) = 4 で優加法的でも 0-単調でもない。
         let broken = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 4.0]).unwrap();

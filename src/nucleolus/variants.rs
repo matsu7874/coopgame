@@ -44,11 +44,11 @@ use microlp::{Problem, Variable};
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::ExplicitGame;
+use crate::game::allocation::check_imputation_set;
 use crate::game::coalition::Coalition;
 use crate::game::default_tolerance;
 use crate::linalg::{Span, indicator};
 use crate::lp::{self, Cmp, Counter};
-use crate::nucleolus::check_imputation_set;
 use crate::solution::Guarantee;
 
 /// [`modiclus`] が扱うプレイヤー数の上限 (不満の数は `(2^n - 2)(2^n - 3)`)。
@@ -401,7 +401,7 @@ pub fn per_capita_nucleolus(game: &ExplicitGame, domain: Domain) -> Result<Lexic
 pub fn disruption_nucleolus(game: &ExplicitGame) -> Result<LexicographicResult> {
     let n = game.players();
     let tolerance = default_tolerance(game);
-    if !crate::properties::has_nonempty_core(game)? {
+    if !crate::nucleolus::has_nonempty_core(game)? {
         return Err(Error::InvalidArgument(
             "disruption nucleolus はコアが空でないゲームに限る".into(),
         ));

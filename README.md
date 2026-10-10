@@ -18,7 +18,7 @@ TU 協力ゲームの仁・カーネル・Shapley 値などの解を計算し、
   - 仁の Kohlberg 基準と、有理数による厳密な検証 (`verify`)
   - カーネル条件 (`kernel`)・交渉集合への所属 (`bargaining`)
   - 凸性・コアなどゲームの性質 (`properties`)
-  - 結果に付く保証の種類と事後検証 (`verify`、`nucleolus::auto`)
+  - 結果に付く保証の種類と事後検証 (`verify`、`auto`)
 - **大きいゲームを扱う**
   - 全提携を列挙しないオラクル (`game::oracle`、`nucleolus::oracle`)
   - 凸ゲームの仁 (`nucleolus::convex`)

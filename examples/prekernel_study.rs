@@ -11,8 +11,8 @@ use std::time::Instant;
 
 use coopgame::generators::{self, SplitMix64};
 use coopgame::kernel::{KernelSet, SetOptions, kernel_set};
-use coopgame::properties;
 use coopgame::{Domain, Error, ExplicitGame};
+use coopgame::{nucleolus, properties};
 
 const CLASSES: [&str; 6] = ["bnf1", "bnf2", "bnf4", "superadditive", "convex", "voting"];
 const PERTURBATIONS: usize = 5;
@@ -115,7 +115,7 @@ fn main() {
         for class in CLASSES {
             for seed in 0..seeds {
                 let game = generate(class, n, seed);
-                let core_nonempty = properties::has_nonempty_core(&game).unwrap_or(false);
+                let core_nonempty = nucleolus::has_nonempty_core(&game).unwrap_or(false);
                 let pre = shape(&game, Domain::Preimputation);
                 let ker = shape(&game, Domain::Imputation);
                 let in_core = match (&ker.set, core_nonempty) {

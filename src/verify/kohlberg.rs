@@ -12,6 +12,7 @@
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::ExplicitGame;
+use crate::game::allocation::feasibility_violation;
 use crate::game::coalition::Coalition;
 use crate::game::default_tolerance;
 use crate::linalg::Span;
@@ -104,35 +105,6 @@ fn kohlberg_with_tolerance(
         levels_checked,
         lp_solves: counter.solves,
     })
-}
-
-/// 効率性と領域条件の違反を調べる。
-pub(crate) fn feasibility_violation(
-    game: &ExplicitGame,
-    x: &[f64],
-    domain: Domain,
-    tolerance: f64,
-) -> Option<String> {
-    let total: f64 = x.iter().sum();
-    let grand = game.value(game.grand());
-    if (total - grand).abs() > tolerance {
-        return Some(format!(
-            "効率性を満たさない: x(N) = {total}, v(N) = {grand}"
-        ));
-    }
-    if domain == Domain::Imputation {
-        for (i, xi) in x.iter().enumerate() {
-            let lower = game.value(Coalition::singleton(i));
-            if *xi < lower - tolerance {
-                return Some(format!(
-                    "個人合理性を満たさない: x_{} = {xi} < v({{{}}}) = {lower}",
-                    i + 1,
-                    i + 1
-                ));
-            }
-        }
-    }
-    None
 }
 
 /// `collection` に重み 1 以上、`optional` に重み 0 以上を付けて

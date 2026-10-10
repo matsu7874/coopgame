@@ -6,6 +6,7 @@
 //! - [`exact::ExactGame`] は全提携の値を有理数で持つゲーム
 //! - [`oracle`] は全提携を列挙せずに仁を求めるための能力 ([`oracle::Separation`]、[`oracle::OracleGame`])
 
+pub(crate) mod allocation;
 pub(crate) mod coalition;
 pub mod exact;
 pub mod oracle;

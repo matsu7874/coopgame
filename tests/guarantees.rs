@@ -3,13 +3,13 @@
 mod common;
 
 use common::assert_close;
+use coopgame::auto::AutoNucleolus;
 use coopgame::game::oracle::Separation;
 use coopgame::game::{PlayerSet, SetFunction};
 use coopgame::games::bankruptcy::BankruptcyGame;
 use coopgame::games::graph::InducedSubgraphGame;
 use coopgame::games::voting::WeightedVotingGame;
 use coopgame::generators::{self, SplitMix64};
-use coopgame::nucleolus::auto::AutoNucleolus;
 use coopgame::nucleolus::convex;
 use coopgame::nucleolus::oracle as oracle_nucleolus;
 use coopgame::properties::{Assume, ConvexChecked};

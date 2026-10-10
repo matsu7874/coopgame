@@ -16,9 +16,9 @@ use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::oracle::OracleGame;
 use crate::game::{PlayerSet, SetFunction};
-use crate::generators::SplitMix64;
 use crate::nucleolus::oracle as oracle_nucleolus;
 use crate::nucleolus::{LeastCore, NucleolusResult};
+use crate::rng::SplitMix64;
 use crate::solution::Guarantee;
 
 fn finite(value: f64) -> Result<f64> {

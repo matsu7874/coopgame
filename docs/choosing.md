@@ -25,7 +25,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    q{何を重視するか} -->|誰も抜けたくならない| core{コアは空でないか<br>properties::has_nonempty_core}
+    q{何を重視するか} -->|誰も抜けたくならない| core{コアは空でないか<br>nucleolus::has_nonempty_core}
     core -->|空でない| nuc[仁<br>nucleolus::nucleolus<br>コアの中で最大の不満が最小]
     core -->|空| lc[最小コア・仁<br>nucleolus::least_core<br>不満の上限を最小にする]
     nuc --> convex{凸ゲームか<br>properties::is_convex}

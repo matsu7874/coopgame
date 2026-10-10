@@ -9,6 +9,7 @@
 
 use std::collections::HashSet;
 
+use crate::game::allocation::coalition_sums;
 use crate::game::{Coalition, ExplicitGame, PlayerSet, SetFunction};
 
 /// 超過の大きい順に提携を返せるゲーム。
@@ -75,7 +76,13 @@ impl OracleGame for ExplicitGame {
     fn excess_order<'a>(&'a self, x: &'a [f64]) -> Box<dyn Iterator<Item = (PlayerSet, f64)> + 'a> {
         let n = ExplicitGame::players(self);
         let full = (1u64 << n) - 1;
-        let excess = crate::surplus::excesses(self, x);
+        let sums = coalition_sums(x);
+        let excess: Vec<f64> = self
+            .values()
+            .iter()
+            .zip(&sums)
+            .map(|(v, s)| v - s)
+            .collect();
         let mut order: Vec<u64> = (1..full).collect();
         order.sort_by(|a, b| {
             excess[*b as usize]

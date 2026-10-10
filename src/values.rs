@@ -14,7 +14,7 @@
 use crate::game::ExplicitGame;
 use crate::game::coalition::Coalition;
 use crate::game::{PlayerSet, SetFunction};
-use crate::generators::SplitMix64;
+use crate::rng::SplitMix64;
 use crate::solution::Guarantee;
 
 /// 厳密な Shapley 値: `phi_i = sum_{S not containing i} |S|! (n - |S| - 1)! / n! (v(S ∪ {i}) - v(S))`。

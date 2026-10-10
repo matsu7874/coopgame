@@ -5,18 +5,31 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 
 LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を使う。外部の商用ソルバーは不要。
 
-## モジュールの層
+## モジュールの構成
 
-| 層 | モジュール |
+| 目的 | モジュール |
 |---|---|
 | ゲームの表現 | `game` (提携、特性関数、全提携の表)、`game::exact` (有理数のゲーム)、`game::oracle` (オラクルの能力) |
 | 特定のクラスのゲーム | `games` (`bankruptcy`・`airport`・`spanning_tree`・`production`・`voting`・`graph`・`cost`) |
-| 解 | `nucleolus` (下に `auto`・`exact`・`oracle`・`convex`・`sampled`・`variants`)、`kernel`、`values`、`compromise`、`partition`、`communication`、`power` |
+| 手法の自動選択 | `auto` |
+| 解 | `nucleolus` (下に `exact`・`oracle`・`convex`・`sampled`・`variants`)、`kernel`、`values`、`compromise`、`partition`、`communication`、`power` |
 | 検証と性質 | `verify`、`bargaining`、`properties`、`solution` (結果と保証の種類) |
 | 分析 | `analysis` (`explain`・`uncertainty`・`plot`・`search`)、`surplus` |
 | 入出力と生成 | `io` (feature `io`)、`generators` |
 
 同じ解を別の手法で求めるものは、解のモジュールの下のサブモジュールに置いている。
+
+依存の層 (下の行ほど上の層)。各モジュールは自分より上の行にあるモジュールだけに依存し、同じ行どうしは依存しない。
+
+| 段 | モジュール |
+|---|---|
+| 0 | `solution`、(内部) `rng` |
+| 1 | `game` |
+| 2 | `values`・`surplus`・`compromise`・`power`・`generators`、(内部) `lp`・`linalg`・`rational` |
+| 3 | `properties`・`kernel`・`bargaining`・`communication`、(内部) `submodular` |
+| 4 | `nucleolus` |
+| 5 | `games`・`verify`・`partition`・`io`・`analysis` |
+| 6 | `auto` |
 
 ## 解を求める
 
@@ -46,9 +59,9 @@ LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を�
 | 仁・プレ仁の厳密な検証 | `verify::{certify, certify_exact, kohlberg_exact, recover_allocation}` | 超過の段から厳密な配分を有理数で復元し、有理数の単体法 (Bland の規則) で Kohlberg 基準を判定。`game::exact::ExactGame` で値を有理数のまま構築できる |
 | カーネル・プレカーネルの検証 | `kernel::is_in_kernel`, `kernel::kernel_violation` | 最大余剰の釣り合い条件 |
 | 交渉集合・プレ交渉集合への所属 | `bargaining::{check, is_in_bargaining_set}` | 組 `(i, j)` と提携 `S` ごとに、反論のない異議があるかを LP で判定。異議があればその支払いを返す |
-| ゲームの性質 | `properties::{is_superadditive, is_convex, is_zero_monotonic, has_nonempty_core, is_in_core}` | 定義どおりの判定、コアは最小コアの LP |
+| ゲームの性質 | `properties::{is_superadditive, is_convex, is_zero_monotonic, is_in_core}`、`nucleolus::has_nonempty_core` | 定義どおりの判定、コアが空でないかは最小コアの LP |
 | 結果の事後検証 | `verify::{check, check_exact}`、`Unverified::verify` | 20 人以下は有理数の厳密な検証、26 人以下は組ごとのカーネル条件で否定 |
-| 保証のある手法の自動選択 | `nucleolus::auto::AutoNucleolus` | ゲームの型から、保証のある手法のうち最も速いものを選ぶ |
+| 保証のある手法の自動選択 | `auto::AutoNucleolus` | ゲームの型から、保証のある手法のうち最も速いものを選ぶ |
 
 結果に付く保証の種類 (`exact`・`proven`・`assumed`・`certified`・`approximate`) は [保証の種類と、性質に基づく手法の使い分け](guarantees.md) を参照。
 

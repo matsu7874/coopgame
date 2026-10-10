@@ -10,7 +10,7 @@
 | 閉じた形の解 | `games::bankruptcy`、`games::airport` など | 破産ゲーム、空港ゲームなど特定のクラス | 厳密 |
 | 提携のサンプリング | `sampled`、`values::shapley_sampling` | 人数の多いゲーム (データ評価など) | 近似 |
 
-どの手法が使えるかをゲームの型から選ぶには `nucleolus::auto::AutoNucleolus` を使う。
+どの手法が使えるかをゲームの型から選ぶには `auto::AutoNucleolus` を使う。
 保証の種類と、性質を仮定した場合の扱いは [保証の種類と、性質に基づく手法の使い分け](guarantees.md) を参照。
 
 ## オラクル

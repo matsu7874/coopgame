@@ -50,7 +50,7 @@
 - 誘導部分グラフゲームでは `v(S ∪ T) + v(S ∩ T) - v(S) - v(T)` が `S \ T` と `T \ S` の間の辺の重みの和になり、重みが非負なら 0 以上になる。
 - どちらもテスト (`structural_convexity_claims_hold`) で、ランダムな 30 ゲームずつ全提携の優モジュラ性を確かめた。
 
-### 自動選択 (`coopgame::nucleolus::auto::AutoNucleolus`)
+### 自動選択 (`coopgame::auto::AutoNucleolus`)
 
 保証のある手法だけから選ぶ。`Assume` で包んだゲームは自動選択の対象にならない。
 

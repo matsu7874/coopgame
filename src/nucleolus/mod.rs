@@ -22,14 +22,14 @@
 //! | モジュール | 対象 | 手法 |
 //! |---|---|---|
 //! | (このモジュール) | 全提携の表 ([`ExplicitGame`]) | 逐次 LP + 制約生成 |
-//! | [`auto`] | 型で能力・性質が分かるゲーム | 保証のある手法のうち最も速いものを自動で選ぶ |
 //! | [`exact`] | 有理数のゲーム (10 人まで) | 有理数の逐次 LP。許容誤差を使わない |
 //! | [`oracle`] | 違反する提携を返せるゲーム | 逐次 LP + オラクルによる制約生成 |
 //! | [`convex`] | 凸ゲーム | カーネル = 仁 を使う transfer scheme |
 //! | [`sampled`] | 値を返すだけのゲーム | サンプリングした提携だけの逐次 LP (近似) |
 //! | [`variants`] | 全提携の表 | per capita 仁・比例仁・modiclus (不満の定義を変えた仁) |
+//!
+//! ゲームの型からこれらの手法を自動で選ぶには [`crate::auto`] を使う。
 
-pub mod auto;
 pub mod convex;
 pub mod exact;
 pub mod oracle;
@@ -41,12 +41,13 @@ use microlp::{Problem, Solution, Variable};
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::ExplicitGame;
+use crate::game::allocation::coalition_sums;
+use crate::game::allocation::{check_blocks, check_imputation_set};
 use crate::game::coalition::Coalition;
 use crate::game::default_tolerance;
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
 use crate::solution::Guarantee;
-use crate::surplus::coalition_sums;
 
 /// LP に不等式を入れる方式。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -151,33 +152,10 @@ pub fn least_core(game: &ExplicitGame, domain: Domain) -> Result<LeastCore> {
     })
 }
 
-pub(crate) fn check_imputation_set(
-    game: &ExplicitGame,
-    domain: Domain,
-    tolerance: f64,
-) -> Result<()> {
-    check_blocks(game, &[game.grand()], domain, tolerance)
-}
-
-/// 配分の領域で、各ブロック `B` に `sum_{i in B} v({i}) <= v(B)` を確かめる (満たさなければ配分がない)。
-fn check_blocks(
-    game: &ExplicitGame,
-    blocks: &[Coalition],
-    domain: Domain,
-    tolerance: f64,
-) -> Result<()> {
-    if domain == Domain::Imputation {
-        for &block in blocks {
-            let lower: f64 = block
-                .players()
-                .map(|i| game.value(Coalition::singleton(i)))
-                .sum();
-            if lower > game.value(block) + tolerance {
-                return Err(Error::EmptyImputationSet);
-            }
-        }
-    }
-    Ok(())
+/// コアが空でないか(最小コアの `epsilon` が 0 以下か)。
+pub fn has_nonempty_core(game: &ExplicitGame) -> Result<bool> {
+    let least = least_core(game, Domain::Preimputation)?;
+    Ok(least.epsilon <= default_tolerance(game))
 }
 
 /// 提携 `S` の行の形。
@@ -524,6 +502,14 @@ mod tests {
         for (a, e) in actual.iter().zip(expected) {
             assert!((a - e).abs() < 1e-6, "{actual:?} != {expected:?}");
         }
+    }
+
+    #[test]
+    fn detects_empty_core() {
+        assert!(has_nonempty_core(&generators::random_convex(4, 1).unwrap()).unwrap());
+        // 3 人多数決: 優加法的だが、コアは空。
+        let majority = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]).unwrap();
+        assert!(!has_nonempty_core(&majority).unwrap());
     }
 
     #[test]

@@ -15,7 +15,7 @@
 use crate::error::Result;
 use crate::game::ExplicitGame;
 use crate::game::coalition::Coalition;
-use crate::generators::SplitMix64;
+use crate::rng::SplitMix64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]

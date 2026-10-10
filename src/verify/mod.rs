@@ -24,7 +24,6 @@ mod kohlberg;
 pub use exact::{
     ExactReport, certify, certify_exact, kohlberg_exact, max_difference, recover_allocation,
 };
-pub(crate) use kohlberg::feasibility_violation;
 pub use kohlberg::{KohlbergReport, kohlberg};
 
 use crate::Domain;
@@ -32,9 +31,9 @@ use crate::error::{Error, Result};
 use crate::game::ExplicitGame;
 use crate::game::exact::{ExactGame, Rational, to_f64};
 use crate::game::{PlayerSet, SetFunction, value_scale};
-use crate::generators::SplitMix64;
 use crate::linalg::max_abs_difference;
 use crate::nucleolus::{self, Options};
+use crate::rng::SplitMix64;
 use crate::solution::Solution;
 use crate::solution::{Guarantee, Unverified};
 

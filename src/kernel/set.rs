@@ -23,11 +23,11 @@ use microlp::Variable;
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::ExplicitGame;
+use crate::game::allocation::check_imputation_set;
 use crate::game::coalition::Coalition;
 use crate::game::default_tolerance;
 use crate::linalg::{Span, solve_square};
 use crate::lp::{self, Cmp, Counter};
-use crate::nucleolus::check_imputation_set;
 
 /// [`kernel_set`] が扱うプレイヤー数の上限。
 pub const MAX_KERNEL_SET_PLAYERS: usize = 6;

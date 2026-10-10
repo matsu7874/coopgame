@@ -199,7 +199,7 @@ fn pivot(tableau: &mut [Vec<BigRational>], values: &mut [BigRational], row: usiz
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generators::SplitMix64;
+    use crate::rng::SplitMix64;
     use microlp::{ComparisonOp, OptimizationDirection, Problem};
 
     fn r(n: i64) -> BigRational {

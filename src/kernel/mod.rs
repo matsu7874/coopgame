@@ -19,12 +19,12 @@ pub use set::{KernelPiece, KernelSet, MAX_KERNEL_SET_PLAYERS, Row, SetOptions, k
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::ExplicitGame;
+use crate::game::allocation::check_imputation_set;
+use crate::game::allocation::feasibility_violation;
 use crate::game::coalition::Coalition;
 use crate::game::default_tolerance;
-use crate::nucleolus::check_imputation_set;
 use crate::solution::Guarantee;
 use crate::surplus::max_surplus;
-use crate::verify::feasibility_violation;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]

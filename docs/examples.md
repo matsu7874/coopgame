@@ -94,11 +94,11 @@ epsilon が 0 以下であることは、コアが空でないことと同じで
 3 人ゲームについて、コア (英: core) が空でないかと、凸ゲーム (英: convex game) かを判定する。
 
 ```rust
-use coopgame::{ExplicitGame, properties};
+use coopgame::{ExplicitGame, nucleolus, properties};
 
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
-    let nonempty = properties::has_nonempty_core(&game)?;
+    let nonempty = nucleolus::has_nonempty_core(&game)?;
     let convex = properties::is_convex(&game);
     println!("{nonempty} {convex}"); // true false
 

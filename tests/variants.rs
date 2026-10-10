@@ -95,7 +95,7 @@ fn per_capita_and_proportional_lie_in_nonempty_core() {
             generators::random_convex(5, seed).unwrap(),
             generators::bnf(1, 5, seed).unwrap(),
         ] {
-            if !properties::has_nonempty_core(&game).unwrap() {
+            if !nucleolus::has_nonempty_core(&game).unwrap() {
                 continue;
             }
             let tolerance = 1e-6 * game.max_abs_value().max(1.0);

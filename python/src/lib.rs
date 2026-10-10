@@ -11,6 +11,7 @@ use coopgame::analysis::explain as explain_core;
 use coopgame::analysis::plot as plot_core;
 use coopgame::analysis::search as search_core;
 use coopgame::analysis::uncertainty as uncertainty_core;
+use coopgame::auto::AutoNucleolus;
 use coopgame::game::exact::{self, Rational};
 use coopgame::game::{PlayerSet, SetFunction};
 use coopgame::games::airport::AirportGame;
@@ -21,7 +22,6 @@ use coopgame::games::production::LinearProductionGame;
 use coopgame::games::spanning_tree::SpanningTreeGame;
 use coopgame::io as io_core;
 use coopgame::kernel::{self, Row, SetOptions, TransferOptions};
-use coopgame::nucleolus::auto::AutoNucleolus;
 use coopgame::nucleolus::convex::{self, ConvexOptions, ConvexStats};
 use coopgame::nucleolus::{self as nucleolus_core, Method, Options};
 use coopgame::nucleolus::{sampled, variants};
@@ -193,7 +193,7 @@ impl Game {
     }
 
     fn has_nonempty_core(&self) -> PyResult<bool> {
-        properties::has_nonempty_core(&self.inner).map_err(to_py_err)
+        nucleolus_core::has_nonempty_core(&self.inner).map_err(to_py_err)
     }
 
     #[pyo3(signature = (x, tolerance = 1e-9))]
