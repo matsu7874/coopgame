@@ -11,7 +11,7 @@
 use std::fs;
 
 use coopgame::generators;
-use coopgame::kernel_set::{KernelSet, SetOptions, kernel_set};
+use coopgame::kernel::{KernelSet, SetOptions, kernel_set};
 use coopgame::{Domain, ExplicitGame};
 
 fn generate(class: &str, n: usize, seed: u64) -> ExplicitGame {

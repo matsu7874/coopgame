@@ -5,15 +5,15 @@
 //! ```
 //!
 //! 1. 優加法的なのに、カーネルが 1 点でないゲーム (整数値、4-5 人)。
-//! 2. 凸と仮定した凸ゲームの手法 (`convex::nucleolus(&Assume::convex(..))`) が、
+//! 2. 凸と仮定した凸ゲームの手法 (`nucleolus::convex::nucleolus(&Assume::convex(..))`) が、
 //!    止まらずに誤った配分を返すゲーム (整数値、3-5 人)。
 
-use coopgame::coalition::binary_to_lex;
-use coopgame::convex;
+use coopgame::analysis::search::{SearchOptions, search};
+use coopgame::game::binary_to_lex;
 use coopgame::generators::SplitMix64;
-use coopgame::kernel_set::{SetOptions, kernel_set};
-use coopgame::search::{SearchOptions, search};
-use coopgame::structure::Assume;
+use coopgame::kernel::{SetOptions, kernel_set};
+use coopgame::nucleolus::convex;
+use coopgame::properties::Assume;
 use coopgame::verify::{Verified, VerifyOptions};
 use coopgame::{Domain, ExplicitGame, properties};
 
@@ -57,7 +57,7 @@ fn assumed_convex_is_wrong(game: &ExplicitGame) -> bool {
     )
 }
 
-fn show(title: &str, found: Option<coopgame::search::Counterexample>) {
+fn show(title: &str, found: Option<coopgame::analysis::search::Counterexample>) {
     println!("# {title}");
     match found {
         None => println!("見つからなかった"),

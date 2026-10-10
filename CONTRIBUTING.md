@@ -79,7 +79,7 @@ cargo build --no-default-features       # feature なしでビルドできるこ
 - Owen 値・Aumann–Drèze 値・提携構造つきの仁を、Shapley 値・仁・商ゲームとの関係で確かめる (`tests/partition.rs`)
 - 費用ゲーム・空港ゲーム・最小全域木ゲーム・線形生産ゲームを、明示ゲームの計算とコアの定理で確かめる (`tests/cost_games.rs`)
 - 保証の種類・分離オラクル・性質の宣言・凸ゲームの手法・事後検証・有理数で構築したゲーム (`tests/guarantees.rs`)
-- 仁が厳密な検証に合格し、ずらした配分は不合格になること (`tests/exact.rs`)。有理数の単体法の判定が浮動小数点の LP と一致することは `exact::simplex` の単体テストで確かめる
+- 仁が厳密な検証に合格し、ずらした配分は不合格になること (`tests/exact.rs`)。有理数の単体法の判定が浮動小数点の LP と一致することは `rational::simplex` の単体テストで確かめる
 - カーネル全体: 凸ゲームでは仁の 1 点になること、各多面体の頂点と重心がカーネル条件を満たすこと(健全性)、
   仁とランダムな初期点からの transfer scheme の到達点が和集合に含まれること(網羅性)
 - チュートリアル (`docs/tutorial/`) のコード例が、論文の値と一致すること (doctest。`src/lib.rs` の `#[cfg(doctest)]` で読み込む)

@@ -1,4 +1,4 @@
-//! 凸ゲームの仁 (`convex::nucleolus`) の計測。CSV を標準出力に出す。
+//! 凸ゲームの仁 (`nucleolus::convex::nucleolus`) の計測。CSV を標準出力に出す。
 //!
 //! ```bash
 //! cargo run --release --example convex_scaling -- bankruptcy 10,20,40 3   # タルムード則と比べる
@@ -13,11 +13,11 @@
 
 use std::time::Instant;
 
-use coopgame::convex::{self, ConvexOptions};
+use coopgame::ExplicitGame;
+use coopgame::games::bankruptcy::BankruptcyGame;
+use coopgame::games::graph::InducedSubgraphGame;
 use coopgame::generators::SplitMix64;
-use coopgame::oracle::bankruptcy::BankruptcyGame;
-use coopgame::oracle::graph::InducedSubgraphGame;
-use coopgame::oracle::tabulate;
+use coopgame::nucleolus::convex::{self, ConvexOptions};
 use coopgame::verify::{self, Check, VerifyOptions};
 use coopgame::{Concept, Guarantee, Property, Solution, nucleolus};
 
@@ -72,7 +72,7 @@ fn main() {
                     let (error, pair_check) = if n > verify::MAX_PAIR_CHECK_PLAYERS {
                         (String::new(), "not_checked".to_string())
                     } else if n <= 16 {
-                        let explicit = tabulate(&game).unwrap();
+                        let explicit = ExplicitGame::tabulate(&game).unwrap();
                         let lp = nucleolus::nucleolus(&explicit).unwrap().allocation;
                         (
                             format!("{:.2e}", max_abs_difference(&solution.allocation, &lp)),

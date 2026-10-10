@@ -23,12 +23,13 @@
 
 use microlp::Variable;
 
-use crate::coalition::Coalition;
+use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::ExplicitGame;
-use crate::kohlberg::feasibility_violation;
+use crate::game::coalition::Coalition;
+use crate::game::default_tolerance;
 use crate::lp::{self, Cmp, Counter};
-use crate::{Domain, default_tolerance};
+use crate::verify::feasibility_violation;
 
 /// 反論のない異議。
 #[derive(Clone, Debug, PartialEq)]

@@ -10,7 +10,7 @@
 use std::time::Instant;
 
 use coopgame::generators::{self, SplitMix64};
-use coopgame::kernel_set::{KernelSet, SetOptions, kernel_set};
+use coopgame::kernel::{KernelSet, SetOptions, kernel_set};
 use coopgame::properties;
 use coopgame::{Domain, Error, ExplicitGame};
 

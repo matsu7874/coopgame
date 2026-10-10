@@ -2,7 +2,7 @@
 
 use coopgame::generators::{self, SplitMix64};
 use coopgame::kernel::{self, TransferOptions};
-use coopgame::kernel_set::{KernelSet, SetOptions, kernel_set};
+use coopgame::kernel::{KernelSet, SetOptions, kernel_set};
 use coopgame::{Domain, ExplicitGame, nucleolus};
 
 fn scale(game: &ExplicitGame) -> f64 {

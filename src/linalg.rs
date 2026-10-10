@@ -1,6 +1,6 @@
 //! 提携の特性ベクトルが張る部分空間を管理する。
 
-use crate::coalition::Coalition;
+use crate::game::coalition::Coalition;
 
 /// 追加したベクトルの張る部分空間を、行階段形で保持する。
 #[derive(Clone, Debug)]

@@ -7,10 +7,10 @@
 
 use std::time::Instant;
 
-use coopgame::convex;
 use coopgame::generators;
 use coopgame::nucleolus;
-use coopgame::structure::ConvexChecked;
+use coopgame::nucleolus::convex;
+use coopgame::properties::ConvexChecked;
 
 #[path = "../tests/common/mod.rs"]
 mod common;

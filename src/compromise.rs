@@ -12,9 +12,9 @@
 //!   これが配分 (`x_i >= v({i})`) になるのは、`v(N) > sum v({j})` で、`M_i - v({i})` の符号が全員でそろう
 //!   (0 を含んでよいが全員 0 ではない) 場合である (Staudacher & Anwander 2019)。それ以外はエラーを返す。
 
-use crate::coalition::Coalition;
 use crate::error::{Error, Result};
 use crate::game::ExplicitGame;
+use crate::game::coalition::Coalition;
 
 /// 理想の支払い `M_i = v(N) - v(N \ {i})`。
 pub fn utopia_payoffs(game: &ExplicitGame) -> Vec<f64> {

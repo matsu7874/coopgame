@@ -18,9 +18,9 @@
 
 use std::time::Instant;
 
+use coopgame::game::{PlayerSet, SetFunction};
 use coopgame::generators::{self, SplitMix64};
-use coopgame::oracle::{PlayerSet, SetFunction};
-use coopgame::sampled::{SampledGame, sampled_least_core, sampled_nucleolus};
+use coopgame::nucleolus::sampled::{self, SampledGame};
 use coopgame::{Domain, nucleolus, values};
 
 #[path = "../tests/common/mod.rs"]
@@ -196,14 +196,14 @@ fn valuation(sizes: &[usize], budgets: &[usize], seeds: u64) {
 
                 let pairs = budget.saturating_sub(2 * n) / 2;
                 let started = Instant::now();
-                match sampled_least_core(&game, pairs, seed, Domain::Preimputation) {
+                match sampled::least_core(&game, pairs, seed, Domain::Preimputation) {
                     Ok((least, evaluations)) => {
                         report("least_core", &least.allocation, evaluations, started)
                     }
                     Err(err) => eprintln!("least_core n={n} seed={seed} budget={budget}: {err}"),
                 }
                 let started = Instant::now();
-                match sampled_nucleolus(&game, pairs, seed, Domain::Preimputation) {
+                match sampled::nucleolus(&game, pairs, seed, Domain::Preimputation) {
                     Ok(result) => {
                         report("nucleolus", &result.allocation, result.evaluations, started)
                     }
@@ -226,7 +226,8 @@ fn convergence() {
                 for pairs in [25, 50, 100, 200, 400, 800, 1600] {
                     let sampled = SampledGame::sample(&game, pairs, 100 + seed).unwrap();
                     let approx =
-                        sampled_nucleolus(&game, pairs, 100 + seed, Domain::Preimputation).unwrap();
+                        sampled::nucleolus(&game, pairs, 100 + seed, Domain::Preimputation)
+                            .unwrap();
                     let error = max_abs_difference(&approx.allocation, &exact) / scale;
                     println!(
                         "{kind},{n},{seed},{pairs},{},{error:.6}",

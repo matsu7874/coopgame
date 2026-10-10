@@ -4,9 +4,9 @@
 //! グラフ制限ゲーム `v^g(S) = sum_{C in S/g} v(C)` (`S/g` は `S` が誘導する部分グラフの連結成分) の
 //! Shapley 値が Myerson 値である。
 
-use crate::coalition::Coalition;
 use crate::error::{Error, Result};
 use crate::game::ExplicitGame;
+use crate::game::coalition::Coalition;
 use crate::values;
 
 /// 辺の一覧を、各頂点の隣接頂点のビット集合に直す。

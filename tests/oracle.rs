@@ -8,10 +8,10 @@ mod common;
 use common::assert_close;
 use std::time::Instant;
 
+use coopgame::games::bankruptcy::BankruptcyGame;
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::generators::{self, SplitMix64};
-use coopgame::oracle::bankruptcy::BankruptcyGame;
-use coopgame::oracle::nucleolus as oracle_nucleolus;
-use coopgame::oracle::voting::WeightedVotingGame;
+use coopgame::nucleolus::oracle as oracle_nucleolus;
 use coopgame::{Domain, nucleolus};
 
 #[test]

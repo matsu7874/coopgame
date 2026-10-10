@@ -1,16 +1,16 @@
-//! 有理数だけの仁のソルバー (`exact::nucleolus::nucleolus_exact`) の計測。CSV を標準出力に出す。
+//! 有理数だけの仁のソルバー (`nucleolus::exact::nucleolus`) の計測。CSV を標準出力に出す。
 //!
 //! ```bash
 //! cargo run --release --example exact_scaling -- 3,4,5,6,7,8,9,10 > data/bench/exact-scaling.csv
 //! ```
 //!
 //! BNF タイプ 1, 2, 4 (seed 1) の仁を有理数で求め、浮動小数点の LP の仁を厳密に検証した配分
-//! (`exact::certify`) と分数として一致するかを `matches_certified` に出す。
+//! (`verify::certify`) と分数として一致するかを `matches_certified` に出す。
 
 use std::time::Instant;
 
-use coopgame::exact::nucleolus::nucleolus_exact;
-use coopgame::exact::{self, ExactGame};
+use coopgame::game::exact::ExactGame;
+use coopgame::verify;
 use coopgame::{Domain, generators, nucleolus};
 
 fn main() {
@@ -26,10 +26,10 @@ fn main() {
             let game = generators::bnf(kind, n, 1).unwrap();
             let exact_game = ExactGame::from_explicit(&game).unwrap();
             let started = Instant::now();
-            let result = nucleolus_exact(&exact_game, Domain::Imputation).unwrap();
+            let result = nucleolus::exact::nucleolus(&exact_game, Domain::Imputation).unwrap();
             let seconds = started.elapsed().as_secs_f64();
             let float = nucleolus::nucleolus(&game).unwrap().allocation;
-            let certified = exact::certify(&game, &float, Domain::Imputation).unwrap();
+            let certified = verify::certify(&game, &float, Domain::Imputation).unwrap();
             let matches = certified.satisfied && certified.allocation == result.allocation;
             println!(
                 "{kind},{n},{seconds:.3},{},{},{matches}",

@@ -12,12 +12,12 @@
 Aumann と Maschler は、この答えが破産ゲーム `v(S) = max(0, E - Σ_{i∉S} d_i)` の**仁**（英: nucleolus）に一致することを示した。
 仁は Schmeidler (1969) が定義した解で、最も不満の大きい提携の不満（超過 `v(S) - x(S)`）を最小にし、次に大きい不満を最小にする、という手順を辞書式に繰り返して決まる配分である。
 
-[`bankruptcy::talmud_rule`](https://docs.rs/coopgame/latest/coopgame/bankruptcy/fn.talmud_rule.html) は、論文の規則を閉じた形で計算する。
-型引数を [`exact::Rational`](https://docs.rs/coopgame/latest/coopgame/exact/type.Rational.html) にすると、丸め誤差なしの分数で答えが出る。
+[`games::bankruptcy::talmud_rule`](https://docs.rs/coopgame/latest/coopgame/games/bankruptcy/fn.talmud_rule.html) は、論文の規則を閉じた形で計算する。
+型引数を [`game::exact::Rational`](https://docs.rs/coopgame/latest/coopgame/game/exact/type.Rational.html) にすると、丸め誤差なしの分数で答えが出る。
 
 ```rust
-use coopgame::bankruptcy::talmud_rule;
-use coopgame::exact::{Rational, format_rational};
+use coopgame::games::bankruptcy::talmud_rule;
+use coopgame::game::exact::{Rational, format_rational};
 
 fn main() -> coopgame::Result<()> {
     let n = |v: i64| Rational::from_integer(v.into());
@@ -33,15 +33,15 @@ fn main() -> coopgame::Result<()> {
 ```
 
 論文の主張である「タルムードの答えは破産ゲームの仁である」ことも確かめられる。
-[`generators::bankruptcy`](https://docs.rs/coopgame/latest/coopgame/generators/fn.bankruptcy.html) で破産ゲームを作り、[`exact::nucleolus::nucleolus_exact`](https://docs.rs/coopgame/latest/coopgame/exact/nucleolus/fn.nucleolus_exact.html) で仁を有理数のまま求める。
+[`generators::bankruptcy`](https://docs.rs/coopgame/latest/coopgame/generators/fn.bankruptcy.html) で破産ゲームを作り、[`nucleolus::exact::nucleolus`](https://docs.rs/coopgame/latest/coopgame/nucleolus/exact/fn.nucleolus.html) で仁を有理数のまま求める。
 
 ```rust
-use coopgame::exact::{ExactGame, format_rational, nucleolus::nucleolus_exact};
-use coopgame::{Domain, generators};
+use coopgame::game::exact::{ExactGame, format_rational};
+use coopgame::{Domain, generators, nucleolus};
 
 fn main() -> coopgame::Result<()> {
     let game = generators::bankruptcy(200.0, &[100.0, 200.0, 300.0])?;
-    let nucleolus = nucleolus_exact(&ExactGame::from_explicit(&game)?, Domain::Imputation)?;
+    let nucleolus = nucleolus::exact::nucleolus(&ExactGame::from_explicit(&game)?, Domain::Imputation)?;
     let shares: Vec<String> = nucleolus.allocation.iter().map(format_rational).collect();
     assert_eq!(shares, ["50", "75", "75"]);
     Ok(())
@@ -67,13 +67,13 @@ fn main() -> coopgame::Result<()> {
 空港ゲームは、滑走路の建設費を航空機の間で分ける費用ゲームである。
 航空機 `i` に必要な滑走路の費用を `c_i` とすると、提携 `S` の費用は `S` の中で最も長い滑走路の費用 `max_{i∈S} c_i` になる。
 Littlechild と Owen は、このゲームの Shapley 値が「費用の小さい順に、各段の増分を、その段以上の費用を持つ人数で等分して足す」という簡単な式になることを示した。
-[`AirportGame::shapley_costs`](https://docs.rs/coopgame/latest/coopgame/oracle/airport/struct.AirportGame.html#method.shapley_costs) はこの式で計算する。
+[`AirportGame::shapley_costs`](https://docs.rs/coopgame/latest/coopgame/games/airport/struct.AirportGame.html#method.shapley_costs) はこの式で計算する。
 
 Aumann (2010) は、12 世紀の Ibn Ezra による相続の分け方が、同じ形のゲームの Shapley 値になることを示した。
 遺産 120 を請求 120, 60, 40, 30 の 4 人で分ける例で、Ibn Ezra の答えは (80 5/6, 20 5/6, 10 5/6, 7 1/2) である。
 
 ```rust
-use coopgame::oracle::airport::AirportGame;
+use coopgame::games::airport::AirportGame;
 
 fn main() -> coopgame::Result<()> {
     let shares = AirportGame::new(vec![120.0, 60.0, 40.0, 30.0])?.shapley_costs();

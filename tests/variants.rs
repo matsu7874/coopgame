@@ -7,7 +7,8 @@ mod common;
 use common::assert_close;
 use coopgame::generators::{self, SplitMix64};
 use coopgame::kernel::{self, TransferOptions};
-use coopgame::{Domain, ExplicitGame, bargaining, nucleolus, properties, values, variants};
+use coopgame::nucleolus::variants;
+use coopgame::{Domain, ExplicitGame, bargaining, nucleolus, properties, values};
 
 /// CoopGame の `modiclus` のヘルプにある 4 人ゲームの値 (4.25, 5.25, 5.75, 5.75)。
 #[test]

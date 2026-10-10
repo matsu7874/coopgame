@@ -17,21 +17,21 @@
 |---|---|---|
 | `exact` | 定義どおりに計算した (全提携の LP・総当たり。浮動小数点の許容誤差の範囲で) | `nucleolus::nucleolus`、オラクル版の仁 |
 | `proven(性質)` | 性質が分かっているゲームに、その性質のもとで正しい専用手法を使った | 破産ゲームのタルムード則 (`proven(bankruptcy)`)、凸ゲームの手法 (`proven(convex)`) |
-| `assumed(性質)` | 利用者が宣言した性質のもとで専用手法を使った。性質が成り立たなければ誤りうる | `convex::nucleolus(&Assume::convex(game))` |
+| `assumed(性質)` | 利用者が宣言した性質のもとで専用手法を使った。性質が成り立たなければ誤りうる | `nucleolus::convex::nucleolus(&Assume::convex(game))` |
 | `certified` | 求めた後に有理数による厳密な検証に合格した | `Unverified::verify` の結果 |
 | `approximate` | サンプリングなどの近似、または反復が収束しなかった | Shapley 値の推定、サンプルした仁 |
 
-### 能力の階層 (`coopgame::oracle`)
+### 能力の階層 (`coopgame::game`、`coopgame::game::oracle`)
 
 | 能力 | 求める機能 | 使える手法 |
 |---|---|---|
-| `SetFunction` | 提携の値 | `tabulate` で全提携の表を作れば全ての手法 (30 人まで)、サンプリング |
-| `Separation` | 配分 `x` で超過がしきい値を超える提携を返す (除外する提携を指定できる) | オラクル版の仁 (制約生成) |
-| `OracleGame` | 提携を超過の大きい順に返す | 同上。一括実装で自動的に `Separation` も満たす |
+| `game::SetFunction` | 提携の値 | `ExplicitGame::tabulate` で全提携の表を作れば全ての手法 (30 人まで)、サンプリング |
+| `game::oracle::Separation` | 配分 `x` で超過がしきい値を超える提携を返す (除外する提携を指定できる) | オラクル版の仁 (制約生成) |
+| `game::oracle::OracleGame` | 提携を超過の大きい順に返す | 同上。一括実装で自動的に `Separation` も満たす |
 
 オラクル版の仁が要求する能力を `OracleGame` から `Separation` に弱めた。既存の `OracleGame` の型は何も変えずに使える。
 
-### 性質の根拠 (`coopgame::structure`)
+### 性質の根拠 (`coopgame::properties`)
 
 | 根拠 | 型 | 証明の種類 | 性質に基づく手法の戻り値 |
 |---|---|---|---|
@@ -50,7 +50,7 @@
 - 誘導部分グラフゲームでは `v(S ∪ T) + v(S ∩ T) - v(S) - v(T)` が `S \ T` と `T \ S` の間の辺の重みの和になり、重みが非負なら 0 以上になる。
 - どちらもテスト (`structural_convexity_claims_hold`) で、ランダムな 30 ゲームずつ全提携の優モジュラ性を確かめた。
 
-### 自動選択 (`coopgame::auto::AutoNucleolus`)
+### 自動選択 (`coopgame::nucleolus::auto::AutoNucleolus`)
 
 保証のある手法だけから選ぶ。`Assume` で包んだゲームは自動選択の対象にならない。
 
@@ -71,7 +71,7 @@
 | 18 | 0.0863 | 0.0679 | 6.6e-12 |
 | 20 | 0.3533 | 0.1136 | 7.8e-10 |
 
-## 凸ゲームの手法 (`coopgame::convex`)
+## 凸ゲームの手法 (`coopgame::nucleolus::convex`)
 
 ### 根拠と手順
 
@@ -153,10 +153,10 @@
 
 | 入口 | 内容 |
 |---|---|
-| `exact::ExactGame::from_binary` / `from_lex` | 有理数の値からゲームを作る。`to_explicit` で浮動小数点数のゲームにして LP などに渡す |
-| `exact::certify_exact`、`verify::check_exact`、`Unverified::verify_exact` | 有理数のゲームの値で検証する |
+| `game::exact::ExactGame::from_binary` / `from_lex` | 有理数の値からゲームを作る。`to_explicit` で浮動小数点数のゲームにして LP などに渡す |
+| `verify::certify_exact`、`verify::check_exact`、`Unverified::verify_exact` | 有理数のゲームの値で検証する |
 | `generators::random_superadditive_exact` | `random_superadditive` と同じ乱数で、和と最大値を有理数で計算する |
-| `exact::parse_rational_values`、CLI の `certify --rational` | `0.1` を `1/10` のように 10 進数・分数の値どおりに読む |
+| `game::exact::parse_rational_values`、CLI の `certify --rational` | `0.1` を `1/10` のように 10 進数・分数の値どおりに読む |
 | Python の `certify_rational(values, x)` | 値を `Fraction`・`"8/3"`・`"0.1"` で渡す |
 
 実験の superadditive クラスを有理数で構築したゲームに替えると、浮動小数点数で構築したときに「未決」だった 6 個が全て合格した。

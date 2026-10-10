@@ -49,14 +49,14 @@ fn main() -> coopgame::Result<()> {
 
 浮動小数点の LP で求めた配分が本当に仁なのかは、計算とは別に確かめたい。
 Kohlberg は、配分が仁であるための必要十分条件を、超過の大きい順に並べた提携の族が「平衡」であることとして与えた。
-[`kohlberg::verify`](https://docs.rs/coopgame/latest/coopgame/kohlberg/fn.verify.html) はこの条件を判定する。
+[`verify::kohlberg`](https://docs.rs/coopgame/latest/coopgame/verify/fn.kohlberg.html) はこの条件を判定する。
 
 例として、Peleg と Sudhölter の教科書（2007）の Example 5.5.12 を使う。
 `v({1,2}) = 10`、`v(N) = 2`、他の提携の値は 0 である。
 個人合理性 `x_i >= v({i})` を課さない**プレ仁**は (3, 3, -4)、課す仁は (1, 1, 0) になり、2 つが異なる。
 
 ```rust
-use coopgame::{Domain, ExplicitGame, kernel, kohlberg, nucleolus};
+use coopgame::{Domain, ExplicitGame, kernel, nucleolus, verify};
 
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 2.0])?;
@@ -68,10 +68,10 @@ fn main() -> coopgame::Result<()> {
     assert!(close(&x, &[1.0, 1.0, 0.0]));
 
     // Kohlberg 基準で、求めた配分が仁とプレ仁であることを確かめる
-    assert!(kohlberg::verify(&game, &pre, Domain::Preimputation)?.satisfied);
-    assert!(kohlberg::verify(&game, &x, Domain::Imputation)?.satisfied);
+    assert!(verify::kohlberg(&game, &pre, Domain::Preimputation)?.satisfied);
+    assert!(verify::kohlberg(&game, &x, Domain::Imputation)?.satisfied);
     // 正しくない配分は基準を満たさない
-    assert!(!kohlberg::verify(&game, &[2.0, 0.0, 0.0], Domain::Imputation)?.satisfied);
+    assert!(!verify::kohlberg(&game, &[2.0, 0.0, 0.0], Domain::Imputation)?.satisfied);
 
     // 仁はカーネルに属する (Maschler, Peleg, Shapley 1979)
     assert!(kernel::is_in_kernel(&game, &x, Domain::Imputation, 1e-7));

@@ -1,4 +1,4 @@
-//! 凸ゲームの手法を、凸と仮定して (`structure::Assume::convex`) 一般のゲームに使い、
+//! 凸ゲームの手法を、凸と仮定して (`properties::Assume::convex`) 一般のゲームに使い、
 //! 結果を事後検証で分類する。CSV を標準出力に出す。
 //!
 //! ```bash
@@ -17,11 +17,11 @@
 
 use std::time::Instant;
 
-use coopgame::convex::{self, ConvexOptions};
-use coopgame::exact::ExactGame;
+use coopgame::game::exact::ExactGame;
 use coopgame::generators;
 use coopgame::kernel;
-use coopgame::structure::Assume;
+use coopgame::nucleolus::convex::{self, ConvexOptions};
+use coopgame::properties::Assume;
 use coopgame::verify::{Verified, VerifyOptions};
 use coopgame::{Domain, Error, ExplicitGame, nucleolus, properties};
 

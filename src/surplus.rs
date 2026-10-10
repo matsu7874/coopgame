@@ -1,7 +1,7 @@
 //! 超過 `e(S, x) = v(S) - x(S)` と最大余剰 `s_ij(x)`。
 
-use crate::coalition::Coalition;
 use crate::game::ExplicitGame;
+use crate::game::coalition::Coalition;
 
 /// 全提携について `x(S)` を求める(ビット順、長さ `2^n`)。
 pub(crate) fn coalition_sums(x: &[f64]) -> Vec<f64> {

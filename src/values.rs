@@ -11,11 +11,11 @@
 //! solidarity 値 (Nowak & Radzik 1994) は、Shapley 値の限界貢献 `v(S) - v(S \ {i})` を、
 //! 提携 `S` のメンバーの限界貢献の平均 `A(S) = (1/|S|) sum_{k in S} (v(S) - v(S \ {k}))` に置き換えた値である。
 
-use crate::coalition::Coalition;
 use crate::game::ExplicitGame;
+use crate::game::coalition::Coalition;
+use crate::game::{PlayerSet, SetFunction};
 use crate::generators::SplitMix64;
-use crate::guarantee::Guarantee;
-use crate::oracle::{PlayerSet, SetFunction};
+use crate::solution::Guarantee;
 
 /// 厳密な Shapley 値: `phi_i = sum_{S not containing i} |S|! (n - |S| - 1)! / n! (v(S ∪ {i}) - v(S))`。
 pub fn shapley(game: &ExplicitGame) -> Vec<f64> {

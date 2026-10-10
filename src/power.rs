@@ -1,7 +1,7 @@
 //! 単純ゲームの投票力指数。
 //!
 //! 単純ゲームは特性関数が 0 (否決) か 1 (可決) の値だけを取るゲームで、`v(S) = 1` の提携を勝利提携と呼ぶ。
-//! 重み付き投票ゲームは [`crate::oracle::tabulate`] で明示ゲームにしてから渡す。
+//! 重み付き投票ゲームは [`crate::ExplicitGame::tabulate`] で明示ゲームにしてから渡す。
 //! Shapley–Shubik 指数は [`crate::values::shapley`]、正規化 Banzhaf 指数は
 //! [`crate::values::banzhaf`] と [`crate::values::normalize`] で求める。
 //!
@@ -18,9 +18,9 @@
 //! | Coleman の発議力 (Coleman 1971) | `i` が加わると勝つ敗北提携の数 / 敗北提携の数 (分子は決定票の数に等しい) |
 //! | Coleman の集団の行動力 (Coleman 1971) | 勝利提携の数 / `2^n` |
 
-use crate::coalition::Coalition;
 use crate::error::{Error, Result};
 use crate::game::ExplicitGame;
+use crate::game::coalition::Coalition;
 
 /// 単純ゲームの勝利提携と決定票の集計。
 #[derive(Clone, Debug, PartialEq)]
@@ -195,8 +195,8 @@ fn normalized(values: Vec<f64>) -> Result<Vec<f64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::oracle::tabulate;
-    use crate::oracle::voting::WeightedVotingGame;
+    use crate::ExplicitGame;
+    use crate::games::voting::WeightedVotingGame;
 
     fn assert_close(actual: &[f64], expected: &[f64]) {
         assert_eq!(actual.len(), expected.len());
@@ -206,7 +206,9 @@ mod tests {
     }
 
     fn voting(weights: &[u64], quota: u64) -> SimpleGame {
-        let game = tabulate(&WeightedVotingGame::new(weights.to_vec(), quota).unwrap()).unwrap();
+        let game =
+            ExplicitGame::tabulate(&WeightedVotingGame::new(weights.to_vec(), quota).unwrap())
+                .unwrap();
         SimpleGame::new(&game).unwrap()
     }
 
