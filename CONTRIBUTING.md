@@ -22,7 +22,7 @@ cargo build --release --features cli   # target/release/coopgame
 | `src/` | ライブラリ |
 | `src/bin/coopgame.rs` | CLI (feature `cli`) |
 | `tests/` | 結合テスト。`tests/common/mod.rs` は独立に実装した基準 (タルムード則など) と補助関数で、examples からも `#[path]` で読み込む |
-| `examples/` | 計測と分析のプログラム。文書が引用する出力は `data/` に保存している |
+| `examples/` | 使い方の例 (接頭辞なし) と、計測 (`bench_`)・分析 (`study_`) のプログラム。計測と分析の出力のうち文書が引用するものは `data/` に保存している。一覧は `examples/README.md` |
 | `python/` | PyO3 による Python バインディング (配布名 `coopgame-py`、import 名 `coopgame`) |
 | `data/` | 文書が引用する計測 (`bench/`)・他の実装との比較 (`compare/`)・分析 (`analysis/`) のデータ。`data/SHA256SUMS` で照合する |
 | `docs/` | 利用者と、現状を理解したい人向けの文書 (チュートリアル、CLI と入力形式、性能と制約、保証の設計、他の実装との比較、文献と根拠、再現の手順)。一覧は `docs/README.md` |

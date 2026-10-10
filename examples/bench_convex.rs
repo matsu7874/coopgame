@@ -1,8 +1,8 @@
 //! 凸ゲームの仁 (`nucleolus::convex::nucleolus`) の計測。CSV を標準出力に出す。
 //!
 //! ```bash
-//! cargo run --release --example convex_scaling -- bankruptcy 10,20,40 3   # タルムード則と比べる
-//! cargo run --release --example convex_scaling -- graph 10,16,24,40 3     # n <= 16 は LP の仁と比べる
+//! cargo run --release --example bench_convex -- bankruptcy 10,20,40 3   # タルムード則と比べる
+//! cargo run --release --example bench_convex -- graph 10,16,24,40 3     # n <= 16 は LP の仁と比べる
 //! ```
 //!
 //! - bankruptcy: 請求 1-100 の整数、遺産は総和の一様乱数。基準はタルムード則 (閉じた形)。

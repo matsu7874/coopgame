@@ -1,7 +1,7 @@
 //! 反例の探索と縮小 (`search`) の実例。見つけた反例を辞書式順の値で出す。
 //!
 //! ```bash
-//! cargo run --release --example counterexample_search > data/analysis/counterexamples.txt
+//! cargo run --release --example study_counterexamples > data/analysis/counterexamples.txt
 //! ```
 //!
 //! 1. 優加法的なのに、カーネルが 1 点でないゲーム (整数値、4-5 人)。
