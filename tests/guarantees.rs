@@ -225,7 +225,7 @@ fn assumed_result_on_non_convex_game_is_refuted() {
     match unverified.verify(&game, VerifyOptions::default()).unwrap() {
         Verified::Refuted { solution, reason } => {
             assert_eq!(solution.guarantee, Guarantee::Assumed(Property::Convex));
-            assert!(reason.contains("より小さい"), "{reason}");
+            assert!(reason.contains("個人合理性を満たさない"), "{reason}");
             let pre = nucleolus::prenucleolus(&game).unwrap().allocation;
             assert_close(
                 &solution.allocation,

@@ -16,17 +16,7 @@
 //! (例: [`nucleolus::exact`]・[`nucleolus::oracle`]・[`nucleolus::convex`]・[`nucleolus::sampled`])。
 //! 迷ったら [`auto`] がゲームの型から保証のある手法を選ぶ。
 //!
-//! 依存の層 (下の行ほど上の層)。各モジュールは自分より上の行にあるモジュールだけに依存し、同じ行どうしは依存しない。
-//!
-//! | 段 | モジュール |
-//! |---|---|
-//! | 0 | `solution`、(内部) `rng` |
-//! | 1 | `game` |
-//! | 2 | `values`・`surplus`・`compromise`・`power`・`generators`、(内部) `lp`・`linalg`・`rational` |
-//! | 3 | `properties`・`kernel`・`bargaining`・`communication`、(内部) `submodular` |
-//! | 4 | `nucleolus` |
-//! | 5 | `games`・`verify`・`partition`・`io`・`analysis` |
-//! | 6 | `auto` |
+//! モジュール間の依存の向きは [CONTRIBUTING.md](https://github.com/matsu7874/coopgame/blob/main/CONTRIBUTING.md) にまとめている。
 //!
 //! 使い方は、古典的な論文の結果を再現する[チュートリアル](https://github.com/matsu7874/coopgame/tree/main/docs/tutorial)で学べる。
 
@@ -80,5 +70,5 @@ pub use num_rational;
 pub use num_traits;
 
 pub use error::{Error, Result};
-pub use game::{Coalition, ExplicitGame, PlayerSet, SetFunction};
-pub use solution::{Concept, Domain, Guarantee, Property, Solution, Unverified};
+pub use game::{Coalition, Domain, ExplicitGame, PlayerSet, SetFunction};
+pub use solution::{Concept, Guarantee, Property, Solution, Unverified};

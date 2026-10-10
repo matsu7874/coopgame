@@ -1,16 +1,4 @@
-//! 有理数による仁・プレ仁の厳密な検証。
-//!
-//! 浮動小数点で求めた配分 `x` を、次の 2 段階で厳密に検証する。
-//!
-//! 1. 復元 ([`recover_allocation`]): `x` での超過の段 (同じ超過を持つ提携の族) を読み取り、
-//!    「同じ段の提携の超過は等しい」「`x(N) = v(N)`」「下限に張り付いた `x_i = v({i})`」を
-//!    有理数の連立一次方程式として解き、厳密な配分 `x*` を求める。
-//!    `x*` が仁なら、Kohlberg 基準の平衡性からこの連立方程式の解は一意になる。
-//! 2. 判定 ([`kohlberg_exact`]): `x*` で全提携の超過を有理数で計算し、超過の各段の提携族が
-//!    平衡であることを有理数の単体法 (Bland の規則) で判定する。
-//!
-//! 判定は復元に使った段の読み取りに依存しない。読み取りを誤っても、誤った `x*` は判定で不合格になる。
-//! 仁は一意なので、判定に合格した `x*` が仁であり、`x*` と異なる配分は仁ではない。
+//! 有理数による厳密な検証 (説明は [`super::certify`])。
 
 use std::cmp::Ordering;
 
@@ -21,8 +9,7 @@ use crate::error::{Error, Result};
 use crate::game::exact::{ExactGame, Rational, format_rational, to_f64, to_rational};
 use crate::game::{Coalition, ExplicitGame};
 use crate::linalg::Span;
-use crate::rational::simplex;
-use crate::rational::{ExactEchelon, Inserted, indicator};
+use crate::rational::{ExactEchelon, Inserted, indicator, simplex};
 use crate::surplus::excesses;
 
 /// 厳密な検証の結果。
@@ -48,6 +35,20 @@ impl ExactReport {
     }
 }
 
+/// 有理数による仁・プレ仁の厳密な検証。
+///
+/// 浮動小数点で求めた配分 `x` を、次の 2 段階で厳密に検証する。
+///
+/// 1. 復元 ([`recover_allocation`]): `x` での超過の段 (同じ超過を持つ提携の族) を読み取り、
+///    「同じ段の提携の超過は等しい」「`x(N) = v(N)`」「下限に張り付いた `x_i = v({i})`」を
+///    有理数の連立一次方程式として解き、厳密な配分 `x*` を求める。
+///    `x*` が仁なら、Kohlberg 基準の平衡性からこの連立方程式の解は一意になる。
+/// 2. 判定 ([`kohlberg_exact`]): `x*` で全提携の超過を有理数で計算し、超過の各段の提携族が
+///    平衡であることを有理数の単体法 (Bland の規則) で判定する。
+///
+/// 判定は復元に使った段の読み取りに依存しない。読み取りを誤っても、誤った `x*` は判定で不合格になる。
+/// 仁は一意なので、判定に合格した `x*` が仁であり、`x*` と異なる配分は仁ではない。
+///
 /// 浮動小数点の配分を復元し、有理数で Kohlberg 基準を判定する。
 ///
 /// ゲームの値は浮動小数点数の 2 進数の値どおりの有理数として扱う。

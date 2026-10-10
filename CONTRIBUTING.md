@@ -30,6 +30,27 @@ cargo build --release --features cli   # target/release/coopgame
 
 `data/`、`docs/`、`scripts/` は crates.io のパッケージに含めない (`Cargo.toml` の `exclude`)。
 
+## モジュールの構成と依存の向き
+
+モジュールは目的で分ける (一覧は [docs/api-overview.md](docs/api-overview.md))。置き方の約束は次のとおり。
+
+- 同じ解を別の手法で求めるものは、解のモジュールの下に公開のサブモジュールとして置く (例: `nucleolus::exact`・`nucleolus::oracle`)。
+- 1 つのモジュールをファイルに分けるだけのときは、サブモジュールを非公開にして親から `pub use` する (例: `kernel` の `set.rs`)。
+  公開パスは 1 つにし、説明は公開している項目の文書コメントに書く。
+- 依存は下の段から上の段への一方向にする。各モジュールは自分より下の段にあるモジュールだけを参照し、同じ段どうしは参照しない (テストのコードは除く)。
+
+| 段 | モジュール |
+|---|---|
+| 0 | `game`、(内部) `rng` |
+| 1 | `solution`・`surplus`・`compromise`・`power`・`generators`、(内部) `lp`・`linalg`・`rational` |
+| 2 | `values`・`properties`・`kernel`・`bargaining`、(内部) `submodular` |
+| 3 | `nucleolus`・`communication` |
+| 4 | `games`・`verify`・`partition`・`io`・`analysis` |
+| 5 | `auto` |
+
+段は `src/` の `use crate::…` を集めて数えた依存の深さである。
+下の段で上の段の機能が要るときは、機能を下の段へ移すか、呼び出す側を上の段へ移す。
+
 ## コミット前の確認
 
 CI は使っていないので、コミット前に次を実行する。

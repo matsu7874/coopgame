@@ -12,11 +12,11 @@
 
 use std::collections::HashMap;
 
+use super::oracle;
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::oracle::OracleGame;
 use crate::game::{PlayerSet, SetFunction};
-use crate::nucleolus::oracle as oracle_nucleolus;
 use crate::nucleolus::{LeastCore, NucleolusResult};
 use crate::rng::SplitMix64;
 use crate::solution::Guarantee;
@@ -187,11 +187,8 @@ pub fn nucleolus<G: SetFunction + ?Sized>(
     domain: Domain,
 ) -> Result<SampledNucleolus> {
     let sampled = SampledGame::sample(game, pairs, seed)?;
-    let result: NucleolusResult = oracle_nucleolus::nucleolus_with(
-        &sampled,
-        domain,
-        oracle_nucleolus::default_tolerance(&sampled),
-    )?;
+    let result: NucleolusResult =
+        oracle::nucleolus_with(&sampled, domain, oracle::default_tolerance(&sampled))?;
     Ok(SampledNucleolus {
         epsilon: result.levels.first().copied().unwrap_or(0.0),
         allocation: result.allocation,
@@ -209,7 +206,7 @@ pub fn least_core<G: SetFunction + ?Sized>(
     domain: Domain,
 ) -> Result<(LeastCore, usize)> {
     let sampled = SampledGame::sample(game, pairs, seed)?;
-    let mut least = oracle_nucleolus::least_core(&sampled, domain)?;
+    let mut least = oracle::least_core(&sampled, domain)?;
     least.guarantee = Guarantee::Approximate;
     Ok((least, sampled.evaluations()))
 }
@@ -235,10 +232,9 @@ mod tests {
                     nucleolus::nucleolus_with(&game, nucleolus::Options::new(&game, domain))
                         .unwrap()
                         .allocation;
-                let actual =
-                    oracle_nucleolus::nucleolus_with(&sampled, domain, 1e-7 * game.max_abs_value())
-                        .unwrap()
-                        .allocation;
+                let actual = oracle::nucleolus_with(&sampled, domain, 1e-7 * game.max_abs_value())
+                    .unwrap()
+                    .allocation;
                 for (a, e) in actual.iter().zip(&expected) {
                     assert!(
                         (a - e).abs() < 1e-6 * game.max_abs_value(),

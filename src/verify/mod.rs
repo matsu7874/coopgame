@@ -28,14 +28,13 @@ pub use kohlberg::{KohlbergReport, kohlberg};
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::ExplicitGame;
+use crate::game::allocation::feasibility_violation;
 use crate::game::exact::{ExactGame, Rational, to_f64};
-use crate::game::{PlayerSet, SetFunction, value_scale};
+use crate::game::{ExplicitGame, PlayerSet, SetFunction, value_scale};
 use crate::linalg::max_abs_difference;
 use crate::nucleolus::{self, Options};
 use crate::rng::SplitMix64;
-use crate::solution::Solution;
-use crate::solution::{Guarantee, Unverified};
+use crate::solution::{Guarantee, Solution, Unverified};
 
 /// 厳密な検証を行う人数の上限 (全提携の値の表と、有理数の LP を使う)。
 pub const MAX_CERTIFY_PLAYERS: usize = 20;
@@ -231,24 +230,7 @@ fn check_feasibility<G: SetFunction + ?Sized>(
         )));
     }
     let tolerance = 1e-6 * value_scale(game);
-    let total = game.value(&PlayerSet::full(n));
-    if (x.iter().sum::<f64>() - total).abs() > tolerance {
-        return Ok(Some(Check::Refuted(format!(
-            "配分の和 {} が v(N) = {total} と異なる",
-            x.iter().sum::<f64>()
-        ))));
-    }
-    if solution.concept.domain() == Domain::Imputation {
-        for (i, xi) in x.iter().enumerate() {
-            let single = game.value(&PlayerSet::from_players(n, &[i]));
-            if *xi < single - tolerance {
-                return Ok(Some(Check::Refuted(format!(
-                    "プレイヤー {i} の受取 {xi} が v({{{i}}}) = {single} より小さい"
-                ))));
-            }
-        }
-    }
-    Ok(None)
+    Ok(feasibility_violation(game, x, solution.concept.domain(), tolerance).map(Check::Refuted))
 }
 
 /// 最大余剰 `s_ij = max { e(S, x) : i in S, j not in S }` を総当たりで求める。

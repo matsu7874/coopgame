@@ -1,32 +1,12 @@
-//! 小さいゲームのカーネル・プレカーネル全体を、多面体の和集合として求める。
-//!
-//! 最大余剰 `s_ij(x)` は区分線形なので、各組 `(i, j)` で `s_ij` を与える提携
-//! `S_ij`(`i in S, j not in S` で超過が最大の提携)を固定すると、その領域では
-//! `s_ij(x) = e(S_ij, x)` が一次式になる。全ての組について `S_ij` と `S_ji` を選び、
-//!
-//! - プレカーネル: `e(S_ij) = e(S_ji)`
-//! - カーネル: 上に加えて、`e(S_ij) >= e(S_ji)` かつ `x_j = v({j})`、
-//!   または `e(S_ji) >= e(S_ij)` かつ `x_i = v({i})`
-//!
-//! のいずれかを課すと、条件は全て一次の等式・不等式になる。
-//! この選び方を組ごとに深さ優先で探索し、LP で実行不可能な枝を刈る。
-//! 葉に残った多面体の和集合がカーネル(プレカーネル)に一致する。
-//!
-//! 同点の提携による分岐の重複を避けるため、各節点で多面体のアフィン包
-//! (明示的な等式と、LP で見つけた暗黙の等式)を求め、その上で超過が恒等的に
-//! 等しくなる提携は同じ候補として 1 つだけ展開する。
-//!
-//! 計算量は組の数と提携の数に対して指数的なので、プレイヤー数は [`MAX_KERNEL_SET_PLAYERS`] 以下に限る。
+//! カーネル・プレカーネル全体 (説明は [`super::kernel_set`])。
 
 use microlp::Variable;
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::ExplicitGame;
 use crate::game::allocation::check_imputation_set;
-use crate::game::coalition::Coalition;
-use crate::game::default_tolerance;
-use crate::linalg::{Span, solve_square};
+use crate::game::{Coalition, ExplicitGame, default_tolerance};
+use crate::linalg::{Span, for_each_combination, solve_square};
 use crate::lp::{self, Cmp, Counter};
 
 /// [`kernel_set`] が扱うプレイヤー数の上限。
@@ -265,6 +245,26 @@ impl SetOptions {
     }
 }
 
+/// 小さいゲームのカーネル・プレカーネル全体を、多面体の和集合として求める。
+///
+/// 最大余剰 `s_ij(x)` は区分線形なので、各組 `(i, j)` で `s_ij` を与える提携
+/// `S_ij`(`i in S, j not in S` で超過が最大の提携)を固定すると、その領域では
+/// `s_ij(x) = e(S_ij, x)` が一次式になる。全ての組について `S_ij` と `S_ji` を選び、
+///
+/// - プレカーネル: `e(S_ij) = e(S_ji)`
+/// - カーネル: 上に加えて、`e(S_ij) >= e(S_ji)` かつ `x_j = v({j})`、
+///   または `e(S_ji) >= e(S_ij)` かつ `x_i = v({i})`
+///
+/// のいずれかを課すと、条件は全て一次の等式・不等式になる。
+/// この選び方を組ごとに深さ優先で探索し、LP で実行不可能な枝を刈る。
+/// 葉に残った多面体の和集合がカーネル(プレカーネル)に一致する。
+///
+/// 同点の提携による分岐の重複を避けるため、各節点で多面体のアフィン包
+/// (明示的な等式と、LP で見つけた暗黙の等式)を求め、その上で超過が恒等的に
+/// 等しくなる提携は同じ候補として 1 つだけ展開する。
+///
+/// 計算量は組の数と提携の数に対して指数的なので、プレイヤー数は [`MAX_KERNEL_SET_PLAYERS`] 以下に限る。
+///
 /// カーネル(`Domain::Imputation`)またはプレカーネル(`Domain::Preimputation`)全体を求める。
 pub fn kernel_set(game: &ExplicitGame, domain: Domain, options: SetOptions) -> Result<KernelSet> {
     let n = game.players();
@@ -728,44 +728,12 @@ fn combinations_count(n: usize, k: usize) -> usize {
     count
 }
 
-/// `0..n` から `k` 個を選ぶ組み合わせを辞書式順に列挙する。
-pub(crate) fn for_each_combination(n: usize, k: usize, visit: &mut impl FnMut(&[usize])) {
-    fn recurse(
-        start: usize,
-        n: usize,
-        k: usize,
-        chosen: &mut Vec<usize>,
-        visit: &mut impl FnMut(&[usize]),
-    ) {
-        if chosen.len() == k {
-            visit(chosen);
-            return;
-        }
-        for i in start..n {
-            if n - i < k - chosen.len() {
-                break;
-            }
-            chosen.push(i);
-            recurse(i + 1, n, k, chosen, visit);
-            chosen.pop();
-        }
-    }
-    if k <= n {
-        recurse(0, n, k, &mut Vec::with_capacity(k), visit);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn combinations() {
-        let mut seen = Vec::new();
-        for_each_combination(4, 2, &mut |c| seen.push(c.to_vec()));
-        assert_eq!(seen.len(), 6);
-        assert_eq!(seen[0], vec![0, 1]);
-        assert_eq!(seen[5], vec![2, 3]);
+    fn counts_combinations() {
         assert_eq!(combinations_count(4, 2), 6);
     }
 

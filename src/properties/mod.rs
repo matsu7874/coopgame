@@ -4,14 +4,27 @@
 //!   (コアが空でないかは最小コアの LP で判定するので、[`crate::nucleolus::has_nonempty_core`] にある)
 //! - 型: 性質を持つ根拠 ([`Proven`]・[`Assumed`]) を型で区別し、性質に基づく手法の保証を決める
 //!   ([`ConvexGame`]・[`ConvexChecked`]・[`Assume`])
+//!
+//! ## 性質を型で表す
+//!
+//! 性質を持つことの根拠は 3 通りある。
+//!
+//! | 根拠 | 例 | 証明の種類 ([`ProofKind`]) | 結果の保証 |
+//! |---|---|---|---|
+//! | 型が構造的に持つ | [`crate::games::bankruptcy::BankruptcyGame`]、[`crate::games::graph::InducedSubgraphGame`] | [`Proven`] | [`crate::Guarantee::Proven`] |
+//! | 計算で確認した | [`ConvexChecked::new`] (全提携で優モジュラ性を判定) | [`Proven`] | [`crate::Guarantee::Proven`] |
+//! | 利用者が宣言した | [`Assume::convex`] | [`Assumed`] | [`crate::Guarantee::Assumed`] |
+//!
+//! 性質に基づく手法 (例: [`crate::nucleolus::convex::nucleolus`]) は、証明の種類に応じて戻り値の型が変わる。
+//! [`Proven`] なら結果をそのまま返し、[`Assumed`] なら [`crate::Unverified`] に包んで返す。
+//! したがって、宣言しただけの性質に基づく結果を、保証付きの結果と取り違えることはない
+//! (コンパイル時に区別される)。
 
 mod proof;
 
 pub use proof::{Assume, Assumed, ConvexChecked, ConvexGame, Convexity, ProofKind, Proven};
 
-use crate::game::ExplicitGame;
-use crate::game::coalition::Coalition;
-use crate::game::default_tolerance;
+use crate::game::{Coalition, ExplicitGame, default_tolerance};
 
 /// 互いに素な `S, T` について `v(S ∪ T) >= v(S) + v(T)`。計算量は `3^n`。
 pub fn is_superadditive(game: &ExplicitGame) -> bool {

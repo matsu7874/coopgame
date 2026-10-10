@@ -25,8 +25,7 @@ use std::cell::Cell;
 use crate::error::{Error, Result};
 use crate::game::{PlayerSet, SetFunction, value_scale};
 use crate::properties::{ConvexGame, ProofKind};
-use crate::solution::Property;
-use crate::solution::{Concept, Solution};
+use crate::solution::{Concept, Property, Solution};
 use crate::submodular;
 
 #[derive(Clone, Copy, Debug, PartialEq)]

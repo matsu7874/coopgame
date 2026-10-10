@@ -11,8 +11,7 @@
 
 use crate::analysis::explain::{self, ExplainOptions};
 use crate::error::{Error, Result};
-use crate::game::ExplicitGame;
-use crate::game::coalition::Coalition;
+use crate::game::{Coalition, ExplicitGame};
 use crate::rng::SplitMix64;
 
 /// 配分の分布の要約。

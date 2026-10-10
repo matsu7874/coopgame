@@ -1,22 +1,8 @@
-//! ゲームの性質を型で表し、性質に基づく手法の保証を決める。
-//!
-//! 性質を持つことの根拠は 3 通りある。
-//!
-//! | 根拠 | 例 | 証明の種類 ([`ProofKind`]) | 結果の保証 |
-//! |---|---|---|---|
-//! | 型が構造的に持つ | [`crate::games::bankruptcy::BankruptcyGame`]、[`crate::games::graph::InducedSubgraphGame`] | [`Proven`] | [`Guarantee::Proven`] |
-//! | 計算で確認した | [`ConvexChecked::new`] (全提携で優モジュラ性を判定) | [`Proven`] | [`Guarantee::Proven`] |
-//! | 利用者が宣言した | [`Assume::convex`] | [`Assumed`] | [`Guarantee::Assumed`] |
-//!
-//! 性質に基づく手法 (例: [`crate::nucleolus::convex::nucleolus`]) は、証明の種類に応じて戻り値の型が変わる。
-//! [`Proven`] なら結果をそのまま返し、[`Assumed`] なら [`Unverified`] に包んで返す。
-//! したがって、宣言しただけの性質に基づく結果を、保証付きの結果と取り違えることはない
-//! (コンパイル時に区別される)。
+//! 性質を型で表すラッパー (説明は [`super`] のモジュール文書)。
 
 use std::marker::PhantomData;
 
-use crate::game::ExplicitGame;
-use crate::game::{PlayerSet, SetFunction};
+use crate::game::{ExplicitGame, PlayerSet, SetFunction};
 use crate::properties;
 use crate::solution::{Guarantee, Property, Unverified};
 

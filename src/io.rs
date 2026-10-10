@@ -35,10 +35,8 @@ use serde_json::Value;
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::coalition::Coalition;
 use crate::game::oracle::OracleGame;
-use crate::game::{ExplicitGame, MAX_PLAYERS};
-use crate::game::{PlayerSet, SetFunction};
+use crate::game::{Coalition, ExplicitGame, MAX_PLAYERS, PlayerSet, SetFunction};
 use crate::nucleolus::NucleolusResult;
 use crate::solution::Guarantee;
 
@@ -323,7 +321,7 @@ impl GameData {
     }
 
     fn describe(&self, coalition: Coalition) -> String {
-        crate::game::coalition::format_coalition(coalition, Some(&self.names))
+        crate::game::format_coalition(coalition, Some(&self.names))
     }
 
     /// 全提携の値の表にする。

@@ -13,11 +13,9 @@
 use std::fmt::Write as _;
 
 use crate::error::{Error, Result};
-use crate::game::ExplicitGame;
-use crate::game::coalition::{Coalition, player_name};
-use crate::kernel::for_each_combination;
+use crate::game::{Coalition, ExplicitGame, player_name};
 use crate::kernel::{SetOptions, kernel_set};
-use crate::linalg::{indicator, solve_square};
+use crate::linalg::{for_each_combination, indicator, solve_square};
 use crate::{Domain, nucleolus, values};
 
 #[derive(Clone, Debug, PartialEq)]

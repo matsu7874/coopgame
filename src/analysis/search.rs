@@ -13,8 +13,7 @@
 //! 単純さは (人数, 整数でない値の数, 値の絶対値の和) の辞書式順で比べ、より単純になる変形だけを受け入れる。
 
 use crate::error::Result;
-use crate::game::ExplicitGame;
-use crate::game::coalition::Coalition;
+use crate::game::{Coalition, ExplicitGame};
 use crate::rng::SplitMix64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

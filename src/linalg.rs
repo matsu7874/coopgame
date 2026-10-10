@@ -1,6 +1,6 @@
 //! 提携の特性ベクトルが張る部分空間を管理する。
 
-use crate::game::coalition::Coalition;
+use crate::game::Coalition;
 
 /// 追加したベクトルの張る部分空間を、行階段形で保持する。
 #[derive(Clone, Debug)]
@@ -147,6 +147,33 @@ pub fn indicator(coalition: Coalition, dimension: usize) -> Vec<f64> {
         .collect()
 }
 
+/// `0..n` から `k` 個を選ぶ組み合わせを辞書式順に列挙する。
+pub(crate) fn for_each_combination(n: usize, k: usize, visit: &mut impl FnMut(&[usize])) {
+    fn recurse(
+        start: usize,
+        n: usize,
+        k: usize,
+        chosen: &mut Vec<usize>,
+        visit: &mut impl FnMut(&[usize]),
+    ) {
+        if chosen.len() == k {
+            visit(chosen);
+            return;
+        }
+        for i in start..n {
+            if n - i < k - chosen.len() {
+                break;
+            }
+            chosen.push(i);
+            recurse(i + 1, n, k, chosen, visit);
+            chosen.pop();
+        }
+    }
+    if k <= n {
+        recurse(0, n, k, &mut Vec::with_capacity(k), visit);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,5 +212,14 @@ mod tests {
         assert_eq!(solve_square(a, vec![4.0, 3.0], 1e-12), Some(vec![1.0, 2.0]));
         let singular = vec![vec![1.0, 1.0], vec![2.0, 2.0]];
         assert_eq!(solve_square(singular, vec![1.0, 2.0], 1e-12), None);
+    }
+
+    #[test]
+    fn combinations() {
+        let mut seen = Vec::new();
+        for_each_combination(4, 2, &mut |c| seen.push(c.to_vec()));
+        assert_eq!(seen.len(), 6);
+        assert_eq!(seen[0], vec![0, 1]);
+        assert_eq!(seen[5], vec![2, 3]);
     }
 }

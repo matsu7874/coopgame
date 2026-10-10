@@ -11,9 +11,7 @@
 //! solidarity 値 (Nowak & Radzik 1994) は、Shapley 値の限界貢献 `v(S) - v(S \ {i})` を、
 //! 提携 `S` のメンバーの限界貢献の平均 `A(S) = (1/|S|) sum_{k in S} (v(S) - v(S \ {k}))` に置き換えた値である。
 
-use crate::game::ExplicitGame;
-use crate::game::coalition::Coalition;
-use crate::game::{PlayerSet, SetFunction};
+use crate::game::{Coalition, ExplicitGame, PlayerSet, SetFunction};
 use crate::rng::SplitMix64;
 use crate::solution::Guarantee;
 

@@ -14,11 +14,9 @@ use std::fmt::Write as _;
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::ExplicitGame;
-use crate::game::coalition::Coalition;
-pub use crate::game::coalition::format_coalition;
-use crate::game::coalition::player_name as name;
-use crate::game::default_tolerance;
+use crate::game::{
+    Coalition, ExplicitGame, default_tolerance, format_coalition, player_name as name,
+};
 use crate::nucleolus;
 use crate::surplus::excesses;
 

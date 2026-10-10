@@ -19,17 +19,7 @@ LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を�
 
 同じ解を別の手法で求めるものは、解のモジュールの下のサブモジュールに置いている。
 
-依存の層 (下の行ほど上の層)。各モジュールは自分より上の行にあるモジュールだけに依存し、同じ行どうしは依存しない。
-
-| 段 | モジュール |
-|---|---|
-| 0 | `solution`、(内部) `rng` |
-| 1 | `game` |
-| 2 | `values`・`surplus`・`compromise`・`power`・`generators`、(内部) `lp`・`linalg`・`rational` |
-| 3 | `properties`・`kernel`・`bargaining`・`communication`、(内部) `submodular` |
-| 4 | `nucleolus` |
-| 5 | `games`・`verify`・`partition`・`io`・`analysis` |
-| 6 | `auto` |
+モジュール間の依存の向きは [CONTRIBUTING.md](../CONTRIBUTING.md) にまとめている。
 
 ## 解を求める
 

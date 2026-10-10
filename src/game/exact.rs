@@ -4,6 +4,8 @@ use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::Zero;
 
+use super::check_players;
+use super::coalition::{lexicographic_order, players_from_len};
 use crate::error::{Error, Result};
 use crate::game::{Coalition, ExplicitGame};
 
@@ -93,13 +95,8 @@ impl ExactGame {
     /// 値を浮動小数点数の和などで作ると、有理数では等しいはずの値がずれて厳密な検証が成り立たないことがある。
     /// その場合は値を有理数のまま構築し、[`crate::verify::certify_exact`] で検証する。
     pub fn from_binary(values: Vec<Rational>) -> Result<ExactGame> {
-        let players = crate::game::coalition::players_from_len(values.len())?;
-        if players > crate::game::MAX_PLAYERS {
-            return Err(Error::TooManyPlayers {
-                players,
-                max: crate::game::MAX_PLAYERS,
-            });
-        }
+        let players = players_from_len(values.len())?;
+        check_players(players)?;
         let mut all = Vec::with_capacity(values.len() + 1);
         all.push(Rational::zero());
         all.extend(values);
@@ -111,12 +108,9 @@ impl ExactGame {
 
     /// 辞書式順 (CoopGame・TUGLab と同じ) に並んだ有理数の値から作る。
     pub fn from_lex(values: Vec<Rational>) -> Result<ExactGame> {
-        let n = crate::game::coalition::players_from_len(values.len())?;
+        let n = players_from_len(values.len())?;
         let mut binary = vec![Rational::zero(); values.len()];
-        for (value, coalition) in values
-            .into_iter()
-            .zip(crate::game::coalition::lexicographic_order(n))
-        {
+        for (value, coalition) in values.into_iter().zip(lexicographic_order(n)) {
             binary[coalition.index() - 1] = value;
         }
         ExactGame::from_binary(binary)

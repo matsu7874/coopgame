@@ -14,7 +14,7 @@ use num_traits::Zero;
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::coalition::Coalition;
+use crate::game::Coalition;
 use crate::game::exact::{ExactGame, Rational, format_rational};
 use crate::rational::simplex::{self, Outcome};
 use crate::rational::{ExactEchelon, Inserted, indicator};

@@ -41,6 +41,14 @@ impl PlayerSet {
         set
     }
 
+    /// 64 人以下の集合を `coalition` に置き換える (割り当てずに使い回すため)。
+    pub(crate) fn assign(&mut self, coalition: Coalition) {
+        debug_assert!(self.players <= 64);
+        if let Some(word) = self.words.first_mut() {
+            *word = coalition.0;
+        }
+    }
+
     /// 64 人以下なら [`Coalition`] に変換する。
     pub(crate) fn to_coalition(&self) -> Option<Coalition> {
         match self.words.as_slice() {

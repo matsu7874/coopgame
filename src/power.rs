@@ -19,8 +19,7 @@
 //! | Coleman の集団の行動力 (Coleman 1971) | 勝利提携の数 / `2^n` |
 
 use crate::error::{Error, Result};
-use crate::game::ExplicitGame;
-use crate::game::coalition::Coalition;
+use crate::game::{Coalition, ExplicitGame};
 
 /// 単純ゲームの勝利提携と決定票の集計。
 #[derive(Clone, Debug, PartialEq)]

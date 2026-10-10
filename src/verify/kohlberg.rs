@@ -1,20 +1,9 @@
-//! Kohlberg 基準による仁・プレ仁の検証。
-//!
-//! 超過が `alpha` 以上の真部分提携の族を `D(alpha, x)` とする。
-//!
-//! - プレ仁: `x` がプレ仁であることと、空でない全ての `D(alpha, x)` が平衡
-//!   (全提携に正の重みを付けて特性ベクトルの和を `1_N` の正数倍にできる)であることは同値。
-//! - 仁: `D0(x) = { {i} : x_i = v({i}) }` を重み 0 以上で加えてよい。
-//!
-//! 超過の値の段ごとに平衡性を LP で判定する。族の階数が `n` に達して平衡なら、
-//! それ以降の段も平衡になる(`1_N` が錐の内点にあるため)ので判定を打ち切る。
+//! Kohlberg 基準による検証 (説明は [`super::kohlberg`])。
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::ExplicitGame;
 use crate::game::allocation::feasibility_violation;
-use crate::game::coalition::Coalition;
-use crate::game::default_tolerance;
+use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
 use crate::surplus::excesses;
@@ -30,17 +19,20 @@ pub struct KohlbergReport {
     pub lp_solves: usize,
 }
 
+/// Kohlberg 基準による仁・プレ仁の検証。
+///
+/// 超過が `alpha` 以上の真部分提携の族を `D(alpha, x)` とする。
+///
+/// - プレ仁: `x` がプレ仁であることと、空でない全ての `D(alpha, x)` が平衡
+///   (全提携に正の重みを付けて特性ベクトルの和を `1_N` の正数倍にできる)であることは同値。
+/// - 仁: `D0(x) = { {i} : x_i = v({i}) }` を重み 0 以上で加えてよい。
+///
+/// 超過の値の段ごとに平衡性を LP で判定する。族の階数が `n` に達して平衡なら、
+/// それ以降の段も平衡になる(`1_N` が錐の内点にあるため)ので判定を打ち切る。
+///
 /// 既定の許容誤差で検証する。
 pub fn kohlberg(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<KohlbergReport> {
-    kohlberg_with_tolerance(game, x, domain, default_tolerance(game) * 10.0)
-}
-
-fn kohlberg_with_tolerance(
-    game: &ExplicitGame,
-    x: &[f64],
-    domain: Domain,
-    tolerance: f64,
-) -> Result<KohlbergReport> {
+    let tolerance = default_tolerance(game) * 10.0;
     let n = game.players();
     if x.len() != n {
         return Err(Error::InvalidArgument(format!(

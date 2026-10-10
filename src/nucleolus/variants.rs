@@ -43,10 +43,8 @@ use microlp::{Problem, Variable};
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::ExplicitGame;
 use crate::game::allocation::check_imputation_set;
-use crate::game::coalition::Coalition;
-use crate::game::default_tolerance;
+use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::linalg::{Span, indicator};
 use crate::lp::{self, Cmp, Counter};
 use crate::solution::Guarantee;

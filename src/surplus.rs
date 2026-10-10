@@ -1,18 +1,7 @@
 //! 超過 `e(S, x) = v(S) - x(S)` と最大余剰 `s_ij(x)`。
 
-use crate::game::ExplicitGame;
-use crate::game::allocation::coalition_sums;
-use crate::game::coalition::Coalition;
-
-/// 全提携の超過(ビット順、長さ `2^n`)。空提携の超過は 0。
-pub fn excesses(game: &ExplicitGame, x: &[f64]) -> Vec<f64> {
-    debug_assert_eq!(x.len(), game.players());
-    coalition_sums(x)
-        .iter()
-        .zip(game.values())
-        .map(|(sum, value)| value - sum)
-        .collect()
-}
+pub use crate::game::allocation::excesses;
+use crate::game::{Coalition, ExplicitGame};
 
 pub fn excess(game: &ExplicitGame, coalition: Coalition, x: &[f64]) -> f64 {
     game.value(coalition) - coalition.players().map(|i| x[i]).sum::<f64>()

@@ -16,6 +16,7 @@ use microlp::{Problem, Solution, Variable};
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::PlayerSet;
+use crate::game::allocation::check_imputation_set;
 use crate::game::oracle::Separation;
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
@@ -85,11 +86,7 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
         let lower: Vec<f64> = (0..n)
             .map(|i| game.value(&PlayerSet::from_players(n, &[i])))
             .collect();
-        if domain == Domain::Imputation
-            && lower.iter().sum::<f64>() > game.value(&grand) + tolerance
-        {
-            return Err(Error::EmptyImputationSet);
-        }
+        check_imputation_set(game, domain, tolerance)?;
         let mut span = Span::new(n);
         span.insert(&grand.indicator());
         let mut solver = Sequential {

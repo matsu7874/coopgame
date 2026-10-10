@@ -19,10 +19,8 @@ use crate::games::graph::InducedSubgraphGame;
 use crate::games::voting::WeightedVotingGame;
 use crate::nucleolus;
 use crate::nucleolus::convex;
-use crate::nucleolus::oracle as oracle_nucleolus;
 use crate::properties::ConvexChecked;
-use crate::solution::{Concept, Solution};
-use crate::solution::{Guarantee, Property};
+use crate::solution::{Concept, Guarantee, Property, Solution};
 
 /// 凸と確認済みの明示ゲームで、逐次 LP を使う人数の上限 (計測で決めた。`docs/guarantees.md`)。
 pub const EXPLICIT_LP_LIMIT: usize = 16;
@@ -74,7 +72,7 @@ impl AutoNucleolus for BankruptcyGame {
 impl AutoNucleolus for WeightedVotingGame {
     fn nucleolus_auto(&self) -> Result<Solution> {
         Ok(exact(
-            oracle_nucleolus::nucleolus(self)?.allocation,
+            nucleolus::oracle::nucleolus(self)?.allocation,
             "oracle-constraint-generation",
         ))
     }

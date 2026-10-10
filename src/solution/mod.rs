@@ -6,14 +6,7 @@ mod guarantee;
 
 pub use guarantee::{Guarantee, Property, Unverified};
 
-/// 配分を探す領域。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Domain {
-    /// 効率性 `x(N) = v(N)` のみを課す(プレ仁・プレカーネル)。
-    Preimputation,
-    /// 効率性に加えて個人合理性 `x_i >= v({i})` を課す(仁・カーネル)。
-    Imputation,
-}
+use crate::game::Domain;
 
 /// 求めた解の概念。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

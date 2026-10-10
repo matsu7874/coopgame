@@ -10,8 +10,7 @@
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::ExplicitGame;
-use crate::game::coalition::Coalition;
+use crate::game::{Coalition, ExplicitGame};
 use crate::nucleolus::{self, NucleolusResult, Options};
 use crate::values;
 

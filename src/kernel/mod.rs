@@ -13,16 +13,12 @@
 
 mod set;
 
-pub(crate) use set::for_each_combination;
 pub use set::{KernelPiece, KernelSet, MAX_KERNEL_SET_PLAYERS, Row, SetOptions, kernel_set};
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::ExplicitGame;
-use crate::game::allocation::check_imputation_set;
-use crate::game::allocation::feasibility_violation;
-use crate::game::coalition::Coalition;
-use crate::game::default_tolerance;
+use crate::game::allocation::{check_imputation_set, feasibility_violation};
+use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::solution::Guarantee;
 use crate::surplus::max_surplus;
 

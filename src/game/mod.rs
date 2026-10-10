@@ -13,6 +13,8 @@ pub mod oracle;
 mod player_set;
 pub(crate) mod subsets;
 
+pub use allocation::Domain;
+pub(crate) use allocation::excesses;
 pub use coalition::{Coalition, binary_to_lex, format_coalition, player_name};
 pub use player_set::{PlayerSet, SetFunction, value_scale};
 
@@ -78,8 +80,10 @@ impl ExplicitGame {
                 max: MAX_PLAYERS,
             });
         }
+        let mut set = PlayerSet::full(n);
         ExplicitGame::from_fn(n, |coalition| {
-            game.value(&PlayerSet::from_coalition(n, coalition))
+            set.assign(coalition);
+            game.value(&set)
         })
     }
 
@@ -178,7 +182,7 @@ pub fn default_tolerance(game: &ExplicitGame) -> f64 {
     1e-7 * game.max_abs_value().max(1.0)
 }
 
-fn check_players(players: usize) -> Result<()> {
+pub(super) fn check_players(players: usize) -> Result<()> {
     if players > MAX_PLAYERS {
         return Err(Error::TooManyPlayers {
             players,

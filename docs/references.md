@@ -91,7 +91,7 @@
 | 1954 年の国連安全保障理事会で、Shapley–Shubik 指数の合計は常任 5 か国が 76/77、非常任 6 か国が 1/77 | SS1954 (p. 791) | `docs/tutorial/02-voting-power.md` | チュートリアルの doctest (1 か国あたり 76/385、1/462) |
 | Nassau 郡の議会 (1964 年、重み 31, 31, 21, 28, 2, 2、基準 58) で、North Hempstead、Glen Cove、Long Beach の Banzhaf 値は 0 | Ban1965 (数値は Colorado State University の講義資料 M130 notes 2.2.10。原論文 pp. 338–340 は未確認) | `docs/tutorial/02-voting-power.md` | チュートリアルの doctest |
 | 凸ゲームではコアが空でなく、Shapley 値がコアに属する | Sha1971 | `docs/tutorial/04-stability-and-verification.md` | チュートリアルの doctest (ランダムな凸ゲーム 20 個) |
-| 破産ゲームの仁はタルムード則に一致する | AM1985 | `src/games/bankruptcy/mod.rs` (公開 API)、テスト | `bankruptcy_nucleolus_is_talmud_rule`、`talmud_cases_from_aumann_maschler`、`bankruptcy_nucleolus_matches_talmud_rule` (ランダムな 300 問)、オラクル版で n = 100 まで (`bankruptcy_oracle_matches_talmud_rule_for_large_n`)、有理数で検証した仁と分数として完全一致 (`equals_certified_nucleolus_exactly`) |
+| 破産ゲームの仁はタルムード則に一致する | AM1985 | `src/games/bankruptcy.rs` (公開 API)、テスト | `bankruptcy_nucleolus_is_talmud_rule`、`talmud_cases_from_aumann_maschler`、`bankruptcy_nucleolus_matches_talmud_rule` (ランダムな 300 問)、オラクル版で n = 100 まで (`bankruptcy_oracle_matches_talmud_rule_for_large_n`)、有理数で検証した仁と分数として完全一致 (`equals_certified_nucleolus_exactly`) |
 | Shapley 値・Banzhaf 値の定義 | Sha1953, Ban1965 | `src/values.rs` | CoopGame との照合 (`scripts/compare/check_values.py`)、手計算の例 |
 | Shapley 値は順列の限界貢献の平均で推定できる | CGT2009 | `values::shapley_sampling` | 厳密値との差が標準誤差の 5 倍以内 (`sampling_estimates_agree_with_exact_values`) |
 | 空港ゲーム (費用が提携内の最大値) の Shapley 値は、費用の増分を必要とする人数で等分した和 | LO1973 | テスト | `airport_game_shapley_matches_littlechild_owen` (ランダムな 100 問)、`ibn_ezra_inheritance_shapley_value` |
