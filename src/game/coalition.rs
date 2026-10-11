@@ -17,7 +17,6 @@ use crate::error::{Error, Result};
 pub struct Coalition(pub u64);
 
 impl Coalition {
-    /// 空提携。
     pub const fn empty() -> Coalition {
         Coalition(0)
     }
@@ -130,7 +129,6 @@ impl Coalition {
 }
 
 impl fmt::Display for Coalition {
-    /// メンバーの番号 (0 始まり) を `{0, 2}` の形で書く。
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write_members(f, self.members())
     }

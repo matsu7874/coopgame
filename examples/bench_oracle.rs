@@ -20,7 +20,6 @@ use coopgame::nucleolus::oracle as oracle_nucleolus;
 #[path = "../tests/common/mod.rs"]
 mod common;
 
-/// コマンドライン引数。
 struct Args {
     kind: String,
     sizes: Vec<usize>,

@@ -49,8 +49,6 @@ impl ExactReport {
 /// 判定は復元に使った段の読み取りに依存しない。読み取りを誤っても、誤った `x*` は判定で不合格になる。
 /// 仁は一意なので、判定に合格した `x*` が仁であり、`x*` と異なる配分は仁ではない。
 ///
-/// 浮動小数点の配分を復元し、有理数で Kohlberg 基準を判定する。
-///
 /// ゲームの値は浮動小数点数の 2 進数の値どおりの有理数として扱う。
 pub fn certify(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<ExactReport> {
     certify_exact(&ExactGame::from_explicit(game)?, x, domain)

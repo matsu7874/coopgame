@@ -81,7 +81,6 @@ pub enum Missing {
 /// 読み込んだゲーム。
 #[derive(Clone, Debug, PartialEq)]
 pub struct GameData {
-    /// 人数。
     pub players: usize,
     pub kind: Kind,
     /// 値が分かる提携 (空でない) と値。

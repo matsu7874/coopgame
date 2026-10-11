@@ -94,7 +94,7 @@
 | 破産ゲームの仁はタルムード則に一致する | AM1985 | `src/games/bankruptcy.rs` (公開 API)、テスト | `bankruptcy_nucleolus_is_talmud_rule`、`talmud_cases_from_aumann_maschler`、`bankruptcy_nucleolus_matches_talmud_rule` (ランダムな 300 問)、オラクル版で n = 100 まで (`bankruptcy_oracle_matches_talmud_rule_for_large_n`)、有理数で検証した仁と分数として完全一致 (`equals_certified_nucleolus_exactly`) |
 | Shapley 値・Banzhaf 値の定義 | Sha1953, Ban1965 | `src/values.rs` | CoopGame との照合 (`scripts/compare/check_values.py`)、手計算の例 |
 | Shapley 値は順列の限界貢献の平均で推定できる | CGT2009 | `values::shapley_sampling` | 厳密値との差が標準誤差の 5 倍以内 (`sampling_estimates_agree_with_exact_values`) |
-| 空港ゲーム (費用が提携内の最大値) の Shapley 値は、費用の増分を必要とする人数で等分した和 | LO1973 | テスト | `airport_game_shapley_matches_littlechild_owen` (ランダムな 100 問)、`ibn_ezra_inheritance_shapley_value` |
+| 空港ゲーム (費用が提携内の最大値) の Shapley 値は、費用の増分を必要とする人数で等分した和 | LO1973 | `src/games/airport.rs`、テスト | `airport_game_shapley_matches_littlechild_owen` (ランダムな 100 問)、`ibn_ezra_inheritance_shapley_value`、明示ゲームの Shapley 値と一致 (`airport_game_matches_explicit_cost_game`) |
 | Ibn Ezra の相続問題の解は Shapley 値に一致する | Aum2010 (CoopGame の `shapleyValue` のヘルプが引用) | テスト | `ibn_ezra_inheritance_shapley_value` |
 | 重み付き投票ゲームの仁は擬多項式時間で計算できる | Pas2022 (EP2009 も同じ主張をしたが、アルゴリズムは仁を計算する保証がないと後続研究で指摘されている) | `src/games/voting.rs` の位置づけ | なし (本実装は制約生成で、計算量の保証はない) |
 | データ評価に最小コアを使い、提携をサンプリングして近似する | YP2021 (題名と要旨の範囲) | `src/nucleolus/sampled.rs`、`examples/study_data_valuation.rs` | 文献の実験は再現していない。本リポジトリの合成データでの比較のみ |
@@ -108,7 +108,6 @@
 | 劣モジュラ関数の最小化は、基多面体の最小ノルム点 (Wolfe の方法で求める) から得られる | Fuj1980、Wol1976 | `src/submodular.rs` | ランダムな劣モジュラ関数 200 個で総当たりと一致 (`submodular::tests`) |
 | 最小超過を効率よく計算できればプレカーネルと最小コアの共通部分の点を効率よく計算でき、凸ゲームなどの仁が求まる | FKK2001 (要旨) | [guarantees.md](guarantees.md) の位置づけ | なし (本文を確認できず、実装は別の方法) |
 | 仁はカーネルに属する (カーネルは交渉集合に含まれる) | DM1965 (検索結果の要約) | `src/verify/mod.rs` の否定の根拠 | `kernel_points_lie_in_bargaining_set` |
-| 空港ゲームの Shapley 値は費用の増分の等分の和 | LO1973 | `src/games/airport.rs` | 明示ゲームの Shapley 値と一致 (`airport_game_matches_explicit_cost_game`) |
 | 空港ゲームの仁には簡単な表現がある | Lit1974 (題名) | `src/games/airport.rs` の位置づけ | なし (本文を確認できず、式は実装していない。仁は凸ゲームの手法で求め、明示ゲームの LP と一致を確認) |
 | Bird 規則は最小全域木ゲームのコアに属する | Bir1976 | `src/games/spanning_tree.rs` | `bird_rule_and_nucleolus_lie_in_core` (30 ゲーム)、手計算の例 |
 | 最小全域木ゲームの仁の計算は NP 困難 | FKK1998 | 同上 (専用の手法を用意しない理由) | なし |

@@ -28,7 +28,6 @@ fn main() -> coopgame::Result<()> {
     Ok(())
 }
 
-/// 浮動小数点の逐次 LP による仁・プレ仁・最小コア。
 fn lp_methods(game: &ExplicitGame) -> coopgame::Result<()> {
     println!("== 逐次 LP (浮動小数点) ==");
     let result = nucleolus::nucleolus(game)?;
@@ -63,7 +62,6 @@ fn lp_methods(game: &ExplicitGame) -> coopgame::Result<()> {
     Ok(())
 }
 
-/// 有理数の逐次 LP。値を有理数のまま持ち、許容誤差を使わずに解く。
 fn exact_method(game: &ExplicitGame) -> coopgame::Result<()> {
     println!("== 逐次 LP (有理数) ==");
     // 浮動小数点の値を、2 進数の値どおりに有理数にする (整数の値は誤差なく移る)。
@@ -92,7 +90,7 @@ fn exact_method(game: &ExplicitGame) -> coopgame::Result<()> {
     Ok(())
 }
 
-/// 不満の定義を変えた仁。どれも全提携の表を受け取り、逐次 LP で解く。
+/// どれも全提携の表を受け取り、逐次 LP で解く。
 fn variant_methods(game: &ExplicitGame) -> coopgame::Result<()> {
     println!("== 不満の定義を変えた仁 ==");
     // per capita 仁: 超過を提携の人数で割る。
@@ -127,7 +125,6 @@ fn variant_methods(game: &ExplicitGame) -> coopgame::Result<()> {
     Ok(())
 }
 
-/// 凸ゲームの手法。性質の根拠によって、結果の型と保証が変わる。
 fn convex_methods(shared: &ExplicitGame) -> coopgame::Result<()> {
     println!("== 凸ゲームの手法 ==");
 
@@ -194,7 +191,6 @@ fn convex_methods(shared: &ExplicitGame) -> coopgame::Result<()> {
         }
         other => panic!("否定されるはず: {other:?}"),
     }
-    // 同じゲームの仁を逐次 LP で求めると (1, 1, 1) になる。
     let lp = nucleolus::nucleolus(&game)?;
     println!("  逐次 LP の仁: {:.4?}", lp.allocation());
     assert!(close(lp.allocation(), &[1.0, 1.0, 1.0], 1e-6));

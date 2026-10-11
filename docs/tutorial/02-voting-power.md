@@ -84,7 +84,7 @@ fn main() -> coopgame::Result<()> {
 Hempstead の 2 区と Oyster Bay のうち 2 人がそろえば 58 以上になり、1 人だけでは残り全員を集めても 31 + 21 + 2 + 2 = 56 にしかならないからである。
 可決する提携は必ずこの 3 人のうち 2 人を含み、その 2 人だけですでに可決できるので、残りの 3 人が抜けても結果は変わらない。
 
-[^nassau]: 重みと基準は Colorado State University の講義資料（M130, Lecture notes 2.2.10）による。Banzhaf の原論文で Nassau 郡を扱った箇所（pp. 338–340）の数値は、このチュートリアルの作成時に直接確認していない。
+[^nassau]: 重みと基準は Colorado State University の講義資料（M130, Lecture notes 2.2.10）による。Banzhaf の原論文で Nassau 郡を扱った箇所（pp. 338–340）の数値は確認していない。
 
 ## 参考文献
 

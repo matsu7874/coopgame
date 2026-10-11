@@ -59,7 +59,6 @@ def test_prenucleolus_and_certify_with_fractions():
     report = coopgame.certify(game, x, "preimputation")
     assert report["satisfied"]
     assert report["allocation"] == [Fraction(8, 3), Fraction(2, 3), Fraction(5, 3)]
-    # ずらした配分は不合格
     assert not coopgame.certify(game, [x[0] + 0.1, x[1] - 0.1, x[2]], "preimputation")["satisfied"]
 
 
@@ -398,7 +397,7 @@ def test_coalition_structures():
 
 
 def test_plot_svg():
-    # Ferguson のゲーム: 仁は (8/3, 2/3, 5/3)。追加した点は列での位置 (0 始まり) で示す。
+    # Ferguson のゲーム。追加した点は列での位置 (0 始まり) で示す。
     game = coopgame.Game([-1, 0, 1, 3, 4, 2, 5], order="lex")
     figure = coopgame.plot_svg(game, points=[[2, 1, 2]])
     assert figure["svg"].lstrip().startswith("<svg")

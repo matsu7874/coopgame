@@ -70,7 +70,6 @@ fn main() -> coopgame::Result<()> {
     Ok(())
 }
 
-/// JSON と CSV で同じゲームを読む。
 fn value_game() -> coopgame::Result<()> {
     println!("== 価値のゲーム (JSON・CSV) ==");
     let from_json = io::parse_json(VALUE_JSON)?;
@@ -109,7 +108,6 @@ fn value_game() -> coopgame::Result<()> {
     Ok(())
 }
 
-/// 費用ゲームを読み、費用の分担を求める。
 fn cost_game() -> coopgame::Result<()> {
     println!("\n== 費用ゲーム (\"type\": \"cost\") ==");
     let data = io::parse_json(COST_JSON)?;
@@ -131,7 +129,6 @@ fn cost_game() -> coopgame::Result<()> {
     Ok(())
 }
 
-/// 値が分からない提携のあるゲーム。
 fn missing_values() -> coopgame::Result<()> {
     println!("\n== 値が分からない提携 ==");
     let data = io::parse_json(MISSING_JSON)?;
@@ -185,7 +182,6 @@ fn missing_values() -> coopgame::Result<()> {
     Ok(())
 }
 
-/// 2 つの列が要素ごとに `tolerance` 以内で等しいか。
 fn close(a: &[f64], b: &[f64], tolerance: f64) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < tolerance)
 }

@@ -23,7 +23,6 @@ use crate::{Domain, nucleolus, values};
 pub struct PlotOptions {
     /// カーネル全体を描くか (6 人まで計算できるが、図は 3-4 人)。
     pub kernel: bool,
-    /// Shapley 値を描くか。
     pub shapley: bool,
     /// 追加で描く配分。図には [`Point::Extra`] の番号 (この列での 0 始まりの位置) で示す。
     pub points: Vec<Vec<f64>>,

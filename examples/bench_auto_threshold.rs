@@ -16,7 +16,6 @@ use coopgame::properties::ConvexChecked;
 mod common;
 use common::max_abs_difference;
 
-/// コマンドライン引数。
 struct Args {
     sizes: Vec<usize>,
     seeds: u64,

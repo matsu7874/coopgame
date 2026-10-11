@@ -32,7 +32,7 @@ fn main() -> coopgame::Result<()> {
 /// 提携構造 {0, 1} と {2} のもとでの解。
 fn structures(game: &ExplicitGame, shapley: &[f64]) -> coopgame::Result<()> {
     println!("\n== 提携構造 ==");
-    // ブロックはメンバーの番号の列で渡す。{0, 1} は [0, 1]、{2} は [2]。
+    // {0, 1} は [0, 1]、{2} は [2] で渡す。
     let blocks = CoalitionStructure::new(3, &[vec![0, 1], vec![2]])?;
     println!("グループ: {blocks}");
 
@@ -85,10 +85,9 @@ fn structures(game: &ExplicitGame, shapley: &[f64]) -> coopgame::Result<()> {
     Ok(())
 }
 
-/// 通信グラフの形と Myerson 値。
 fn graphs(game: &ExplicitGame, shapley: &[f64]) -> coopgame::Result<()> {
     println!("\n== 通信グラフ (3 人ゲーム) ==");
-    // 一列 0 - 1 - 2。辺はプレイヤーの番号の組で渡す。
+    // 一列 0 - 1 - 2。
     // 0 と 2 は直接つながっていないので、グラフ制限ゲームでは v({0, 2}) = 6 が 0 になる。
     let path = [(0, 1), (1, 2)];
     let restricted = communication::graph_restricted(game, &path)?;
@@ -140,7 +139,6 @@ fn graphs(game: &ExplicitGame, shapley: &[f64]) -> coopgame::Result<()> {
     Ok(())
 }
 
-/// 2 つの列が要素ごとに `tolerance` 以内で等しいか。
 fn close(a: &[f64], b: &[f64], tolerance: f64) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < tolerance)
 }

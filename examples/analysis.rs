@@ -61,9 +61,8 @@ fn explain_allocations(game: &ExplicitGame) -> coopgame::Result<()> {
     Ok(())
 }
 
-/// 値が ±10% 揺れたときの仁の分布と、仁を決めている提携の値に対する感度。
 fn uncertainty_and_influence(game: &ExplicitGame) -> coopgame::Result<()> {
-    // 仁を求める関数。標本の仁・感度・基準の仁 x のすべてで使う。
+    // 標本の仁・感度・基準の仁 x のすべてで使う。
     let solve = |g: &ExplicitGame| Ok(nucleolus::nucleolus(g)?.into_allocation());
     println!("\n== 値が不確かなときの仁 ==");
     // 各提携の値を ±10% の区間で一様に引き、50 個のゲームの仁をまとめる。seed を固定すると結果も決まる。
@@ -110,7 +109,6 @@ fn uncertainty_and_influence(game: &ExplicitGame) -> coopgame::Result<()> {
     Ok(())
 }
 
-/// 配分集合の図。`path` があれば SVG を書く。
 fn draw_figure(
     game: &ExplicitGame,
     path: Option<String>,
@@ -156,7 +154,6 @@ fn draw_figure(
     Ok(())
 }
 
-/// 優加法的だが凸でないゲームを探し、縮小する。
 fn find_counterexample() -> coopgame::Result<()> {
     println!("\n== 反例の探索 ==");
     // SearchOptions は #[non_exhaustive] なので既定値から作る。
@@ -194,7 +191,6 @@ fn find_counterexample() -> coopgame::Result<()> {
     Ok(())
 }
 
-/// 2 つの列が要素ごとに `tolerance` 以内で等しいか。
 fn close(a: &[f64], b: &[f64], tolerance: f64) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < tolerance)
 }

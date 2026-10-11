@@ -25,7 +25,6 @@ use coopgame::{Domain, nucleolus};
 mod common;
 use common::max_abs_difference;
 
-/// コマンドライン引数。
 struct Args {
     kind: String,
     sizes: Vec<usize>,

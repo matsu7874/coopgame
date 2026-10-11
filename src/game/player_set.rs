@@ -182,7 +182,6 @@ impl PlayerSet {
 }
 
 impl fmt::Display for PlayerSet {
-    /// メンバーの番号 (0 始まり) を `{0, 2}` の形で書く。
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write_members(f, self.members())
     }

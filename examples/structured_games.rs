@@ -140,7 +140,6 @@ fn cost() -> coopgame::Result<()> {
 }
 
 fn bankruptcy() -> coopgame::Result<()> {
-    // 遺産 200 を、請求 100, 200, 300 の 3 人で分ける。
     println!("== 破産問題 (遺産 200、請求 100, 200, 300)");
     let estate = 200.0;
     let claims = [100.0, 200.0, 300.0];

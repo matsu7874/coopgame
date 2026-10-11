@@ -50,7 +50,6 @@ fn distance(a: &[f64], b: Option<&Vec<f64>>, scale: f64) -> String {
     }
 }
 
-/// コマンドライン引数。
 struct Args {
     sizes: Vec<usize>,
     seeds: u64,

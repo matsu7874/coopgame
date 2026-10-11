@@ -4,8 +4,6 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 各関数の詳しい説明は [docs.rs](https://docs.rs/coopgame) を参照。
 モジュールを組み合わせて使う例は [使い方の例](../examples/README.md) にある。
 
-LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を使う。外部の商用ソルバーは不要。
-
 ## プレイヤーの扱い
 
 ライブラリは解の計算と検証に特化している。
@@ -115,5 +113,5 @@ LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を�
 | 重み付きマッチングゲーム | 多項式時間 | Könemann, Pashkovich, Toth (2020) | 未実装 |
 | 動的計画法で特性関数を書けるゲーム | 枠組み | Könemann & Toth (2020) | 未実装 |
 
-未実装の 3 つは、原論文の本文で保証を確かめられていないため実装していない (方針は [CONTRIBUTING.md](../CONTRIBUTING.md))。
+未実装の 3 つは、原論文の本文で保証を確かめられていない (方針は [CONTRIBUTING.md](../CONTRIBUTING.md))。
 文献は [references.md](references.md) を参照。

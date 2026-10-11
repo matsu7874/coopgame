@@ -70,7 +70,6 @@ fn bankruptcy() -> coopgame::Result<()> {
     assert_eq!(auto.method(), "talmud-rule");
     assert_eq!(auto.guarantee(), Guarantee::Proven(Property::Bankruptcy));
 
-    // 仁に対して超過の大きい提携を、上から 3 つ見る。
     println!("仁で超過の大きい提携:");
     print_top_excess(&game, result.allocation(), 3);
     println!();
@@ -104,7 +103,6 @@ fn voting() -> coopgame::Result<()> {
     println!("大政党 3 つ: {:.4?}", &auto.allocation()[..3]);
     let small = auto.allocation()[3..].iter().copied().fold(0.0, f64::max);
     println!("小政党 37 の取り分の最大: {small:.4}");
-    // 仁は大政党に 1/3 ずつ、小政党に 0 を配る。
     assert!(close(&auto.allocation()[..3], &[1.0 / 3.0; 3], 1e-6));
     assert!(close(&auto.allocation()[3..], &[0.0; 37], 1e-6));
 

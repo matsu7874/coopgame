@@ -45,10 +45,8 @@ impl TransferOptions {
 pub struct KernelResult {
     pub(crate) allocation: Vec<f64>,
     pub(crate) iterations: usize,
-    /// 停止時の [`kernel_violation`]。
     pub(crate) violation: f64,
     pub(crate) converged: bool,
-    /// 収束すれば [`Guarantee::Exact`] (カーネル条件を許容誤差の範囲で満たす)、しなければ [`Guarantee::Approximate`]。
     pub(crate) guarantee: Guarantee,
 }
 
@@ -74,6 +72,7 @@ impl KernelResult {
         self.converged
     }
 
+    /// 収束すれば [`Guarantee::Exact`] (カーネル条件を許容誤差の範囲で満たす)、しなければ [`Guarantee::Approximate`]。
     pub fn guarantee(&self) -> Guarantee {
         self.guarantee
     }

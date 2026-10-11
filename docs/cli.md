@@ -65,7 +65,7 @@ player	aumann_dreze	structured_nucleolus	owen
 ## 解を求める
 
 ```bash
-coopgame nucleolus v.txt > sol.txt          # 仁 (--pre でプレ仁)
+coopgame nucleolus v.txt > sol.txt          # 仁 (オプションは下の表)
 coopgame least-core v.txt                   # 最小コア
 coopgame kernel v.txt                       # カーネルの 1 点 (--pre でプレカーネル)
 coopgame kernel-set v.txt                   # カーネル全体を多面体ごとの頂点で出す (--merge で線分をまとめる)

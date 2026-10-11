@@ -73,7 +73,6 @@ fn main() -> coopgame::Result<()> {
     Ok(())
 }
 
-/// 結果の配分・手法・保証を表示する。
 fn print_solution(solution: &Solution) {
     println!("仁: {:.4?}", solution.allocation());
     println!("手法: {}", solution.method());

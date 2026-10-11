@@ -79,10 +79,8 @@ pub struct Feasible {
 #[non_exhaustive]
 pub struct LexicographicResult {
     pub(crate) allocation: Vec<f64>,
-    /// 各段の不満の最大値 (非増加列)。
     pub(crate) levels: Vec<f64>,
     pub(crate) lp_solves: usize,
-    /// 逐次 LP は [`Guarantee::Exact`]。
     pub(crate) guarantee: Guarantee,
 }
 
@@ -104,6 +102,7 @@ impl LexicographicResult {
         self.lp_solves
     }
 
+    /// 逐次 LP では [`Guarantee::Exact`]。
     pub fn guarantee(&self) -> Guarantee {
         self.guarantee
     }
@@ -340,7 +339,6 @@ impl Lexicographic<'_> {
                 self.tolerance
             )));
         }
-        // 確定した不満は外す。
         let fixed: Vec<usize> = self.fixed.iter().map(|&(k, _)| k).collect();
         self.open.retain(|k| !fixed.contains(k));
         Ok(())

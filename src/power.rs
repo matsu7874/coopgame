@@ -28,9 +28,7 @@ pub struct SimpleGame {
     players: usize,
     /// `wins[mask]`: 提携 `mask` が勝つか。
     wins: Vec<bool>,
-    /// 勝利提携。
     pub winning: Vec<Coalition>,
-    /// 最小勝利提携。
     pub minimal_winning: Vec<Coalition>,
     /// `swings[i]`: `i` が決定票を持つ勝利提携の数。
     pub swings: Vec<u64>,

@@ -34,7 +34,6 @@ pub fn minimal_rights(game: &ExplicitGame) -> Vec<f64> {
         let value = game.value(coalition);
         let utopia_sum: f64 = coalition.members().map(|j| utopia[j]).sum();
         for i in coalition.members() {
-            // v(S) - sum_{j in S \ {i}} M_j
             let remainder = value - (utopia_sum - utopia[i]);
             if remainder > rights[i] {
                 rights[i] = remainder;

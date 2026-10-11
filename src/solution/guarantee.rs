@@ -33,8 +33,6 @@ impl fmt::Display for Property {
 /// | [`Guarantee::Assumed`] | 利用者が宣言した性質のもとで専用手法を使った。性質が成り立たなければ誤りうる |
 /// | [`Guarantee::Certified`] | 求めた後に、有理数による厳密な検証に合格した |
 /// | [`Guarantee::Approximate`] | サンプリングなどによる近似、または反復が収束しなかった |
-///
-/// 結果の保証の種類。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Guarantee {

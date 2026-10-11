@@ -846,7 +846,6 @@ fn read_game(path: &str, lex: bool) -> CliResult<ExplicitGame> {
     game.map_err(|e| format!("{path}: {e}").into())
 }
 
-/// `--solver` の名前から解き方を選ぶ。
 fn solver(name: &str) -> CliResult<uncertainty::Solver> {
     uncertainty::solver(name).ok_or_else(|| {
         format!(

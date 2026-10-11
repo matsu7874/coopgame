@@ -30,7 +30,6 @@ impl SetFunction for GloveGame {
         self.left + self.right
     }
 
-    /// v(S) = min(左の人数, 右の人数)。空提携は 0 になる。
     fn value(&self, coalition: &PlayerSet) -> f64 {
         let left = coalition.members().filter(|&i| i < self.left).count();
         let right = coalition.len() - left;
@@ -70,7 +69,7 @@ fn small() -> coopgame::Result<()> {
     // Shapley 値は、右手袋の人にも正の値を配る。
     let shapley = values::shapley(&game);
     println!("Shapley 値: {shapley:.4?}");
-    // 左の 2 人に 13/20 ずつ、右の 3 人に 7/30 ずつで、合計は v(N) = 2 になる。
+    // 合計は v(N) = 2 になる。
     assert!(close(
         &shapley,
         &[13.0 / 20.0, 13.0 / 20.0, 7.0 / 30.0, 7.0 / 30.0, 7.0 / 30.0],
@@ -123,8 +122,7 @@ fn large() -> coopgame::Result<()> {
         mean(&approx.allocation()[left..])
     );
     println!("保証: {}", approx.guarantee());
-    // この入力では、近似は左手袋に 1 ずつ、右手袋に 0 を配る。
-    // 小さい人数の仁と同じ形だが、サンプルしていない提携は調べていないので、保証は approximate のままである。
+    // この入力では小さい人数の仁と同じ形 (左手袋に 1、右手袋に 0) になるが、サンプルしていない提携は調べていないので、保証は approximate のままである。
     assert!(close(&approx.allocation()[..left], &vec![1.0; left], 1e-6));
     assert!(close(&approx.allocation()[left..], &vec![0.0; right], 1e-6));
     assert_eq!(approx.guarantee(), Guarantee::Approximate);

@@ -79,13 +79,9 @@ impl Options {
 #[non_exhaustive]
 pub struct NucleolusResult {
     pub(crate) allocation: Vec<f64>,
-    /// 各段の最適な最大超過 `t*`(非増加列)。
     pub(crate) levels: Vec<f64>,
-    /// 最初から組み立てて解いた LP の数。
     pub(crate) lp_solves: usize,
-    /// 制約生成で後から追加した行の数(追加のたびに前回の解から解き直す)。
     pub(crate) rows_added: usize,
-    /// 保証の種類 (逐次 LP は [`Guarantee::Exact`])。
     pub(crate) guarantee: Guarantee,
 }
 
@@ -108,11 +104,12 @@ impl NucleolusResult {
         self.lp_solves
     }
 
-    /// 制約生成で後から追加した行の数。
+    /// 制約生成で後から追加した行の数(追加のたびに前回の解から解き直す)。
     pub fn rows_added(&self) -> usize {
         self.rows_added
     }
 
+    /// 逐次 LP では [`Guarantee::Exact`]。
     pub fn guarantee(&self) -> Guarantee {
         self.guarantee
     }

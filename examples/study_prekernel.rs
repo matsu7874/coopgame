@@ -99,7 +99,6 @@ fn kernel_in_core(game: &ExplicitGame, set: &KernelSet) -> &'static str {
     if all { "yes" } else { "no" }
 }
 
-/// コマンドライン引数。
 struct Args {
     max_players: usize,
     seeds: u64,
