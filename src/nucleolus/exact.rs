@@ -145,7 +145,7 @@ impl<'a> Solver<'a> {
 
     fn excess(&self, coalition: Coalition, x: &[Rational]) -> Rational {
         coalition
-            .players()
+            .members()
             .fold(self.game.value(coalition).clone(), |acc, i| acc - &x[i])
     }
 
@@ -183,7 +183,7 @@ impl<'a> Solver<'a> {
         let coalition_row = |coalition: Coalition| -> (Vec<Rational>, Rational) {
             let mut row = vec![Rational::zero(); columns];
             let mut constant = Rational::zero();
-            for i in coalition.players() {
+            for i in coalition.members() {
                 match self.domain {
                     Domain::Imputation => {
                         row[i] = one.clone();
@@ -305,7 +305,7 @@ impl<'a> Solver<'a> {
             if self.in_span(target) || witnesses.iter().any(|y| &self.excess(target, y) < level) {
                 continue;
             }
-            let complement = Coalition(Coalition::grand(self.n).0 & !target.0);
+            let complement = target.complement(self.n);
             let (y, _) = self.solve_generating(
                 Goal::MaximizeCoalition {
                     target,

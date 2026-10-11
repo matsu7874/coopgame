@@ -28,7 +28,7 @@ fn bankruptcy_oracle_matches_talmud_rule_for_large_n() {
             let result = oracle_nucleolus::nucleolus(&game).unwrap();
             let expected = common::talmud_rule(estate, &claims);
             assert_close(
-                &result.allocation,
+                result.allocation(),
                 &expected,
                 1e-6 * total,
                 &format!("n={n} case={case} E={estate} ({:.2?})", started.elapsed()),
@@ -50,14 +50,14 @@ fn bankruptcy_oracle_matches_explicit_solver() {
             let expected =
                 nucleolus::nucleolus_with(&explicit, nucleolus::Options::new(&explicit, domain))
                     .unwrap()
-                    .allocation;
+                    .into_allocation();
             let actual = oracle_nucleolus::nucleolus_with(
                 &oracle,
                 domain,
                 oracle_nucleolus::default_tolerance(&oracle),
             )
             .unwrap()
-            .allocation;
+            .into_allocation();
             assert_close(
                 &actual,
                 &expected,
@@ -87,10 +87,10 @@ fn voting_oracle_matches_explicit_solver() {
                     nucleolus::Options::new(&explicit, domain),
                 )
                 .unwrap()
-                .allocation;
+                .into_allocation();
                 let actual = oracle_nucleolus::nucleolus_with(&oracle, domain, 1e-7)
                     .unwrap()
-                    .allocation;
+                    .into_allocation();
                 assert_close(
                     &actual,
                     &expected,
@@ -111,7 +111,7 @@ fn symmetric_majority_game_splits_equally() {
         let game = WeightedVotingGame::new(vec![1; n], (n / 2 + 1) as u64).unwrap();
         let result = oracle_nucleolus::nucleolus(&game).unwrap();
         assert_close(
-            &result.allocation,
+            result.allocation(),
             &vec![1.0 / n as f64; n],
             1e-6,
             &format!("n={n}"),
@@ -130,5 +130,5 @@ fn dictator_game_gives_everything_to_dictator() {
     let result = oracle_nucleolus::nucleolus(&game).unwrap();
     let mut expected = vec![0.0; n];
     expected[7] = 1.0;
-    assert_close(&result.allocation, &expected, 1e-6, "独裁者ゲーム");
+    assert_close(result.allocation(), &expected, 1e-6, "独裁者ゲーム");
 }

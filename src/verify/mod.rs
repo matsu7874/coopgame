@@ -1,6 +1,10 @@
 //! 求めた解の事後検証: 厳密な検証による昇格と、反例による否定。
 //!
-//! 性質を仮定して求めた結果 ([`Unverified`]) や任意の [`Solution`] を、ゲームの値だけを使って確かめる。
+//! 配分が仁 (プレ仁) かを、ゲームの値だけを使って確かめる。
+//!
+//! - 判定: [`check`]・[`check_exact`] は、任意の配分を判定する。保証とは関係しない。
+//! - 昇格: [`Unverified::verify`]・[`Unverified::verify_exact`] は、性質を仮定して求めた結果を
+//!   判定し、合格すれば [`Guarantee::Certified`] を付ける。保証が `Certified` になるのはここだけ。
 //!
 //! - 人数が [`MAX_CERTIFY_PLAYERS`] 以下: 全提携の値の表を作り、有理数の Kohlberg 判定
 //!   ([`crate::verify::certify`]) で検証する。合格すれば [`Guarantee::Certified`] に昇格する。
@@ -88,13 +92,15 @@ impl Unverified<Solution> {
         game: &G,
         options: VerifyOptions,
     ) -> Result<Verified> {
-        let check = check(game, self.peek(), options)?;
+        let solution = self.peek();
+        let check = check(game, &solution.allocation, solution.domain, options)?;
         Ok(self.conclude(check))
     }
 
     /// 有理数で構築したゲームの値を使って検証する。
     pub fn verify_exact(self, game: &ExactGame, options: VerifyOptions) -> Result<Verified> {
-        let check = check_exact(game, self.peek(), options)?;
+        let solution = self.peek();
+        let check = check_exact(game, &solution.allocation, solution.domain, options)?;
         Ok(self.conclude(check))
     }
 
@@ -118,23 +124,17 @@ impl Unverified<Solution> {
     }
 }
 
-/// 解 `solution` がゲーム `game` の解 (仁またはプレ仁) かを確かめる。
+/// 配分 `x` がゲーム `game` の仁 (`domain` が [`Domain::Imputation`]) か
+/// プレ仁 ([`Domain::Preimputation`]) かを確かめる。
 pub fn check<G: SetFunction + ?Sized>(
     game: &G,
-    solution: &Solution,
+    x: &[f64],
+    domain: Domain,
     options: VerifyOptions,
 ) -> Result<Check> {
     let n = game.players();
-    let x = &solution.allocation;
-    if x.len() != n {
-        return Err(Error::InvalidArgument(format!(
-            "配分の長さ {} がプレイヤー数 {n} と異なる",
-            x.len()
-        )));
-    }
-    let domain = solution.concept.domain();
     let tolerance = 1e-6 * value_scale(game);
-    if let Some(refuted) = check_feasibility(game, solution)? {
+    if let Some(refuted) = check_feasibility(game, x, domain)? {
         return Ok(refuted);
     }
     if n <= MAX_CERTIFY_PLAYERS {
@@ -150,25 +150,20 @@ pub fn check<G: SetFunction + ?Sized>(
     }
 }
 
-/// 有理数で構築したゲームについて解を確かめる (値を浮動小数点数にしたことによる誤差がない)。
+/// 有理数で構築したゲームについて配分を確かめる (値を浮動小数点数にしたことによる誤差がない)。
 pub fn check_exact(
     exact: &ExactGame,
-    solution: &Solution,
+    x: &[f64],
+    domain: Domain,
     _options: VerifyOptions,
 ) -> Result<Check> {
     let explicit = exact.to_explicit()?;
     // 実行可能性 (和・個人合理性) は浮動小数点数の値で確かめ、残りは厳密な値で確かめる。
-    match check_feasibility(&explicit, solution)? {
+    match check_feasibility(&explicit, x, domain)? {
         Some(refuted) => Ok(refuted),
         None => {
             let tolerance = 1e-6 * value_scale(&explicit);
-            certify_small(
-                &explicit,
-                exact,
-                &solution.allocation,
-                solution.concept.domain(),
-                tolerance,
-            )
+            certify_small(&explicit, exact, x, domain, tolerance)
         }
     }
 }
@@ -219,10 +214,10 @@ fn certify_small(
 /// 和が `v(N)` か、仁なら個人合理性を満たすかを確かめる。満たさなければ否定の結論を返す。
 fn check_feasibility<G: SetFunction + ?Sized>(
     game: &G,
-    solution: &Solution,
+    x: &[f64],
+    domain: Domain,
 ) -> Result<Option<Check>> {
     let n = game.players();
-    let x = &solution.allocation;
     if x.len() != n {
         return Err(Error::InvalidArgument(format!(
             "配分の長さ {} がプレイヤー数 {n} と異なる",
@@ -230,7 +225,7 @@ fn check_feasibility<G: SetFunction + ?Sized>(
         )));
     }
     let tolerance = 1e-6 * value_scale(game);
-    Ok(feasibility_violation(game, x, solution.concept.domain(), tolerance).map(Check::Refuted))
+    Ok(feasibility_violation(game, x, domain, tolerance).map(Check::Refuted))
 }
 
 /// 最大余剰 `s_ij = max { e(S, x) : i in S, j not in S }` を総当たりで求める。
@@ -280,7 +275,7 @@ fn check_pairs<G: SetFunction + ?Sized>(
         // s_ij > s_ji なら j は i に払うべきで、j が下限に張り付いていない限りカーネル条件が破れる。
         for (a, b, gap) in [(i, j, forward - backward), (j, i, backward - forward)] {
             let at_lower = domain == Domain::Imputation
-                && x[b] <= game.value(&PlayerSet::from_players(n, &[b])) + tolerance;
+                && x[b] <= game.value(&PlayerSet::singleton(n, b)) + tolerance;
             if gap > tolerance && !at_lower {
                 return Check::Refuted(format!(
                     "組 ({a}, {b}) でカーネル条件が成り立たない: s_ab - s_ba = {gap:e}"

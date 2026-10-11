@@ -72,7 +72,7 @@ debug ビルドでは、大きいゲームを解くテスト (`tests/oracle.rs` 
 
 ```bash
 RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
-cargo test --doc                        # rustdoc とチュートリアルのコード例
+cargo test --doc                        # rustdoc と README・docs/ のコード例
 cargo build --no-default-features       # feature なしでビルドできること
 ```
 
@@ -112,9 +112,16 @@ cargo build --no-default-features       # feature なしでビルドできるこ
 
 crates.io で公開しているので、公開 API の変更は semver に従う。
 
+- ライブラリは解の計算と検証 (ゲーム理論の部分) に特化する。
+  プレイヤーは 0 始まりの番号だけで扱い、名前などのラベルと番号の対応は持たない (名前の引数、名前付きの入出力、名前の表示を足さない)。
+  対応が必要なら利用側で持つ。CLI と Python バインディングも同じ方針である。
+- 提携の表示は `Coalition`・`PlayerSet` の `Display` (`{0, 2}` の形、0 始まり) にそろえる。
+
 - 内部でしか使わない関数やモジュールは `pub(crate)` にする。テストのためだけに公開しない (結合テストで足りなければ、単体テストに移す)。
 - 後から変種を足しうる enum (`Error`、`Guarantee` など) と、後からフィールドを足しうる設定と結果の構造体には `#[non_exhaustive]` を付ける。
   三択で状態が確定している `Verified` と `Check`、2 値の `Domain` には付けない。
+- 保証 (`Guarantee`) を持つ結果の構造体 (`Solution`、`NucleolusResult`、`LeastCore`、`KernelResult` など) は、フィールドを `pub(crate)` にし、同じ名前の読み出し関数 (`allocation()` など) と、配分を取り出す `into_allocation()` を公開する。
+  保証はライブラリが計算した事実からだけ付くので、クレートの外で作ったり、配分や保証を書き換えたりできないようにする。
 - 設定の構造体は、`Default` か `::new` で作ってからフィールドに代入する形で使う (`#[non_exhaustive]` の構造体は、クレートの外では構造体リテラルで作れない)。
 - 既定の feature は空にし、ライブラリの依存を増やす機能は feature の後ろに置く。
   今は `serde_json` を使う `io` と、CLI の `cli` がある。
@@ -127,7 +134,7 @@ crates.io で公開しているので、公開 API の変更は semver に従う
 - 文献の数値例を使うときは、出典と、答えを裏付けた方法 (原典、引用元、手計算) を書く ([docs/literature-cases.md](docs/literature-cases.md))。
 - 保証つきのアルゴリズムは、原論文の本文で手順と保証を確かめてから実装する。
   要旨だけで実装すると、保証が成り立つことを確認できないからである。
-  Pashkovich (2022)、Könemann, Pashkovich, Toth (2020)、Könemann & Toth (2020) は、本文を確認できていないため未実装にしている。
+  この理由で未実装のものは [docs/api-overview.md](docs/api-overview.md#保証の種類ごとのアルゴリズム) の表にある。
   Elkind & Pasechnik (2009) は、仁を計算する保証がないと後続研究で指摘されているので、実装の対象にしない。
 - 文書に書いた計測と分析の数値は、`scripts/verify_claims.py` で CSV から計算し直して照合する。
   数値を変えたら、このスクリプトの期待値も更新する。
@@ -135,12 +142,6 @@ crates.io で公開しているので、公開 API の変更は semver に従う
 ## 計測と再現
 
 計測と分析のデータがどのコードと環境から作られたか、どう再現して照合するかは [docs/reproducibility.md](docs/reproducibility.md) にまとめている。
-すぐにできる照合は次の 2 つである。
-
-```bash
-sha256sum -c data/SHA256SUMS             # 保存したデータが改変されていないか
-python3 scripts/verify_claims.py         # 文書の数値を CSV から計算し直して照合
-```
 
 `data/` のデータを作り直したら、`data/SHA256SUMS` も更新する。
 ベンチマークの記録 (`data/compare/*.csv` など) にある実装名 `coopgame-rs` は、リポジトリ名を変える前の名前だが、過去の計測結果の記録なので書き換えない。

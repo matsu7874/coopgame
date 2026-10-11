@@ -49,7 +49,7 @@ fn equals_certified_nucleolus_exactly() {
             &claims.iter().map(|d| *d as f64).collect::<Vec<_>>(),
         )
         .unwrap();
-        let x = nucleolus::nucleolus(&game).unwrap().allocation;
+        let x = nucleolus::nucleolus(&game).unwrap().into_allocation();
         let report = verify::certify(&game, &x, Domain::Imputation).unwrap();
         assert!(report.satisfied, "case {case}: {:?}", report.reason);
         let exact_claims: Vec<Rational> = claims
@@ -71,7 +71,9 @@ fn matches_oracle_lp_for_large_n() {
     let claims: Vec<f64> = claims.iter().map(|d| *d as f64).collect();
     let game = BankruptcyGame::new(estate as f64, claims.clone()).unwrap();
     let closed_form = game.nucleolus().unwrap();
-    let lp = oracle_nucleolus::nucleolus(&game).unwrap().allocation;
+    let lp = oracle_nucleolus::nucleolus(&game)
+        .unwrap()
+        .into_allocation();
     for (a, b) in closed_form.iter().zip(&lp) {
         assert!((a - b).abs() < 1e-6 * claims.iter().sum::<f64>());
     }

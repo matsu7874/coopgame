@@ -22,7 +22,7 @@ fn solve(game: &ExplicitGame, domain: Domain) -> Vec<f64> {
         Domain::Preimputation => nucleolus::prenucleolus(game),
     }
     .unwrap()
-    .allocation
+    .into_allocation()
 }
 
 #[test]
@@ -40,11 +40,11 @@ fn nucleoli_of_random_games_are_certified() {
                     }) else {
                         continue; // 配分集合が空
                     };
-                    let x = result.allocation;
-                    let report = verify::certify(&game, &x, domain).unwrap();
+                    let x = result.allocation();
+                    let report = verify::certify(&game, x, domain).unwrap();
                     let label = format!("type{kind} n={n} seed={seed} {domain:?}");
                     assert!(report.satisfied, "{label}: {:?}", report.reason);
-                    let difference = verify::max_difference(&report.allocation, &x).unwrap();
+                    let difference = verify::max_difference(&report.allocation, x).unwrap();
                     assert!(
                         difference < 1e-6 * game.max_abs_value().max(1.0),
                         "{label}: {difference}"
@@ -148,7 +148,7 @@ fn exact_solver_matches_certified_float_solution() {
                         continue;
                     };
                     let certified =
-                        coopgame::verify::certify(&game, &float.allocation, domain).unwrap();
+                        coopgame::verify::certify(&game, float.allocation(), domain).unwrap();
                     assert!(certified.satisfied);
                     let exact = nucleolus::exact::nucleolus(&exact_game, domain).unwrap();
                     assert_eq!(

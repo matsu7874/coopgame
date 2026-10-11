@@ -78,25 +78,83 @@ impl Options {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct NucleolusResult {
-    pub allocation: Vec<f64>,
+    pub(crate) allocation: Vec<f64>,
+    pub(crate) levels: Vec<f64>,
+    pub(crate) lp_solves: usize,
+    pub(crate) rows_added: usize,
+    pub(crate) guarantee: Guarantee,
+}
+
+impl NucleolusResult {
+    pub fn allocation(&self) -> &[f64] {
+        &self.allocation
+    }
+
+    pub fn into_allocation(self) -> Vec<f64> {
+        self.allocation
+    }
+
     /// 各段の最適な最大超過 `t*`(非増加列)。
-    pub levels: Vec<f64>,
+    pub fn levels(&self) -> &[f64] {
+        &self.levels
+    }
+
     /// 最初から組み立てて解いた LP の数。
-    pub lp_solves: usize,
+    pub fn lp_solves(&self) -> usize {
+        self.lp_solves
+    }
+
     /// 制約生成で後から追加した行の数(追加のたびに前回の解から解き直す)。
-    pub rows_added: usize,
-    /// 保証の種類 (逐次 LP は [`Guarantee::Exact`])。
-    pub guarantee: Guarantee,
+    pub fn rows_added(&self) -> usize {
+        self.rows_added
+    }
+
+    /// 逐次 LP では [`Guarantee::Exact`]。
+    pub fn guarantee(&self) -> Guarantee {
+        self.guarantee
+    }
+
+    /// 手法によらない共通の結果にする (保証はこの結果のものを引き継ぐ)。
+    pub(crate) fn into_solution(
+        self,
+        domain: Domain,
+        method: &'static str,
+    ) -> crate::solution::Solution {
+        crate::solution::Solution {
+            domain,
+            allocation: self.allocation,
+            guarantee: self.guarantee,
+            method,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct LeastCore {
+    pub(crate) epsilon: f64,
+    pub(crate) allocation: Vec<f64>,
+    pub(crate) guarantee: Guarantee,
+}
+
+impl LeastCore {
     /// 最小コアの `epsilon`(最大超過の最小値)。負ならコアは内部を持つ。
-    pub epsilon: f64,
+    pub fn epsilon(&self) -> f64 {
+        self.epsilon
+    }
+
     /// 最小コアに属する配分の 1 つ。
-    pub allocation: Vec<f64>,
-    pub guarantee: Guarantee,
+    pub fn allocation(&self) -> &[f64] {
+        &self.allocation
+    }
+
+    pub fn into_allocation(self) -> Vec<f64> {
+        self.allocation
+    }
+
+    pub fn guarantee(&self) -> Guarantee {
+        self.guarantee
+    }
 }
 
 /// 仁(配分集合上で超過ベクトルを辞書式に最小化する点)。

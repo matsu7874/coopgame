@@ -20,7 +20,7 @@ use crate::error::{Error, Result};
 use crate::game::allocation::{check_imputation_set, feasibility_violation};
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::solution::Guarantee;
-use crate::surplus::max_surplus;
+use crate::surplus::max_surplus_flat;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
@@ -43,13 +43,39 @@ impl TransferOptions {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct KernelResult {
-    pub allocation: Vec<f64>,
-    pub iterations: usize,
+    pub(crate) allocation: Vec<f64>,
+    pub(crate) iterations: usize,
+    pub(crate) violation: f64,
+    pub(crate) converged: bool,
+    pub(crate) guarantee: Guarantee,
+}
+
+impl KernelResult {
+    pub fn allocation(&self) -> &[f64] {
+        &self.allocation
+    }
+
+    pub fn into_allocation(self) -> Vec<f64> {
+        self.allocation
+    }
+
+    pub fn iterations(&self) -> usize {
+        self.iterations
+    }
+
     /// 停止時の [`kernel_violation`]。
-    pub violation: f64,
-    pub converged: bool,
+    pub fn violation(&self) -> f64 {
+        self.violation
+    }
+
+    pub fn converged(&self) -> bool {
+        self.converged
+    }
+
     /// 収束すれば [`Guarantee::Exact`] (カーネル条件を許容誤差の範囲で満たす)、しなければ [`Guarantee::Approximate`]。
-    pub guarantee: Guarantee,
+    pub fn guarantee(&self) -> Guarantee {
+        self.guarantee
+    }
 }
 
 /// 最大余剰の不釣り合い。`x` が(プレ)カーネルに属すれば 0。
@@ -127,7 +153,7 @@ pub fn kernel_point(
 /// 支払い額 `delta_ij` が最大の組 `(i, j, delta_ij)`。支払いが不要なら `None`。
 fn best_transfer(game: &ExplicitGame, x: &[f64], domain: Domain) -> Option<(usize, usize, f64)> {
     let n = game.players();
-    let surplus = max_surplus(game, x);
+    let surplus = max_surplus_flat(game, x);
     let mut best: Option<(usize, usize, f64)> = None;
     for i in 0..n {
         for j in 0..n {

@@ -39,7 +39,7 @@ fn nucleoli_satisfy_kohlberg_and_lie_in_kernel() {
     for (name, game) in random_games() {
         for domain in [Domain::Imputation, Domain::Preimputation] {
             let result = solve(&game, domain);
-            let x = &result.allocation;
+            let x = &result.allocation();
             let report = verify::kohlberg(&game, x, domain).unwrap();
             assert!(
                 report.satisfied,
@@ -53,7 +53,7 @@ fn nucleoli_satisfy_kohlberg_and_lie_in_kernel() {
                 kernel::kernel_violation(&game, x, domain)
             );
             assert!(
-                result.levels.windows(2).all(|w| w[1] <= w[0] + 1e-9),
+                result.levels().windows(2).all(|w| w[1] <= w[0] + 1e-9),
                 "{name}"
             );
         }
@@ -63,7 +63,7 @@ fn nucleoli_satisfy_kohlberg_and_lie_in_kernel() {
 #[test]
 fn kohlberg_rejects_perturbed_nucleolus() {
     for (name, game) in random_games() {
-        let mut x = nucleolus::nucleolus(&game).unwrap().allocation;
+        let mut x = nucleolus::nucleolus(&game).unwrap().into_allocation();
         let n = x.len();
         // 総和を保ったまま、下限に張り付いていない 2 人の間で動かす。
         let singles = game.singleton_values();
@@ -85,9 +85,9 @@ fn transfer_scheme_reaches_kernel() {
         for domain in [Domain::Imputation, Domain::Preimputation] {
             let options = TransferOptions::for_game(&game);
             let result = kernel::kernel_point(&game, domain, None, options).unwrap();
-            assert!(result.converged, "{name} {domain:?}: {result:?}");
+            assert!(result.converged(), "{name} {domain:?}: {result:?}");
             assert!(
-                kernel::is_in_kernel(&game, &result.allocation, domain, 10.0 * options.tolerance),
+                kernel::is_in_kernel(&game, result.allocation(), domain, 10.0 * options.tolerance),
                 "{name} {domain:?}"
             );
         }
@@ -99,15 +99,15 @@ fn kernel_equals_nucleolus_for_convex_games() {
     for n in 3..=7 {
         for seed in 0..5 {
             let game = generators::random_convex(n, seed).unwrap();
-            let nucleolus = nucleolus::nucleolus(&game).unwrap().allocation;
+            let nucleolus = nucleolus::nucleolus(&game).unwrap().into_allocation();
             let options = TransferOptions::for_game(&game);
             let kernel = kernel::kernel_point(&game, Domain::Imputation, None, options).unwrap();
-            assert!(kernel.converged, "n={n} seed={seed}");
-            for (a, b) in kernel.allocation.iter().zip(&nucleolus) {
+            assert!(kernel.converged(), "n={n} seed={seed}");
+            for (a, b) in kernel.allocation().iter().zip(&nucleolus) {
                 assert!(
                     (a - b).abs() < 1e-5 * game.max_abs_value().max(1.0),
                     "n={n} seed={seed}: {:?} vs {nucleolus:?}",
-                    kernel.allocation
+                    kernel.allocation()
                 );
             }
         }
@@ -118,8 +118,8 @@ fn kernel_equals_nucleolus_for_convex_games() {
 fn cost_game_via_negation() {
     // 空港ゲーム (滑走路の費用 1, 2, 3): c(S) = max_{i in S} cost_i。
     // 費用ゲームの仁は -(-c の仁)。
-    // 第 1 段で {1} と {2,3} の超過 x_1 - 1 と -x_1 を釣り合わせて x_1 = 1/2、
-    // 第 2 段で {1,2} と {1,3} の超過 x_2 - 3/2 と -x_2 を釣り合わせて x_2 = 3/4。
+    // 第 1 段で {0} と {1,2} の超過 x_0 - 1 と -x_0 を釣り合わせて x_0 = 1/2、
+    // 第 2 段で {0,1} と {0,2} の超過 x_1 - 3/2 と -x_1 を釣り合わせて x_1 = 3/4。
     let costs = [1.0, 2.0, 3.0];
     let values: Vec<f64> = (1u64..8)
         .map(|mask| {
@@ -132,7 +132,7 @@ fn cost_game_via_negation() {
     let cost = ExplicitGame::from_binary(&values).unwrap();
     let x: Vec<f64> = nucleolus::nucleolus(&cost.negated())
         .unwrap()
-        .allocation
+        .into_allocation()
         .iter()
         .map(|v| -v)
         .collect();
@@ -152,7 +152,7 @@ fn constraint_generation_matches_full_lp() {
             options.method = Method::ConstraintGeneration;
             let lazy = nucleolus::nucleolus_with(&game, options).unwrap();
             let scale = game.max_abs_value().max(1.0);
-            for (a, b) in full.allocation.iter().zip(&lazy.allocation) {
+            for (a, b) in full.allocation().iter().zip(lazy.allocation()) {
                 assert!((a - b).abs() < 1e-6 * scale, "{name} {domain:?}");
             }
         }

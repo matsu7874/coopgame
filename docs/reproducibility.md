@@ -28,7 +28,7 @@ CoopGame の誤りと判定した 4 件について、超過を降順に並べ�
 
 | ファイル | 内容 | 生成したコード | 生成コマンド |
 |---|---|---|---|
-| `data/bench/results-n4-12.csv` | フェーズ 2 の計測 (`docs/performance.md` の計測例) | コミット `3f85dc1` | `coopgame bench --n 4..12 --seeds 2 --methods nucleolus,nucleolus-full,prenucleolus,kernel,prekernel` |
+| `data/bench/results-n4-12.csv` | 明示ベクトルの計測 (`docs/performance.md` の計測例) | コミット `3f85dc1` | `coopgame bench --n 4..12 --seeds 2 --methods nucleolus,nucleolus-full,prenucleolus,kernel,prekernel` |
 | `data/bench/results-n13-16.csv` | 同上 | コミット `3f85dc1` | `coopgame bench --n 13..16 --seeds 1 --methods nucleolus,nucleolus-full,kernel` |
 | `data/bench/results-n17-22.csv` | 同上 | コミット `3f85dc1` | `coopgame bench --n 17..22 --seeds 1 --methods nucleolus,kernel` |
 | `data/bench/oracle-scaling.csv` | オラクル版の仁の計測 (`docs/performance.md` のオラクルの計測) | Shapley/Banzhaf 値を追加したコミット | `bench_oracle bankruptcy 10,20,40,70,100 3`、`majority 9,13,17,19,21 1`、`voting 10,15,20,25 2` (`cargo run --release --example bench_oracle -- ...`) |
@@ -45,7 +45,7 @@ CoopGame の誤りと判定した 4 件について、超過を降順に並べ�
 
 補足:
 
-- `data/bench/oracle-scaling.csv` を作った後、`oracle/voting.rs` のループを書き換えた (clippy の指摘)。
+- `data/bench/oracle-scaling.csv` の作成後に `oracle/voting.rs` を変更したので、
   再実行して、18 行で段数・LP の数・追加行数が一致することを確かめた。
 - `small.csv` は、`run.py` をリポジトリに入れる前の版で作った。この版は TUGLab のエラーを
   `error:Execution halted` と記録する。現在の版は R のエラー文 (`Error in ...`) を記録する。計算内容は同じである。
@@ -85,11 +85,11 @@ python3 scripts/compare/diff_results.py data/compare/large.csv large.csv
 
 | 対象 | 方法 | 結果 |
 |---|---|---|
-| ドキュメントの数値 | `scripts/verify_claims.py --instances scripts/compare/work` | 104 項目全てが一致 (当時の項目数。その後、研究ノートとともにプレカーネルの分析とデータ評価の照合を外し、今は 53 項目) |
+| ドキュメントの数値 | `scripts/verify_claims.py --instances scripts/compare/work` | 104 項目全てが一致 (当時の項目数。現在は 53 項目) |
 | インスタンス | `make_instances.sh` で再生成し、比較に使ったファイルと照合 | 144 個全てが一致 (`instances.sha256` に記録) |
 | 比較: coopgame-rs・CoopGame | `run.py` で再実行し `diff_results.py` で照合 | small 756 件、large 72 件の状態と配分が全て一致 (CoopGame の誤った配分も同じ値で再現) |
 | 比較: TUGLab | 同上 | small 252 件は全て一致。large 36 件のうち 33 件が一致し、3 件は状態が変わった |
-| フェーズ 2 の計測 | `verify_claims.py` (件数と検証結果) | 540 件全てが検証済み |
+| 明示ベクトルの計測 | `verify_claims.py` (件数と検証結果) | 540 件全てが検証済み |
 | Shapley 値・Banzhaf 値 | `scripts/compare/check_values.py` (CoopGame 0.2.2 と照合) | 12 ゲーム 24 件が相対 2.3e-15 以内で一致 |
 | per capita 仁・比例仁・modiclus | `scripts/compare/check_variants.py` (CoopGame 0.2.2 と照合) | 41 ゲームで 3 つとも一致 (比例仁の 1 件は両方とも計算しない)。相対 9.1e-14 以内 |
 

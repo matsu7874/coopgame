@@ -7,10 +7,10 @@ use num_traits::{One, Signed, Zero};
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::exact::{ExactGame, Rational, format_rational, to_f64, to_rational};
+use crate::game::excess_table;
 use crate::game::{Coalition, ExplicitGame};
 use crate::linalg::Span;
 use crate::rational::{ExactEchelon, Inserted, indicator, simplex};
-use crate::surplus::excesses;
 
 /// 厳密な検証の結果。
 #[derive(Clone, Debug)]
@@ -48,8 +48,6 @@ impl ExactReport {
 ///
 /// 判定は復元に使った段の読み取りに依存しない。読み取りを誤っても、誤った `x*` は判定で不合格になる。
 /// 仁は一意なので、判定に合格した `x*` が仁であり、`x*` と異なる配分は仁ではない。
-///
-/// 浮動小数点の配分を復元し、有理数で Kohlberg 基準を判定する。
 ///
 /// ゲームの値は浮動小数点数の 2 進数の値どおりの有理数として扱う。
 pub fn certify(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<ExactReport> {
@@ -91,7 +89,7 @@ pub fn recover_allocation(
         )));
     }
     let full = (1usize << n) - 1;
-    let excess = excesses(game, x);
+    let excess = excess_table(game, x);
     let mut order: Vec<usize> = (1..full).collect();
     order.sort_by(|a, b| excess[*b].total_cmp(&excess[*a]));
 
@@ -190,7 +188,7 @@ pub fn kohlberg_exact(game: &ExactGame, x: &[Rational], domain: Domain) -> Exact
                 Ordering::Less => {
                     return ExactReport::fail(
                         x.to_vec(),
-                        format!("個人合理性を満たさない: x_{} < v({{{}}})", i + 1, i + 1),
+                        format!("個人合理性を満たさない: x_{i} < v({{{i}}})"),
                         0,
                     );
                 }

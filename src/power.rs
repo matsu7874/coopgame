@@ -28,9 +28,7 @@ pub struct SimpleGame {
     players: usize,
     /// `wins[mask]`: 提携 `mask` が勝つか。
     wins: Vec<bool>,
-    /// 勝利提携。
     pub winning: Vec<Coalition>,
-    /// 最小勝利提携。
     pub minimal_winning: Vec<Coalition>,
     /// `swings[i]`: `i` が決定票を持つ勝利提携の数。
     pub swings: Vec<u64>,
@@ -50,7 +48,8 @@ impl SimpleGame {
                 false
             } else {
                 return Err(Error::InvalidArgument(format!(
-                    "単純ゲームではない: 提携 {mask:#b} の値が {value} (0 か 1 のみ)"
+                    "単純ゲームではない: 提携 {} の値が {value} (0 か 1 のみ)",
+                    Coalition(mask)
                 )));
             };
         }
@@ -60,8 +59,8 @@ impl SimpleGame {
                 mask >> i & 1 == 0 && wins[mask as usize] && !wins[(mask | 1 << i) as usize]
             }) {
                 return Err(Error::InvalidArgument(format!(
-                    "単調でない: 勝利提携 {mask:#b} にプレイヤー {} を加えると負ける",
-                    i + 1
+                    "単調でない: 勝利提携 {} にプレイヤー {i} を加えると負ける",
+                    Coalition(mask)
                 )));
             }
         }
@@ -74,7 +73,7 @@ impl SimpleGame {
             }
             let coalition = Coalition(mask);
             let mut critical = 0;
-            for i in coalition.players() {
+            for i in coalition.members() {
                 if !wins[(mask & !(1 << i)) as usize] {
                     swings[i] += 1;
                     critical += 1;
@@ -102,7 +101,7 @@ impl SimpleGame {
     fn critical(&self, coalition: Coalition) -> Coalition {
         Coalition(
             coalition
-                .players()
+                .members()
                 .filter(|&i| !self.wins[(coalition.0 & !(1 << i)) as usize])
                 .fold(0, |mask, i| mask | 1 << i),
         )
@@ -122,7 +121,7 @@ impl SimpleGame {
         for &coalition in &self.winning {
             let critical = self.critical(coalition);
             let share = 1.0 / critical.len() as f64;
-            for i in critical.players() {
+            for i in critical.members() {
                 raw[i] += share;
             }
         }
@@ -136,7 +135,7 @@ impl SimpleGame {
         let mut index = vec![0.0; self.players];
         for coalition in &self.minimal_winning {
             let share = 1.0 / (coalition.len() as f64 * count);
-            for i in coalition.players() {
+            for i in coalition.members() {
                 index[i] += share;
             }
         }
@@ -148,7 +147,7 @@ impl SimpleGame {
         self.require_winning()?;
         let mut counts = vec![0.0; self.players];
         for coalition in &self.minimal_winning {
-            for i in coalition.players() {
+            for i in coalition.members() {
                 counts[i] += 1.0;
             }
         }

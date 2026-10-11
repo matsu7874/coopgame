@@ -3,10 +3,10 @@
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::feasibility_violation;
+use crate::game::excess_table;
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
-use crate::surplus::excesses;
 
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -50,7 +50,7 @@ pub fn kohlberg(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<Kohlbe
         return Ok(fail(reason));
     }
 
-    let excess = excesses(game, x);
+    let excess = excess_table(game, x);
     let full = (1usize << n) - 1;
     let mut order: Vec<usize> = (1..full).collect();
     order.sort_by(|a, b| excess[*b].total_cmp(&excess[*a]));

@@ -14,8 +14,8 @@ mod player_set;
 pub(crate) mod subsets;
 
 pub use allocation::Domain;
-pub(crate) use allocation::excesses;
-pub use coalition::{Coalition, binary_to_lex, format_coalition, player_name};
+pub(crate) use allocation::excess_table;
+pub use coalition::{Coalition, binary_to_lex};
 pub use player_set::{PlayerSet, SetFunction, value_scale};
 
 use crate::error::{Error, Result};
@@ -80,7 +80,7 @@ impl ExplicitGame {
                 max: MAX_PLAYERS,
             });
         }
-        let mut set = PlayerSet::full(n);
+        let mut set = PlayerSet::grand(n);
         ExplicitGame::from_fn(n, |coalition| {
             set.assign(coalition);
             game.value(&set)
@@ -89,7 +89,7 @@ impl ExplicitGame {
 
     /// `members` の人だけの部分ゲーム。プレイヤーは `members` の昇順に 0 から番号を振り直す。
     pub fn subgame(&self, members: Coalition) -> Result<ExplicitGame> {
-        let members: Vec<usize> = members.players().collect();
+        let members: Vec<usize> = members.members().collect();
         ExplicitGame::from_fn(members.len(), |sub| {
             self.value(Coalition::embed(&members, sub.0))
         })
@@ -200,8 +200,6 @@ pub fn parse_values(text: &str) -> Result<Vec<f64>> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        // `名前<TAB>値` の行 (名前付きの配分の出力) は値だけを読む。
-        let line = line.rsplit('\t').next().unwrap_or(line).trim();
         // `8/3` の形の分数も受け付ける (最も近い浮動小数点数にする)。
         let value = if line.contains('/') {
             exact::parse_rational(line)

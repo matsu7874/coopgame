@@ -56,7 +56,7 @@ impl SampledGame {
         let mut rng = SplitMix64::new(seed);
         let mut coalitions: Vec<PlayerSet> = Vec::new();
         for i in 0..n {
-            let single = PlayerSet::from_players(n, &[i]);
+            let single = PlayerSet::singleton(n, i);
             coalitions.push(single.complement());
             coalitions.push(single);
         }
@@ -98,7 +98,7 @@ impl SampledGame {
                 Ok(())
             };
         for i in 0..n {
-            let single = PlayerSet::from_players(n, &[i]);
+            let single = PlayerSet::singleton(n, i);
             add(single.complement(), &mut values, &mut unique)?;
             add(single, &mut values, &mut unique)?;
         }
@@ -106,7 +106,7 @@ impl SampledGame {
             add(set.complement(), &mut values, &mut unique)?;
             add(set, &mut values, &mut unique)?;
         }
-        let grand_value = finite(game.value(&PlayerSet::full(n)))?;
+        let grand_value = finite(game.value(&PlayerSet::grand(n)))?;
         let scale = values
             .values()
             .fold(grand_value.abs(), |acc, v| acc.max(v.abs()));
@@ -169,14 +169,40 @@ impl OracleGame for SampledGame {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct SampledNucleolus {
-    pub allocation: Vec<f64>,
+    pub(crate) allocation: Vec<f64>,
+    pub(crate) epsilon: f64,
+    pub(crate) levels: Vec<f64>,
+    pub(crate) evaluations: usize,
+    pub(crate) guarantee: Guarantee,
+}
+
+impl SampledNucleolus {
+    pub fn allocation(&self) -> &[f64] {
+        &self.allocation
+    }
+
+    pub fn into_allocation(self) -> Vec<f64> {
+        self.allocation
+    }
+
     /// サンプルした提携での最小コアの値 (最大超過の最小値)。
-    pub epsilon: f64,
-    pub levels: Vec<f64>,
+    pub fn epsilon(&self) -> f64 {
+        self.epsilon
+    }
+
+    pub fn levels(&self) -> &[f64] {
+        &self.levels
+    }
+
     /// 特性関数を評価した回数。
-    pub evaluations: usize,
+    pub fn evaluations(&self) -> usize {
+        self.evaluations
+    }
+
     /// 常に [`Guarantee::Approximate`] (全提携をサンプルした場合も、検証するまでは近似として扱う)。
-    pub guarantee: Guarantee,
+    pub fn guarantee(&self) -> Guarantee {
+        self.guarantee
+    }
 }
 
 /// 提携を `pairs` 組サンプルし、制限したゲームの仁 (プレ仁) を求める。

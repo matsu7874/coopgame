@@ -40,7 +40,7 @@ impl CostGame {
     pub fn savings_game(&self) -> Result<ExplicitGame> {
         let standalone = self.standalone();
         self.costs.map_values(|coalition, cost| {
-            coalition.players().map(|i| standalone[i]).sum::<f64>() - cost
+            coalition.members().map(|i| standalone[i]).sum::<f64>() - cost
         })
     }
 

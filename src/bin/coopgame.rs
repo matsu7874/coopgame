@@ -4,8 +4,8 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use coopgame::analysis::{explain, plot, uncertainty};
+use coopgame::game::default_tolerance;
 use coopgame::game::exact::{self, format_rational};
-use coopgame::game::{default_tolerance, format_coalition, player_name};
 use coopgame::games::airport::AirportGame;
 use coopgame::games::{bankruptcy, cost};
 use coopgame::kernel::{self, SetOptions, TransferOptions};
@@ -24,10 +24,10 @@ const USAGE: &str = "\
                       --cost: v.txt を費用として読み、費用の分担を出す
                       --exact: 値を 10 進数・分数の値どおりの有理数として読み、有理数だけで解いて分数で出す (10 人まで)
   coopgame airport    --costs c1,c2,...   空港ゲームの費用分担 (Shapley 値と仁)
-  coopgame plot       <v.txt> [--lex] [--names A,B,C] [--no-kernel] > figure.svg
+  coopgame plot       <v.txt> [--lex] [--no-kernel] > figure.svg
                       3-4 人の配分集合・コア・カーネル・仁・Shapley 値の図 (SVG)。頂点の表は標準エラーに出す
-  coopgame structure  <v.txt> --blocks 1,2,3|4,5|6 [--lex] [--pre]
-                      提携構造 (ブロックは 1 始まりの番号を , でつなぎ | で区切る) の Aumann-Drèze 値・
+  coopgame structure  <v.txt> --blocks 0,1,2|3,4|5 [--lex] [--pre]
+                      提携構造 (ブロックはプレイヤーの番号を , でつなぎ | で区切る) の Aumann-Drèze 値・
                       提携構造つきの仁、事前の連合とみなした Owen 値
   coopgame least-core <v.txt> [--pre] [--lex]
   coopgame per-capita   <v.txt> [--pre] [--lex]   per capita 仁
@@ -41,7 +41,7 @@ const USAGE: &str = "\
   coopgame solidarity <v.txt> [--lex]   solidarity 値 (Nowak & Radzik 1994)
   coopgame tau        <v.txt> [--lex]   tau 値 (Tijs 1981)。理想の支払いと最小の権利は標準エラーに出す
   coopgame gately     <v.txt> [--lex]   Gately 点 (Gately 1974)
-  coopgame myerson    <v.txt> --edges 1-2,2-3 [--lex]   通信グラフ (辺は 1 始まりの番号の組) のもとでの Myerson 値
+  coopgame myerson    <v.txt> --edges 0-1,1-2 [--lex]   通信グラフ (辺はプレイヤーの番号の組) のもとでの Myerson 値
   coopgame power      <v.txt> [--lex]   単純ゲーム (値が 0 か 1) の投票力指数の表
                       (Shapley-Shubik・正規化 Banzhaf・Johnston・Deegan-Packel・Public Good・Coleman の阻止力と発議力)
   coopgame kernel     <v.txt> [--pre] [--lex] [--max-iter N]
@@ -49,8 +49,8 @@ const USAGE: &str = "\
   coopgame verify     <v.txt> <sol.txt> [--pre] [--lex]
   coopgame certify    <v.txt> <sol.txt> [--pre] [--lex] [--rational]
   coopgame bargaining <v.txt> <sol.txt> [--pre] [--lex]   交渉集合 (プレ交渉集合) に属するか
-  coopgame explain    <v.txt> <sol.txt> [--lex] [--levels K] [--names A,B,...]   配分の説明 (不満の大きい提携、安定性)
-  coopgame compare    <v.txt> [--lex] [--names A,B,...]   仁・プレ仁・Shapley 値などを安定性で比べる
+  coopgame explain    <v.txt> <sol.txt> [--lex] [--levels K]   配分の説明 (不満の大きい提携、安定性)
+  coopgame compare    <v.txt> [--lex]   仁・プレ仁・Shapley 値などを安定性で比べる
   coopgame uncertainty <v.txt> [--lex] [--relative 0.1] [--samples 200] [--seed S] [--solver nucleolus|shapley]
                       各値が ±relative の一様な誤差を持つときの配分の分布 (平均・標準偏差・5%/95% 点)
   coopgame influence  <v.txt> [--lex] [--solver nucleolus|shapley] [--levels 2] [--delta D]
@@ -60,7 +60,7 @@ const USAGE: &str = "\
   coopgame bench      [--types 1,2,3,4,5] [--n 4..10] [--seeds 3] [--methods nucleolus,nucleolus-full,kernel]
 
   v.txt    特性関数を 1 行 1 値で書いたファイル (既定はビット順、--lex で辞書式順)。
-           拡張子が .json・.csv ならプレイヤー名付きの形式で読み、配分を「名前<TAB>値」で出す
+           拡張子が .json・.csv なら提携ごとの値を書いた形式で読む (提携はプレイヤーの番号で書く)
   --missing error|zero|ignore  JSON・CSV で値が分からない提携の扱い (既定 error、ignore は nucleolus で分かる提携だけで解く)
   sol.txt  検証する配分を 1 行 1 値で書いたファイル
   --pre    プレ仁・プレカーネル(個人合理性を課さない)
@@ -69,6 +69,8 @@ const USAGE: &str = "\
   --merge  カーネル全体で、同じ直線上でつながる線分を 1 本にまとめる
   --rational  certify で v.txt の値を 10 進数・分数 (8/3) の値どおりの有理数として読む
               (既定は浮動小数点数の 2 進数の値どおり)。どのコマンドも分数の値を受け付ける
+
+プレイヤーは 0 始まりの番号で表す (入力・出力・オプションのすべて)。提携は {0, 2} の形で出す。
 
 計算結果の配分は標準出力に 1 行 1 値で、統計は標準エラーに出す。
 certify は sol.txt の配分から厳密な配分を復元し、有理数で Kohlberg 基準を判定する。
@@ -139,7 +141,6 @@ impl Args {
             "--seeds",
             "--max-iter",
             "--methods",
-            "--names",
             "--levels",
             "--costs",
             "--relative",
@@ -259,10 +260,10 @@ fn run(raw: &[String]) -> CliResult<()> {
                         .and_then(|partial| partial.nucleolus(args.domain()))?;
                     eprintln!(
                         "guarantee={} (値が分かる {} 個の提携だけで解いた。真のゲームの仁とは限らない)",
-                        result.guarantee,
+                        result.guarantee(),
                         data.known.len()
                     );
-                    print_allocation(&result.allocation);
+                    print_allocation(result.allocation());
                     return Ok(());
                 }
                 Err(message) => return Err(message),
@@ -283,20 +284,19 @@ fn run(raw: &[String]) -> CliResult<()> {
             eprintln!(
                 "time={:.6}s lp_solves={} rows_added={} levels={:?}",
                 started.elapsed().as_secs_f64(),
-                result.lp_solves,
-                result.rows_added,
-                result.levels
+                result.lp_solves(),
+                result.rows_added(),
+                result.levels()
             );
             match &cost {
-                Some(cost) => print_allocation(&cost.to_costs(&result.allocation)),
-                None => print_allocation(&result.allocation),
+                Some(cost) => print_allocation(&cost.to_costs(result.allocation())),
+                None => print_allocation(result.allocation()),
             }
         }
         "plot" => {
-            args.check_known(&["--lex", "--names", "--no-kernel"])?;
+            args.check_known(&["--lex", "--no-kernel"])?;
             let game = read_game(args.file(0)?, args.has("--lex"))?;
             let mut options = plot::PlotOptions::default();
-            options.names = player_names(&args, game.players())?;
             options.kernel = !args.has("--no-kernel");
             let figure = plot::imputation_figure(&game, &options)?;
             print!("{}", figure.svg);
@@ -306,36 +306,33 @@ fn run(raw: &[String]) -> CliResult<()> {
             }
             for (k, piece) in figure.kernel_pieces.iter().enumerate() {
                 for x in piece {
-                    eprintln!("kernel_piece_{}\t{}", k + 1, join(x));
+                    eprintln!("kernel_piece_{k}\t{}", join(x));
                 }
             }
-            for (label, x) in &figure.points {
+            for (point, x) in &figure.points {
+                let label = match point {
+                    plot::Point::Nucleolus => "nucleolus".to_string(),
+                    plot::Point::Shapley => "shapley".to_string(),
+                    plot::Point::Extra(k) => format!("point_{k}"),
+                };
                 eprintln!("{label}\t{}", join(x));
             }
         }
         "structure" => {
-            args.check_known(&["--blocks", "--lex", "--pre", "--names"])?;
+            args.check_known(&["--blocks", "--lex", "--pre"])?;
             let game = read_game(args.file(0)?, args.has("--lex"))?;
             let text = args.value("--blocks")?.ok_or("--blocks が必要")?;
             let blocks: Vec<Vec<usize>> = text
                 .split('|')
-                .map(|block| {
-                    parse_list::<usize>(block, "--blocks")
-                        .map(|list| list.into_iter().map(|i| i.wrapping_sub(1)).collect())
-                })
+                .map(|block| parse_list::<usize>(block, "--blocks"))
                 .collect::<CliResult<_>>()?;
             let structure = partition::CoalitionStructure::new(game.players(), &blocks)?;
-            let names = player_names(&args, game.players())?;
             let ad = partition::aumann_dreze(&game, &structure)?;
             let owen = partition::owen(&game, &structure)?;
             let nucleolus = partition::nucleolus(&game, &structure, args.domain())?;
             println!("player\taumann_dreze\tstructured_nucleolus\towen");
             for i in 0..game.players() {
-                let label = player_name(names.as_deref(), i);
-                println!(
-                    "{label}\t{}\t{}\t{}",
-                    ad[i], nucleolus.allocation[i], owen[i]
-                );
+                println!("{i}\t{}\t{}\t{}", ad[i], nucleolus.allocation()[i], owen[i]);
             }
         }
         "airport" => {
@@ -347,7 +344,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             let nucleolus = game.nucleolus_costs()?;
             println!("player\tcost\tshapley\tnucleolus");
             for (i, c) in game.costs().iter().enumerate() {
-                println!("{}\t{c}\t{}\t{}", i + 1, shapley[i], nucleolus[i]);
+                println!("{i}\t{c}\t{}\t{}", shapley[i], nucleolus[i]);
             }
         }
         "shapley" | "banzhaf" => {
@@ -376,10 +373,10 @@ fn run(raw: &[String]) -> CliResult<()> {
                     eprintln!(
                         "time={:.6}s evaluations={} standard_errors={:?}",
                         started.elapsed().as_secs_f64(),
-                        estimate.evaluations,
-                        estimate.standard_errors
+                        estimate.evaluations(),
+                        estimate.standard_errors()
                     );
-                    estimate.values
+                    estimate.into_values()
                 }
             };
             if args.has("--normalize") {
@@ -392,15 +389,19 @@ fn run(raw: &[String]) -> CliResult<()> {
             args.check_known(&["--pre", "--lex"])?;
             let game = read_game(args.file(0)?, args.has("--lex"))?;
             let result = nucleolus::least_core(&game, args.domain())?;
-            eprintln!("epsilon={}", result.epsilon);
-            print_allocation(&result.allocation);
+            eprintln!("epsilon={}", result.epsilon());
+            print_allocation(result.allocation());
         }
         "disruption" => {
             args.check_known(&["--lex"])?;
             let game = read_game(args.file(0)?, args.has("--lex"))?;
             let result = variants::disruption_nucleolus(&game)?;
-            eprintln!("lp_solves={} levels={:?}", result.lp_solves, result.levels);
-            print_allocation(&result.allocation);
+            eprintln!(
+                "lp_solves={} levels={:?}",
+                result.lp_solves(),
+                result.levels()
+            );
+            print_allocation(result.allocation());
         }
         "anti-nucleolus" => {
             args.check_known(&["--pre", "--lex"])?;
@@ -410,7 +411,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             } else {
                 variants::anti_nucleolus(&game)?
             };
-            print_allocation(&result.allocation);
+            print_allocation(result.allocation());
         }
         "solidarity" | "tau" | "gately" => {
             args.check_known(&["--lex"])?;
@@ -439,8 +440,8 @@ fn run(raw: &[String]) -> CliResult<()> {
                 .map(|edge| {
                     let ends = parse_list::<usize>(&edge.replace('-', ","), "--edges")?;
                     match ends[..] {
-                        [a, b] if a >= 1 && b >= 1 => Ok((a - 1, b - 1)),
-                        _ => Err(format!("--edges の辺 {edge:?} は「番号-番号」(1 始まり)").into()),
+                        [a, b] => Ok((a, b)),
+                        _ => Err(format!("--edges の辺 {edge:?} は「番号-番号」").into()),
                     }
                 })
                 .collect::<CliResult<_>>()?;
@@ -473,17 +474,11 @@ fn run(raw: &[String]) -> CliResult<()> {
                     simple.coleman_initiative().unwrap_or_else(|_| missing()),
                 ),
             ];
-            let names =
-                LOADED.with(|loaded| loaded.borrow().as_ref().map(|data| data.names.clone()));
             let header: Vec<&str> = columns.iter().map(|(name, _)| *name).collect();
             println!("player\t{}\tswings", header.join("\t"));
             for i in 0..n {
-                let label = match &names {
-                    Some(names) if names.len() == n => names[i].clone(),
-                    _ => (i + 1).to_string(),
-                };
                 let row: Vec<String> = columns.iter().map(|(_, v)| v[i].to_string()).collect();
-                println!("{label}\t{}\t{}", row.join("\t"), simple.swings[i]);
+                println!("{i}\t{}\t{}", row.join("\t"), simple.swings[i]);
             }
             eprintln!(
                 "winning={} minimal_winning={} coleman_collectivity={}",
@@ -509,10 +504,10 @@ fn run(raw: &[String]) -> CliResult<()> {
             eprintln!(
                 "time={:.6}s lp_solves={} levels={:?}",
                 started.elapsed().as_secs_f64(),
-                result.lp_solves,
-                result.levels
+                result.lp_solves(),
+                result.levels()
             );
-            print_allocation(&result.allocation);
+            print_allocation(result.allocation());
         }
         "convex-nucleolus" => {
             args.check_known(&["--lex", "--assume"])?;
@@ -524,18 +519,18 @@ fn run(raw: &[String]) -> CliResult<()> {
                     convex::nucleolus_with(&assumed, ConvexOptions::default())
                         .map_err(|e| format!("凸と仮定した手法が失敗した: {e}"))?;
                 let seconds = started.elapsed().as_secs_f64();
-                let allocation = unverified.peek().allocation.clone();
+                let allocation = unverified.peek().allocation().to_vec();
                 let verdict = unverified.verify(&game, VerifyOptions::default())?;
                 let (guarantee, note) = match &verdict {
                     Verified::Certified(solution) => {
-                        (solution.guarantee.to_string(), String::new())
+                        (solution.guarantee().to_string(), String::new())
                     }
                     Verified::Refuted { solution, reason } => (
-                        solution.guarantee.to_string(),
+                        solution.guarantee().to_string(),
                         format!(" refuted: {reason}"),
                     ),
                     Verified::Undecided { solution, reason } => (
-                        solution.peek().guarantee.to_string(),
+                        solution.peek().guarantee().to_string(),
                         format!(" undecided: {reason}"),
                     ),
                 };
@@ -544,7 +539,7 @@ fn run(raw: &[String]) -> CliResult<()> {
                     stats.sweeps, stats.transfers
                 );
                 match verdict {
-                    Verified::Certified(solution) => print_allocation(&solution.allocation),
+                    Verified::Certified(solution) => print_allocation(solution.allocation()),
                     _ => print_allocation(&allocation),
                 }
             } else {
@@ -557,9 +552,9 @@ fn run(raw: &[String]) -> CliResult<()> {
                     started.elapsed().as_secs_f64(),
                     stats.sweeps,
                     stats.transfers,
-                    solution.guarantee
+                    solution.guarantee()
                 );
-                print_allocation(&solution.allocation);
+                print_allocation(solution.allocation());
             }
         }
         "kernel" => {
@@ -572,11 +567,11 @@ fn run(raw: &[String]) -> CliResult<()> {
             eprintln!(
                 "time={:.6}s iterations={} violation={:e} converged={}",
                 started.elapsed().as_secs_f64(),
-                result.iterations,
-                result.violation,
-                result.converged
+                result.iterations(),
+                result.violation(),
+                result.converged()
             );
-            print_allocation(&result.allocation);
+            print_allocation(result.allocation());
         }
         "kernel-set" => {
             args.check_known(&["--pre", "--lex", "--max-nodes", "--merge"])?;
@@ -596,7 +591,7 @@ fn run(raw: &[String]) -> CliResult<()> {
                 set.lp_solves
             );
             for (index, piece) in set.pieces.iter().enumerate() {
-                println!("piece {} (dimension {})", index + 1, piece.dimension);
+                println!("piece {index} (dimension {})", piece.dimension);
                 match &piece.vertices {
                     Some(vertices) => {
                         for vertex in vertices {
@@ -699,62 +694,54 @@ fn run(raw: &[String]) -> CliResult<()> {
             match report.objection {
                 None => println!("bargaining=true"),
                 Some(objection) => println!(
-                    "bargaining=false: {} は {} に提携 {:?} で異議を唱え、反論されない (支払い {}、余裕 {:e})",
-                    objection.objector + 1,
-                    objection.target + 1,
-                    objection
-                        .coalition
-                        .players()
-                        .map(|k| k + 1)
-                        .collect::<Vec<_>>(),
+                    "bargaining=false: {} は {} に提携 {} で異議を唱え、反論されない (支払い {}、余裕 {:e})",
+                    objection.objector,
+                    objection.target,
+                    objection.coalition,
                     join(&objection.payoff),
                     objection.margin
                 ),
             }
         }
         "explain" => {
-            args.check_known(&["--lex", "--levels", "--names"])?;
+            args.check_known(&["--lex", "--levels"])?;
             let game = read_game(args.file(0)?, args.has("--lex"))?;
             let x = read_values(args.file(1)?)?;
-            let names = player_names(&args, game.players())?;
             let mut options = explain::ExplainOptions::default();
             options.levels = args.number("--levels", 3)?;
             let report = explain::report(&game, &x, options)?;
-            print!("{}", explain::render(&report, names.as_deref()));
+            print!("{}", explain::render(&report));
         }
         "compare" => {
-            args.check_known(&["--lex", "--names"])?;
+            args.check_known(&["--lex"])?;
             let game = read_game(args.file(0)?, args.has("--lex"))?;
-            let names = player_names(&args, game.players())?;
             let mut candidates: Vec<(String, Vec<f64>)> = Vec::new();
             // 計算できない解 (配分集合が空など) は飛ばす。
             if let Ok(r) = nucleolus::nucleolus(&game) {
-                candidates.push(("仁".into(), r.allocation));
+                candidates.push(("仁".into(), r.into_allocation()));
             }
             if let Ok(r) = nucleolus::prenucleolus(&game) {
-                candidates.push(("プレ仁".into(), r.allocation));
+                candidates.push(("プレ仁".into(), r.into_allocation()));
             }
             candidates.push(("Shapley 値".into(), values::shapley(&game)));
             if let Ok(r) = variants::per_capita_nucleolus(&game, Domain::Imputation) {
-                candidates.push(("per capita 仁".into(), r.allocation));
+                candidates.push(("per capita 仁".into(), r.into_allocation()));
             }
             if let Ok(r) = variants::modiclus(&game) {
-                candidates.push(("modiclus".into(), r.allocation));
+                candidates.push(("modiclus".into(), r.into_allocation()));
             }
-            let rows = explain::compare(&game, &candidates)?;
-            print!("{}", explain::render_comparison(&rows, names.as_deref()));
+            let (labels, allocations): (Vec<String>, Vec<Vec<f64>>) =
+                candidates.into_iter().unzip();
+            let rows = explain::compare(&game, &allocations)?;
+            print!("{}", explain::render_comparison(&rows));
+            println!("\n解の番号:");
+            for (k, label) in labels.iter().enumerate() {
+                println!("{k}\t{label}");
+            }
         }
         "uncertainty" => {
-            args.check_known(&[
-                "--lex",
-                "--relative",
-                "--samples",
-                "--seed",
-                "--solver",
-                "--names",
-            ])?;
+            args.check_known(&["--lex", "--relative", "--samples", "--seed", "--solver"])?;
             let game = read_game(args.file(0)?, args.has("--lex"))?;
-            let names = player_names(&args, game.players())?;
             let relative: f64 = args.number("--relative", 0.1)?;
             let samples: usize = args.number("--samples", 200)?;
             let seed: u64 = args.number("--seed", 0)?;
@@ -763,9 +750,8 @@ fn run(raw: &[String]) -> CliResult<()> {
             let d = uncertainty::interval_monte_carlo(&interval, samples, seed, solve)?;
             println!("player\tmean\tstd\tq05\tq50\tq95");
             for i in 0..game.players() {
-                let label = player_name(names.as_deref(), i);
                 println!(
-                    "{label}\t{:.6}\t{:.6}\t{:.6}\t{:.6}\t{:.6}",
+                    "{i}\t{:.6}\t{:.6}\t{:.6}\t{:.6}\t{:.6}",
                     d.mean[i],
                     d.std[i],
                     d.quantiles[0].1[i],
@@ -776,9 +762,8 @@ fn run(raw: &[String]) -> CliResult<()> {
             eprintln!("samples={} failures={}", d.samples, d.failures);
         }
         "influence" => {
-            args.check_known(&["--lex", "--solver", "--levels", "--delta", "--names"])?;
+            args.check_known(&["--lex", "--solver", "--levels", "--delta"])?;
             let game = read_game(args.file(0)?, args.has("--lex"))?;
-            let names = player_names(&args, game.players())?;
             let mut solve = solver(args.value("--solver")?.unwrap_or("nucleolus"))?;
             let x = solve(&game)?;
             let levels: usize = args.number("--levels", 2)?;
@@ -792,7 +777,7 @@ fn run(raw: &[String]) -> CliResult<()> {
                     row.sensitivity.iter().map(|v| format!("{v:.4}")).collect();
                 println!(
                     "{}\t{:.4}\t{}",
-                    format_coalition(row.coalition, names.as_deref()),
+                    row.coalition,
                     row.magnitude(),
                     values.join(" ")
                 );
@@ -822,7 +807,7 @@ fn read_values(path: &str) -> CliResult<Vec<f64>> {
 }
 
 thread_local! {
-    /// JSON・CSV から読んだゲーム (名前・値の種類) と、値が分からない提携の扱い (`--missing`)。
+    /// JSON・CSV から読んだゲーム (値の種類・値が分かる提携) と、値が分からない提携の扱い (`--missing`)。
     static LOADED: std::cell::RefCell<Option<io::GameData>> = const { std::cell::RefCell::new(None) };
     static MISSING: std::cell::Cell<MissingPolicy> = const { std::cell::Cell::new(MissingPolicy::Error) };
 }
@@ -861,7 +846,6 @@ fn read_game(path: &str, lex: bool) -> CliResult<ExplicitGame> {
     game.map_err(|e| format!("{path}: {e}").into())
 }
 
-/// `--solver` の名前から解き方を選ぶ。
 fn solver(name: &str) -> CliResult<uncertainty::Solver> {
     uncertainty::solver(name).ok_or_else(|| {
         format!(
@@ -870,23 +854,6 @@ fn solver(name: &str) -> CliResult<uncertainty::Solver> {
         )
         .into()
     })
-}
-
-/// `--names A,B,C` をプレイヤーの名前として読む (人数と一致しなければエラー)。
-fn player_names(args: &Args, players: usize) -> CliResult<Option<Vec<String>>> {
-    let Some(text) = args.value("--names")? else {
-        // JSON・CSV で読んだ名前があればそれを使う。
-        return Ok(LOADED.with(|loaded| loaded.borrow().as_ref().map(|data| data.names.clone())));
-    };
-    let names: Vec<String> = text.split(',').map(|s| s.trim().to_string()).collect();
-    if names.len() != players {
-        return Err(format!(
-            "--names の数 {} がプレイヤー数 {players} と異なる",
-            names.len()
-        )
-        .into());
-    }
-    Ok(Some(names))
 }
 
 /// 値を 10 進数・分数の値どおりの有理数として読む。
@@ -909,20 +876,10 @@ fn join(values: &[f64]) -> String {
         .join(" ")
 }
 
-/// 配分を 1 行 1 値で出す。JSON・CSV で名前付きのゲームを読んだときは `名前<TAB>値` で出す。
+/// 配分を 1 行 1 値で出す (i 行目がプレイヤー i)。
 fn print_allocation(x: &[f64]) {
-    let names = LOADED.with(|loaded| loaded.borrow().as_ref().map(|data| data.names.clone()));
-    match names {
-        Some(names) if names.len() == x.len() => {
-            for (name, value) in names.iter().zip(x) {
-                println!("{name}\t{value}");
-            }
-        }
-        _ => {
-            for value in x {
-                println!("{value}");
-            }
-        }
+    for value in x {
+        println!("{value}");
     }
 }
 
@@ -993,21 +950,23 @@ fn bench_one(game: &ExplicitGame, method: &str) -> CliResult<String> {
             let seconds = started.elapsed().as_secs_f64();
             format!(
                 "{seconds:.6},0,0,{},{},{:e},",
-                r.iterations, r.converged, r.violation
+                r.iterations(),
+                r.converged(),
+                r.violation()
             )
         })
     } else {
         nucleolus::nucleolus_with(game, options).map(|r| {
             let seconds = started.elapsed().as_secs_f64();
-            let verified = verify::kohlberg(game, &r.allocation, domain)
+            let verified = verify::kohlberg(game, r.allocation(), domain)
                 .map(|report| report.satisfied)
                 .unwrap_or(false);
             format!(
                 "{seconds:.6},{},{},{},{verified},{:e},",
-                r.lp_solves,
-                r.rows_added,
-                r.levels.len(),
-                kernel::kernel_violation(game, &r.allocation, domain)
+                r.lp_solves(),
+                r.rows_added(),
+                r.levels().len(),
+                kernel::kernel_violation(game, r.allocation(), domain)
             )
         })
     };

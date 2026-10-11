@@ -67,7 +67,7 @@ fn check(name: &str, game: &ExplicitGame, domain: Domain) -> KernelSet {
         Domain::Preimputation => nucleolus::prenucleolus(game),
     }
     .unwrap()
-    .allocation;
+    .into_allocation();
     assert!(
         set.contains(&nucleolus, tolerance),
         "{name} {domain:?}: 仁 {nucleolus:?} を含まない"
@@ -79,11 +79,11 @@ fn check(name: &str, game: &ExplicitGame, domain: Domain) -> KernelSet {
         let point =
             kernel::kernel_point(game, domain, Some(&start), TransferOptions::for_game(game))
                 .unwrap();
-        if point.converged {
+        if point.converged() {
             assert!(
-                set.contains(&point.allocation, 1e-5 * scale(game)),
+                set.contains(point.allocation(), 1e-5 * scale(game)),
                 "{name} {domain:?}: transfer scheme の点 {:?} を含まない",
-                point.allocation
+                point.allocation()
             );
         }
     }

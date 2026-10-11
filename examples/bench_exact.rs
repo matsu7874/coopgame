@@ -33,7 +33,7 @@ fn main() {
             let started = Instant::now();
             let result = nucleolus::exact::nucleolus(&exact_game, Domain::Imputation).unwrap();
             let seconds = started.elapsed().as_secs_f64();
-            let float = nucleolus::nucleolus(&game).unwrap().allocation;
+            let float = nucleolus::nucleolus(&game).unwrap().into_allocation();
             let certified = verify::certify(&game, &float, Domain::Imputation).unwrap();
             let matches = certified.satisfied && certified.allocation == result.allocation;
             println!(

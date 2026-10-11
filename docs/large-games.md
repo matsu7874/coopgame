@@ -29,12 +29,10 @@
 
 凸ゲームではカーネルと仁が一致する。
 `nucleolus::convex::nucleolus` はこれを使い、最大余剰を劣モジュラ最小化で求める transfer scheme で仁を求める。
-誘導部分グラフゲームで 64 人を 17 秒で解いた。
 
 ## サンプリング
 
 - Shapley 値・Banzhaf 値は、`values::{shapley_sampling, banzhaf_sampling}` で任意人数のゲームから標準誤差付きで推定できる。
 - 仁・最小コアは、`nucleolus::sampled::{nucleolus, least_core}` でサンプルした提携だけを使って近似できる。
-  仁は少数の提携で決まるため、その提携をサンプルするまで誤差が残る。
 
-各方法の計測結果と規模の上限は [性能と制約](performance.md) にまとめている。
+各方法の計測結果、規模の上限、近似の誤差は [性能と制約](performance.md) にまとめている。

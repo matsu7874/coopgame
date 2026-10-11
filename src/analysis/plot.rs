@@ -10,10 +10,10 @@
 //! 文字色の印と形・直接ラベルで区別する。各点には `<title>` (ホバーで値を表示) を付ける。
 //! 明暗のテーマは `prefers-color-scheme` で切り替える。
 
-use std::fmt::Write as _;
+use std::fmt::{self, Write as _};
 
 use crate::error::{Error, Result};
-use crate::game::{Coalition, ExplicitGame, player_name};
+use crate::game::{Coalition, ExplicitGame};
 use crate::kernel::{SetOptions, kernel_set};
 use crate::linalg::{for_each_combination, indicator, solve_square};
 use crate::{Domain, nucleolus, values};
@@ -21,21 +21,17 @@ use crate::{Domain, nucleolus, values};
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct PlotOptions {
-    /// プレイヤーの名前 (なければ 1 始まりの番号)。
-    pub names: Option<Vec<String>>,
     /// カーネル全体を描くか (6 人まで計算できるが、図は 3-4 人)。
     pub kernel: bool,
-    /// Shapley 値を描くか。
     pub shapley: bool,
-    /// 追加で描く点 (ラベル, 配分)。
-    pub points: Vec<(String, Vec<f64>)>,
+    /// 追加で描く配分。図には [`Point::Extra`] の番号 (この列での 0 始まりの位置) で示す。
+    pub points: Vec<Vec<f64>>,
     pub title: Option<String>,
 }
 
 impl Default for PlotOptions {
     fn default() -> PlotOptions {
         PlotOptions {
-            names: None,
             kernel: true,
             shapley: true,
             points: Vec::new(),
@@ -53,8 +49,28 @@ pub struct Figure {
     pub core_vertices: Vec<Vec<f64>>,
     /// カーネルの多面体の頂点 (多面体ごと)。
     pub kernel_pieces: Vec<Vec<Vec<f64>>>,
-    /// 描いた点 (ラベル, 配分)。仁・Shapley 値・追加の点の順。
-    pub points: Vec<(String, Vec<f64>)>,
+    /// 描いた点 (種類, 配分)。仁・Shapley 値・追加の点の順。
+    pub points: Vec<(Point, Vec<f64>)>,
+}
+
+/// 図に描いた点の種類。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Point {
+    Nucleolus,
+    Shapley,
+    /// [`PlotOptions::points`] の `k` 番目 (0 始まり)。
+    Extra(usize),
+}
+
+impl fmt::Display for Point {
+    /// 図に書く名前 (`仁`、`Shapley 値`、`点 0`)。
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Point::Nucleolus => f.write_str("仁"),
+            Point::Shapley => f.write_str("Shapley 値"),
+            Point::Extra(k) => write!(f, "点 {k}"),
+        }
+    }
 }
 
 const WIDTH: f64 = 640.0;
@@ -75,11 +91,6 @@ pub fn imputation_figure(game: &ExplicitGame, options: &PlotOptions) -> Result<F
             "配分集合が 1 点以下 (v(N) <= sum v({i})) なので描けない".into(),
         ));
     }
-    let names: Vec<String> = match &options.names {
-        Some(names) if names.len() == n => names.clone(),
-        Some(_) => return Err(Error::InvalidArgument("名前の数が人数と異なる".into())),
-        None => (0..n).map(|i| player_name(None, i)).collect(),
-    };
     let projection = Projection::new(n, singles.clone(), surplus);
 
     let core_vertices = core_vertices(game);
@@ -92,16 +103,22 @@ pub fn imputation_figure(game: &ExplicitGame, options: &PlotOptions) -> Result<F
     } else {
         Vec::new()
     };
-    let mut points: Vec<(String, Vec<f64>)> =
-        vec![("仁".to_string(), nucleolus::nucleolus(game)?.allocation)];
+    let mut points: Vec<(Point, Vec<f64>)> =
+        vec![(Point::Nucleolus, nucleolus::nucleolus(game)?.allocation)];
     if options.shapley {
-        points.push(("Shapley 値".to_string(), values::shapley(game)));
+        points.push((Point::Shapley, values::shapley(game)));
     }
-    points.extend(options.points.iter().cloned());
-    for (label, x) in &points {
+    points.extend(
+        options
+            .points
+            .iter()
+            .enumerate()
+            .map(|(k, x)| (Point::Extra(k), x.clone())),
+    );
+    for (point, x) in &points {
         if x.len() != n {
             return Err(Error::InvalidArgument(format!(
-                "点 {label:?} の長さが人数と異なる"
+                "{point} の長さが人数と異なる"
             )));
         }
     }
@@ -118,7 +135,6 @@ pub fn imputation_figure(game: &ExplicitGame, options: &PlotOptions) -> Result<F
     screen.extend(points.iter().map(|(_, x)| projection.project(x)));
     let scene = Scene {
         n,
-        names: &names,
         view: View::fit(&screen),
         projection,
         corners: screen[..n].to_vec(),
@@ -228,17 +244,16 @@ impl Marker {
     }
 }
 
-/// 図の座標系と名前。
-struct Scene<'a> {
+/// 図の座標系。
+struct Scene {
     n: usize,
-    names: &'a [String],
     projection: Projection,
     view: View,
     /// 配分集合の頂点の (写像前の) 座標。
     corners: Vec<(f64, f64)>,
 }
 
-impl Scene<'_> {
+impl Scene {
     fn map(&self, x: &[f64]) -> (f64, f64) {
         self.view.map(self.projection.project(x))
     }
@@ -288,12 +303,12 @@ impl Scene<'_> {
             let _ = writeln!(
                 svg,
                 r#"<circle class="kernel-dot" cx="{x:.1}" cy="{y:.1}" r="9"><title>カーネル: {}</title></circle>"#,
-                escape(&format_allocation(&piece[0], self.names))
+                format_allocation(&piece[0])
             );
         }
     }
 
-    /// 頂点の名前 (重心から外向きにずらす)。
+    /// 頂点のプレイヤーの番号 (重心から外向きにずらす)。
     fn draw_vertex_labels(&self, svg: &mut String) {
         let center = {
             let (sx, sy) = self
@@ -309,14 +324,13 @@ impl Scene<'_> {
             let (lx, ly) = (x + 22.0 * dx / norm, y + 22.0 * dy / norm + 5.0);
             let _ = writeln!(
                 svg,
-                r#"<text class="vertex" x="{lx:.1}" y="{ly:.1}" text-anchor="middle">{}</text>"#,
-                escape(&self.names[i])
+                r#"<text class="vertex" x="{lx:.1}" y="{ly:.1}" text-anchor="middle">{i}</text>"#
             );
         }
     }
 
     /// 点 (仁は水色の丸、Shapley 値は文字色のひし形、他は四角) とラベル。
-    fn draw_points(&self, svg: &mut String, points: &[(String, Vec<f64>)], shapley: bool) {
+    fn draw_points(&self, svg: &mut String, points: &[(Point, Vec<f64>)], shapley: bool) {
         let placed: Vec<(f64, f64)> = points.iter().map(|(_, x)| self.map(x)).collect();
         let mut taken: Vec<Rect> = placed
             .iter()
@@ -324,24 +338,25 @@ impl Scene<'_> {
             .collect();
         // 印は後で逆順に描く (仁が一番上に来るように)。
         let mut marks: Vec<String> = Vec::new();
-        for (k, ((label, x), &(px, py))) in points.iter().zip(&placed).enumerate() {
+        for (k, ((point, x), &(px, py))) in points.iter().zip(&placed).enumerate() {
+            let label = point.to_string();
             let marker = match k {
                 0 => Marker::Circle,
                 1 if shapley => Marker::Diamond,
                 _ => Marker::Square,
             };
-            let tooltip = format!("{label}: {}", format_allocation(x, self.names));
+            let tooltip = format!("{label}: {}", format_allocation(x));
             marks.push(format!(
                 r#"<g class="point">{}<circle class="hit" cx="{px:.1}" cy="{py:.1}" r="12"/><title>{}</title></g>"#,
                 marker.svg(px, py),
                 escape(&tooltip)
             ));
-            let (lx, ly, anchor, rect) = place_label(px, py, text_width(label, 13.0), &taken);
+            let (lx, ly, anchor, rect) = place_label(px, py, text_width(&label, 13.0), &taken);
             taken.push(rect);
             let _ = writeln!(
                 svg,
                 r#"<text class="label" x="{lx:.1}" y="{ly:.1}" text-anchor="{anchor}">{}</text>"#,
-                escape(label)
+                escape(&label)
             );
         }
         for mark in marks.iter().rev() {
@@ -485,12 +500,10 @@ fn escape(text: &str) -> String {
         .replace('>', "&gt;")
 }
 
-fn format_allocation(x: &[f64], names: &[String]) -> String {
-    x.iter()
-        .zip(names)
-        .map(|(v, name)| format!("{name} {v:.4}"))
-        .collect::<Vec<_>>()
-        .join(", ")
+/// 配分を `(2.6667, 0.6667, 1.6667)` の形で書く。
+fn format_allocation(x: &[f64]) -> String {
+    let values: Vec<String> = x.iter().map(|v| format!("{v:.4}")).collect();
+    format!("({})", values.join(", "))
 }
 
 /// 重心座標から画面の 2 次元座標への写像。
@@ -617,9 +630,7 @@ pub fn core_vertices(game: &ExplicitGame) -> Vec<Vec<f64>> {
         let Some(x) = solve_square(a, b, 1e-12) else {
             return;
         };
-        let feasible = constraints
-            .iter()
-            .all(|&(s, v)| coalition_sum(s, &x) >= v - tolerance);
+        let feasible = constraints.iter().all(|&(s, v)| s.sum(&x) >= v - tolerance);
         let duplicate = vertices.iter().any(|y| {
             y.iter()
                 .zip(&x)
@@ -630,10 +641,6 @@ pub fn core_vertices(game: &ExplicitGame) -> Vec<Vec<f64>> {
         }
     });
     vertices
-}
-
-fn coalition_sum(coalition: Coalition, x: &[f64]) -> f64 {
-    coalition.players().map(|i| x[i]).sum()
 }
 
 /// コアの稜線 (2 つの頂点で共通に等号が成り立つ制約が `n - 2` 本以上あり、独立なもの)。
@@ -647,7 +654,7 @@ fn core_edges(game: &ExplicitGame, vertices: &[Vec<f64>]) -> Vec<(usize, usize)>
             constraints
                 .iter()
                 .enumerate()
-                .filter(|(_, (s, v))| (coalition_sum(*s, x) - v).abs() <= tolerance)
+                .filter(|(_, (s, v))| (s.sum(x) - v).abs() <= tolerance)
                 .map(|(k, _)| k)
                 .collect()
         })
@@ -690,23 +697,21 @@ mod tests {
             assert!((x.iter().sum::<f64>() - 5.0).abs() < 1e-9);
             assert!(crate::properties::is_in_core(&game, x, 1e-7));
         }
-        assert_eq!(figure.points[0].0, "仁");
-        assert!(figure.svg.contains("仁: 1 2.6667"));
+        assert_eq!(figure.points[0].0, Point::Nucleolus);
+        assert!(figure.svg.contains("仁: (2.6667, 0.6667, 1.6667)"));
     }
 
     #[test]
-    fn names_are_escaped_in_every_tooltip() {
-        // 3 人多数決: カーネルは 1 点なので、カーネルの点のツールチップにも名前が入る。
+    fn title_is_escaped() {
         let majority = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]).unwrap();
         let options = PlotOptions {
-            names: Some(vec!["<a>".into(), "b&c".into(), "d".into()]),
+            title: Some("<a> b&c".into()),
             ..PlotOptions::default()
         };
         let figure = imputation_figure(&majority, &options).unwrap();
-        assert!(figure.svg.contains("kernel-dot"));
         assert!(!figure.svg.contains("<a>"));
         assert!(!figure.svg.contains("b&c"));
-        assert!(figure.svg.contains("&lt;a&gt;"));
+        assert!(figure.svg.contains("&lt;a&gt; b&amp;c"));
     }
 
     #[test]
@@ -714,7 +719,7 @@ mod tests {
         let game = ExplicitGame::from_lex(&[-1.0, 0.0, 1.0, 3.0, 4.0, 2.0, 5.0]).unwrap();
         let options = PlotOptions {
             shapley: false,
-            points: vec![("x".into(), vec![2.0, 1.0, 2.0])],
+            points: vec![vec![2.0, 1.0, 2.0]],
             ..PlotOptions::default()
         };
         let figure = imputation_figure(&game, &options).unwrap();

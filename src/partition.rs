@@ -8,6 +8,8 @@
 //!     `phi_i = sum_{R ⊆ M \ {k}} sum_{T ⊆ B_k \ {i}} r!(m-r-1)!/m! * t!(b-t-1)!/b! * [v(Q ∪ T ∪ {i}) - v(Q ∪ T)]`
 //!     (`B_k` は i の連合、`Q` は R の連合の和、`m` は連合の数、`b = |B_k|`)。
 
+use std::fmt;
+
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::{Coalition, ExplicitGame};
@@ -19,6 +21,14 @@ use crate::values;
 pub struct CoalitionStructure {
     players: usize,
     blocks: Vec<Coalition>,
+}
+
+impl fmt::Display for CoalitionStructure {
+    /// ブロックを `{0, 1} {2}` の形で、空白で区切って書く。
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let blocks: Vec<String> = self.blocks.iter().map(Coalition::to_string).collect();
+        f.pad(&blocks.join(" "))
+    }
 }
 
 impl CoalitionStructure {
@@ -99,7 +109,7 @@ pub fn aumann_dreze(game: &ExplicitGame, structure: &CoalitionStructure) -> Resu
     let mut value = vec![0.0; game.players()];
     for &block in structure.blocks() {
         let shapley = values::shapley(&game.subgame(block)?);
-        for (i, phi) in block.players().zip(shapley) {
+        for (i, phi) in block.members().zip(shapley) {
             value[i] = phi;
         }
     }
@@ -120,7 +130,7 @@ pub fn owen(game: &ExplicitGame, unions: &CoalitionStructure) -> Result<Vec<f64>
             .filter(|(l, _)| *l != k)
             .map(|(_, c)| *c)
             .collect();
-        let members: Vec<usize> = union.players().collect();
+        let members: Vec<usize> = union.members().collect();
         let b = members.len();
         let fb = factorials(b);
         for &i in &members {

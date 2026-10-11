@@ -12,6 +12,9 @@
 //! | 分析と可視化 | [`analysis`] (説明、不確かさ、図、反例の探索)、[`surplus`] (超過と最大余剰) |
 //! | 入出力と生成 | [`io`] (feature `io`)、[`generators`] |
 //!
+//! プレイヤーは 0 始まりの番号だけで扱い、提携は [`Coalition`] と [`PlayerSet`] で表す (表示は `{0, 2}` の形)。
+//! 名前との対応は扱わない (方針は docs/api-overview.md の「プレイヤーの扱い」)。
+//!
 //! 同じ解を別の手法で求めるものは、解のモジュールの下に公開のサブモジュールとして置く
 //! (例: [`nucleolus::exact`]・[`nucleolus::oracle`]・[`nucleolus::convex`]・[`nucleolus::sampled`])。
 //! 迷ったら [`auto`] がゲームの型から保証のある手法を選ぶ。
@@ -71,4 +74,4 @@ pub use num_traits;
 
 pub use error::{Error, Result};
 pub use game::{Coalition, Domain, ExplicitGame, PlayerSet, SetFunction};
-pub use solution::{Concept, Guarantee, Property, Solution, Unverified};
+pub use solution::{Guarantee, Property, Solution, Unverified};

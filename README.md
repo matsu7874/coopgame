@@ -29,7 +29,9 @@ TU 協力ゲームの仁・カーネル・Shapley 値などの解を計算し、
   - 配分の説明と比較 (`analysis::explain`)、値の不確かさと感度 (`analysis::uncertainty`)
   - 3-4 人の配分集合の図 (`analysis::plot`)、性質の反例の探索 (`analysis::search`)
 - **入出力**
-  - プレイヤー名付きの JSON・CSV (`io`)、ランダムなゲームの生成 (`generators`)
+  - 提携をプレイヤーの番号で書く JSON・CSV (`io`)、ランダムなゲームの生成 (`generators`)
+
+プレイヤーは 0 始まりの番号だけで扱い、提携は `{0, 2}` の形で表示する (名前との対応は利用側で持つ。[docs/api-overview.md](docs/api-overview.md))。
 
 関数と手法の一覧は [docs/api-overview.md](docs/api-overview.md)、知りたいことから解を選ぶ早見図は [docs/choosing.md](docs/choosing.md) にある。
 LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を使うので、外部のソルバーは不要。
@@ -43,7 +45,7 @@ LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を�
 coopgame = "0.1"
 ```
 
-プレイヤー名付きの JSON・CSV を読み書きする `io` モジュールは、feature `io` で有効にする。
+JSON・CSV でゲームを読み書きする `io` モジュールは、feature `io` で有効にする。
 
 CLI (`coopgame` コマンド) を使う場合:
 
@@ -57,10 +59,10 @@ cargo install coopgame --features cli
 use coopgame::{Domain, ExplicitGame, kernel, nucleolus, values, verify};
 
 fn main() -> coopgame::Result<()> {
-    // 3 人ゲームの特性関数 (辞書式順: {1}, {2}, {3}, {1,2}, {1,3}, {2,3}, {1,2,3})
+    // 3 人ゲームの特性関数 (辞書式順: {0}, {1}, {2}, {0,1}, {0,2}, {1,2}, {0,1,2})
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0])?;
 
-    let x = nucleolus::nucleolus(&game)?.allocation; // 仁 [2, 2, 0]
+    let x = nucleolus::nucleolus(&game)?.into_allocation(); // 仁 [2, 2, 0]
     assert!(verify::kohlberg(&game, &x, Domain::Imputation)?.satisfied);
     assert!(kernel::is_in_kernel(&game, &x, Domain::Imputation, 1e-9));
 

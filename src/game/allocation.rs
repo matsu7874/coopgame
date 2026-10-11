@@ -25,7 +25,7 @@ pub(crate) fn coalition_sums(x: &[f64]) -> Vec<f64> {
 }
 
 /// 全提携の超過 `e(S, x) = v(S) - x(S)` (ビット順、長さ `2^n`)。空提携の超過は 0。
-pub fn excesses(game: &ExplicitGame, x: &[f64]) -> Vec<f64> {
+pub(crate) fn excess_table(game: &ExplicitGame, x: &[f64]) -> Vec<f64> {
     debug_assert_eq!(x.len(), game.players());
     let mut excess = coalition_sums(x);
     for (e, value) in excess.iter_mut().zip(game.values()) {
@@ -43,7 +43,7 @@ pub(crate) fn feasibility_violation<G: SetFunction + ?Sized>(
 ) -> Option<String> {
     let n = game.players();
     let total: f64 = x.iter().sum();
-    let grand = game.value(&PlayerSet::full(n));
+    let grand = game.value(&PlayerSet::grand(n));
     if (total - grand).abs() > tolerance {
         return Some(format!(
             "効率性を満たさない: x(N) = {total}, v(N) = {grand}"
@@ -51,12 +51,10 @@ pub(crate) fn feasibility_violation<G: SetFunction + ?Sized>(
     }
     if domain == Domain::Imputation {
         for (i, xi) in x.iter().enumerate() {
-            let lower = game.value(&PlayerSet::from_players(n, &[i]));
+            let lower = game.value(&PlayerSet::singleton(n, i));
             if *xi < lower - tolerance {
                 return Some(format!(
-                    "個人合理性を満たさない: x_{} = {xi} < v({{{}}}) = {lower}",
-                    i + 1,
-                    i + 1
+                    "個人合理性を満たさない: x_{i} = {xi} < v({{{i}}}) = {lower}"
                 ));
             }
         }
@@ -73,9 +71,9 @@ pub(crate) fn check_imputation_set<G: SetFunction + ?Sized>(
     let n = game.players();
     if domain == Domain::Imputation {
         let lower: f64 = (0..n)
-            .map(|i| game.value(&PlayerSet::from_players(n, &[i])))
+            .map(|i| game.value(&PlayerSet::singleton(n, i)))
             .sum();
-        if lower > game.value(&PlayerSet::full(n)) + tolerance {
+        if lower > game.value(&PlayerSet::grand(n)) + tolerance {
             return Err(Error::EmptyImputationSet);
         }
     }
@@ -92,7 +90,7 @@ pub(crate) fn check_blocks(
     if domain == Domain::Imputation {
         for &block in blocks {
             let lower: f64 = block
-                .players()
+                .members()
                 .map(|i| game.value(Coalition::singleton(i)))
                 .sum();
             if lower > game.value(block) + tolerance {

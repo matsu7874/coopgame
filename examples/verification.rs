@@ -12,7 +12,7 @@
 //! 扱うモジュール:
 //!
 //! - `coopgame::verify`: Kohlberg 基準 (`kohlberg`)、有理数での厳密な検証 (`certify`)、
-//!   `Solution` の事後検証 (`check`)
+//!   配分の事後検証 (`check`)
 //! - `coopgame::kernel`: カーネルに入るか (`is_in_kernel`)
 //! - `coopgame::bargaining`: 交渉集合に入るか (`check`)。入らなければ反論のない異議
 //! - `coopgame::properties`: コアに入るか (`is_in_core`)
@@ -23,15 +23,15 @@
 //! ```
 
 use coopgame::bargaining::{self, Objection};
+use coopgame::game::default_tolerance;
 use coopgame::game::exact::format_rational;
-use coopgame::game::{default_tolerance, format_coalition};
 use coopgame::games::bankruptcy::BankruptcyGame;
 use coopgame::kernel;
 use coopgame::nucleolus;
 use coopgame::properties;
 use coopgame::surplus;
 use coopgame::verify::{self, Check, VerifyOptions};
-use coopgame::{Coalition, Concept, Domain, ExplicitGame, Guarantee, Solution};
+use coopgame::{Domain, ExplicitGame};
 
 /// 1 つの配分に対する判定の結果。
 struct Findings {
@@ -45,16 +45,6 @@ struct Findings {
     in_kernel: bool,
     /// 反論のない異議。`None` なら交渉集合に入る。
     objection: Option<Objection>,
-}
-
-/// 配分を検証の対象として `Solution` に包む (仁として検証する)。
-fn candidate(allocation: &[f64]) -> Solution {
-    Solution {
-        concept: Concept::Nucleolus,
-        allocation: allocation.to_vec(),
-        guarantee: Guarantee::Exact,
-        method: "example",
-    }
 }
 
 /// `Check` の結果を 1 行にする。
@@ -75,28 +65,19 @@ fn describe(check: &Check) -> String {
 
 /// 超過の大きい順に、上位 `count` 個の提携 (空提携と全体提携を除く) を表示する。
 fn print_top_excesses(game: &ExplicitGame, x: &[f64], count: usize) {
-    // excesses はビット順 (添字のビット i がプレイヤー i) で、全提携の超過を返す。
-    let all = surplus::excesses(game, x);
-    let grand = game.grand().index();
-    let mut order: Vec<usize> = (1..grand).collect();
-    order.sort_by(|&a, &b| all[b].total_cmp(&all[a]));
-    for &mask in order.iter().take(count) {
-        let coalition = Coalition(mask as u64);
+    // excess_order は、空でも全体でもない提携を超過の大きい順に返す。
+    for (coalition, excess) in surplus::excess_order(game, x).into_iter().take(count) {
         println!(
-            "    {:<10} v(S) = {:>5.2}  超過 = {:>5.2}",
-            format_coalition(coalition, None),
-            game.value(coalition),
-            all[mask]
+            "    {coalition:<10} v(S) = {:>5.2}  超過 = {excess:>5.2}",
+            game.value(coalition)
         );
     }
 }
 
-/// 最大余剰 `s_ij` の行列を表示する。行が i、列が j (表示は 1 始まり、対角は意味を持たない)。
+/// 最大余剰 `s_ij` の行列を表示する。行が i、列が j (対角は意味を持たない)。
 fn print_max_surplus(game: &ExplicitGame, x: &[f64]) {
-    let n = game.players();
-    let s = surplus::max_surplus(game, x);
-    for i in 0..n {
-        println!("    {}: {:.2?}", i + 1, &s[i * n..(i + 1) * n]);
+    for (i, row) in surplus::max_surplus(game, x).iter().enumerate() {
+        println!("    {i}: {row:.2?}");
     }
 }
 
@@ -131,8 +112,8 @@ fn inspect(game: &ExplicitGame, label: &str, x: &[f64]) -> coopgame::Result<Find
         certified.reason.as_deref().unwrap_or("")
     );
 
-    // 5. Solution の事後検証。結果は Certified・Refuted・Undecided のどれかになる。
-    let check = verify::check(game, &candidate(x), VerifyOptions::default())?;
+    // 5. 仁としての事後検証。結果は Certified・Refuted・Undecided のどれかになる。
+    let check = verify::check(game, x, Domain::Imputation, VerifyOptions::default())?;
     println!("  事後検証: {}", describe(&check));
 
     // 6. カーネルの条件: どの 2 人の間でも最大余剰が釣り合っているか。
@@ -151,16 +132,16 @@ fn inspect(game: &ExplicitGame, label: &str, x: &[f64]) -> coopgame::Result<Find
             // payoff は全員分の支払いで、提携のメンバー以外は x のままである。
             let offer: Vec<String> = objection
                 .coalition
-                .players()
-                .map(|k| format!("プレイヤー {} に {:.4}", k + 1, objection.payoff[k]))
+                .members()
+                .map(|k| format!("プレイヤー {k} に {:.4}", objection.payoff[k]))
                 .collect();
             println!(
                 "  交渉集合: 入らない。プレイヤー {} はプレイヤー {} に対し、提携 {} の支払い ({}) で異議を出し、プレイヤー {} は反論できない",
-                objection.objector + 1,
-                objection.target + 1,
-                format_coalition(objection.coalition, None),
+                objection.objector,
+                objection.target,
+                objection.coalition,
                 offer.join("、"),
-                objection.target + 1
+                objection.target
             );
         }
     }
@@ -181,7 +162,7 @@ fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
 
     // 逐次 LP で仁を求める。これが検証の基準になる。
-    let nucleolus = nucleolus::nucleolus(&game)?.allocation;
+    let nucleolus = nucleolus::nucleolus(&game)?.into_allocation();
     assert!(close(&nucleolus, &[2.0, 4.0, 6.0], 1e-6));
 
     // 結果を確かめる (docs/examples.md の値)。
@@ -192,9 +173,10 @@ fn main() -> coopgame::Result<()> {
     assert!(found.in_kernel);
     assert!(found.objection.is_none());
     // 仁では 2 人の提携 3 つの超過がどれも -2 になる。
-    let all = surplus::excesses(&game, &nucleolus);
-    for mask in [0b011, 0b101, 0b110] {
-        assert!((all[mask] + 2.0).abs() < 1e-6);
+    for (coalition, excess) in surplus::excesses(&game, &nucleolus) {
+        if coalition.len() == 2 {
+            assert!((excess + 2.0).abs() < 1e-6, "{coalition}");
+        }
     }
 
     let found = inspect(&game, "少しずらした配分", &[2.5, 3.5, 6.0])?;
@@ -210,7 +192,7 @@ fn main() -> coopgame::Result<()> {
     assert!(matches!(found.check, Check::Refuted(_)));
     assert!(!found.in_kernel);
     let objection = found.objection.expect("(6, 3, 3) には反論のない異議がある");
-    let coalition: Vec<usize> = objection.coalition.players().collect();
+    let coalition: Vec<usize> = objection.coalition.members().collect();
     assert_eq!((objection.objector, objection.target), (1, 0));
     assert_eq!(coalition, vec![1, 2]);
 
@@ -222,7 +204,7 @@ fn main() -> coopgame::Result<()> {
     let talmud = bankruptcy.nucleolus()?;
     let mut options = VerifyOptions::default();
     options.pairs = 1;
-    let check = verify::check(&bankruptcy, &candidate(&talmud), options)?;
+    let check = verify::check(&bankruptcy, &talmud, Domain::Imputation, options)?;
     println!("  事後検証 (1 組だけ確かめる): {}", describe(&check));
     assert!(matches!(check, Check::Undecided(_)));
     Ok(())

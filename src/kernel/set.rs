@@ -245,7 +245,8 @@ impl SetOptions {
     }
 }
 
-/// 小さいゲームのカーネル・プレカーネル全体を、多面体の和集合として求める。
+/// 小さいゲームのカーネル (`Domain::Imputation`)・プレカーネル (`Domain::Preimputation`) 全体を、
+/// 多面体の和集合として求める。
 ///
 /// 最大余剰 `s_ij(x)` は区分線形なので、各組 `(i, j)` で `s_ij` を与える提携
 /// `S_ij`(`i in S, j not in S` で超過が最大の提携)を固定すると、その領域では
@@ -264,8 +265,6 @@ impl SetOptions {
 /// 等しくなる提携は同じ候補として 1 つだけ展開する。
 ///
 /// 計算量は組の数と提携の数に対して指数的なので、プレイヤー数は [`MAX_KERNEL_SET_PLAYERS`] 以下に限る。
-///
-/// カーネル(`Domain::Imputation`)またはプレカーネル(`Domain::Preimputation`)全体を求める。
 pub fn kernel_set(game: &ExplicitGame, domain: Domain, options: SetOptions) -> Result<KernelSet> {
     let n = game.players();
     if n > MAX_KERNEL_SET_PLAYERS {

@@ -22,7 +22,7 @@ fn check_nucleolus(game: &ExplicitGame, domain: Domain, expected: &[f64], label:
         Domain::Preimputation => nucleolus::prenucleolus(game),
     }
     .unwrap();
-    assert_close(&result.allocation, expected, label);
+    assert_close(result.allocation(), expected, label);
     assert!(
         verify::kohlberg(game, expected, domain).unwrap().satisfied,
         "{label}"
@@ -32,10 +32,10 @@ fn check_nucleolus(game: &ExplicitGame, domain: Domain, expected: &[f64], label:
 /// Peleg & Sudhölter (2007), Example 5.5.12 (p. 96)。CoopGame の `prenucleolus` のヘルプが引用。
 /// v(12) = 10、v(N) = 2、他は 0 (辞書式順で 0,0,0,10,0,0,2)。
 ///
-/// 手計算: 対称性から x1 = x2 = a、x3 = 2 - 2a。e(12) = 10 - 2a と e(3) = 2a - 2 が
-/// 最大の超過を争い、釣り合う a = 3 でプレ仁 (3, 3, -4)。このとき e(13) = e(23) = 1 < 4。
-/// 仁は x3 >= 0 から a <= 1 で、e(12) = 8 + x3 を最小にする x3 = 0、
-/// 残りは e(1) = e(13) = -x1, e(2) = e(23) = -x2 を釣り合わせて (1, 1, 0)。
+/// 手計算: 対称性から x0 = x1 = a、x2 = 2 - 2a。e({0, 1}) = 10 - 2a と e({2}) = 2a - 2 が
+/// 最大の超過を争い、釣り合う a = 3 でプレ仁 (3, 3, -4)。このとき e({0, 2}) = e({1, 2}) = 1 < 4。
+/// 仁は x2 >= 0 から a <= 1 で、e({0, 1}) = 8 + x2 を最小にする x2 = 0、
+/// 残りは e({0}) = e({0, 2}) = -x0, e({1}) = e({1, 2}) = -x1 を釣り合わせて (1, 1, 0)。
 #[test]
 fn peleg_sudholter_example_5_5_12() {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 2.0]).unwrap();
@@ -47,7 +47,7 @@ fn peleg_sudholter_example_5_5_12() {
 /// (https://www.math.ucla.edu/~tom/Game_Theory/coal.pdf)。
 /// v(1) = -1, v(2) = 0, v(3) = 1, v(12) = 3, v(13) = 4, v(23) = 2, v(N) = 5。
 ///
-/// 手計算: e(12) + e(13) + e(23) = (x3 - 2) + (x2 - 1) + (x1 - 3) = -1 は配分によらない。
+/// 手計算: e({0, 1}) + e({0, 2}) + e({1, 2}) = (x2 - 2) + (x1 - 1) + (x0 - 3) = -1 は配分によらない。
 /// 3 つの最大値は 3 つを -1/3 にそろえたときに最小で、その点は一意に (8/3, 2/3, 5/3)。
 /// 1 人提携の超過 (-11/3, -2/3, -2/3) はそれより小さく、配分集合にも入る。
 #[test]
@@ -60,12 +60,12 @@ fn ferguson_three_player_example() {
 
 /// CoopGame のテスト 67.1 (出典の記載なし)。v = (2, 6, 5, 15, 1, 18, 14) (辞書式順)。
 ///
-/// 手計算: 配分集合は x1 >= 2, x2 >= 6, x3 >= 5, 和 14。
-/// e(12) = x3 + 1, e(23) = x1 + 4, e(13) = x2 - 13 で、最大は max(x1 + 4, x3 + 1) >= 6。
-/// x1 = 2, x3 = 5 で両方が 6 になり、x2 = 7。仁は (2, 7, 5)。
-/// プレ仁: e(1) + e(23) = (2 - x1) + (x1 + 4) = 6 と e(3) + e(12) = 6 は配分によらないので
-/// 最大超過は 3 以上。e(1) = e(23) = 3 から x1 = -1、e(3) = e(12) = 3 から x3 = 2、x2 = 13。
-/// このとき e(2) = -7, e(13) = 0 で 3 より小さい。プレ仁は (-1, 13, 2)。
+/// 手計算: 配分集合は x0 >= 2, x1 >= 6, x2 >= 5, 和 14。
+/// e({0, 1}) = x2 + 1, e({1, 2}) = x0 + 4, e({0, 2}) = x1 - 13 で、最大は max(x0 + 4, x2 + 1) >= 6。
+/// x0 = 2, x2 = 5 で両方が 6 になり、x1 = 7。仁は (2, 7, 5)。
+/// プレ仁: e({0}) + e({1, 2}) = (2 - x0) + (x0 + 4) = 6 と e({2}) + e({0, 1}) = 6 は配分によらないので
+/// 最大超過は 3 以上。e({0}) = e({1, 2}) = 3 から x0 = -1、e({2}) = e({0, 1}) = 3 から x2 = 2、x1 = 13。
+/// このとき e({1}) = -7, e({0, 2}) = 0 で 3 より小さい。プレ仁は (-1, 13, 2)。
 #[test]
 fn coopgame_test_67_1() {
     let game = ExplicitGame::from_lex(&[2.0, 6.0, 5.0, 15.0, 1.0, 18.0, 14.0]).unwrap();
@@ -121,7 +121,7 @@ fn bankruptcy_nucleolus_matches_talmud_rule() {
         let estate = (rng.next_f64() * total).round();
         let game = generators::bankruptcy(estate, &claims).unwrap();
         let expected = talmud_rule(estate, &claims);
-        let actual = nucleolus::nucleolus(&game).unwrap().allocation;
+        let actual = nucleolus::nucleolus(&game).unwrap().into_allocation();
         for (a, e) in actual.iter().zip(&expected) {
             assert!(
                 (a - e).abs() < 1e-6 * total.max(1.0),
@@ -231,8 +231,8 @@ fn airport_game_shapley_matches_littlechild_owen() {
 
 /// Gambarelli (2011) の Banzhaf 値の例 (CoopGame の `banzhafValue` のヘルプが引用)。
 /// v = (0, 0, 0, 1, 2, 1, 3) (辞書式順)。
-/// 手計算: プレイヤー 1 の限界貢献は {}: 0, {2}: 1, {3}: 2, {2,3}: 2 で和 5、5/4 = 1.25。
-/// 同様にプレイヤー 2 は 0 + 1 + 1 + 1 = 3 で 0.75、プレイヤー 3 は 0 + 2 + 1 + 2 = 5 で 1.25。
+/// 手計算: プレイヤー 0 の限界貢献は {}: 0, {1}: 1, {2}: 2, {1,2}: 2 で和 5、5/4 = 1.25。
+/// 同様にプレイヤー 1 は 0 + 1 + 1 + 1 = 3 で 0.75、プレイヤー 2 は 0 + 2 + 1 + 2 = 5 で 1.25。
 #[test]
 fn gambarelli_banzhaf_value() {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 2.0, 1.0, 3.0]).unwrap();
@@ -244,21 +244,21 @@ fn gambarelli_banzhaf_value() {
 /// 左が k 人なら、その確率は k / (k + 1)。残りを左の k 人で等分する。
 #[test]
 fn glove_game_shapley_values() {
-    // 左 {1}、右 {2, 3}
+    // 左 {0}、右 {1, 2}
     assert_close(
         &values::shapley(&glove_game(&[0], 3)),
         &[2.0 / 3.0, 1.0 / 6.0, 1.0 / 6.0],
-        "L={1}",
+        "L={0}",
     );
-    // 左 {1}、右 {2, ..., 10}: 9/10 と 1/90
+    // 左 {0}、右 {1, ..., 9}: 9/10 と 1/90
     let mut expected = vec![1.0 / 90.0; 10];
     expected[0] = 0.9;
     assert_close(
         &values::shapley(&glove_game(&[0], 10)),
         &expected,
-        "L={1}, 右 9 人",
+        "L={0}, 右 9 人",
     );
-    // 左 {1, 2, 4}、右 {3}: 3/4 と 1/12
+    // 左 {0, 1, 3}、右 {2}: 3/4 と 1/12
     assert_close(
         &values::shapley(&glove_game(&[0, 1, 3], 4)),
         &[1.0 / 12.0, 1.0 / 12.0, 0.75, 1.0 / 12.0],
@@ -267,7 +267,7 @@ fn glove_game_shapley_values() {
 }
 
 /// 重み (50, 49, 1) の重み付き投票ゲームの正規化 Banzhaf 指数 (CoopGame のテスト 07.1)。
-/// 手計算 (q = 51): 勝利提携 {1,2}, {1,3}, {1,2,3} で、1 は 3 つとも決定的、2 と 3 は 1 つずつ。
+/// 手計算 (q = 51): 勝利提携 {0,1}, {0,2}, {0,1,2} で、0 は 3 つとも決定的、1 と 2 は 1 つずつ。
 #[test]
 fn normalized_banzhaf_index_of_weighted_voting() {
     for (quota, expected) in [
@@ -301,13 +301,13 @@ fn sampling_on_large_majority_game() {
     let exact_banzhaf = (log_binomial - 100.0 * 2f64.ln()).exp();
     for i in 0..n {
         assert!(
-            (shapley.values[i] - 1.0 / n as f64).abs() < 5.0 * shapley.standard_errors[i],
+            (shapley.values()[i] - 1.0 / n as f64).abs() < 5.0 * shapley.standard_errors()[i],
             "Shapley {i}"
         );
         assert!(
-            (banzhaf.values[i] - exact_banzhaf).abs() < 5.0 * banzhaf.standard_errors[i],
+            (banzhaf.values()[i] - exact_banzhaf).abs() < 5.0 * banzhaf.standard_errors()[i],
             "Banzhaf {i}"
         );
     }
-    assert!((shapley.values.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+    assert!((shapley.values().iter().sum::<f64>() - 1.0).abs() < 1e-9);
 }

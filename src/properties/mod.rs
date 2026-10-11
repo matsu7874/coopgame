@@ -90,7 +90,7 @@ pub fn is_in_core(game: &ExplicitGame, x: &[f64], tolerance: f64) -> bool {
     if (total - game.value(game.grand())).abs() > tolerance {
         return false;
     }
-    crate::surplus::excesses(game, x)
+    crate::game::excess_table(game, x)
         .iter()
         .all(|e| *e <= tolerance)
 }

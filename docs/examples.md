@@ -5,14 +5,14 @@ Rust のコード例は `cargo test --doc` で doctest として実行し、Pyth
 どの解を使うかは [どの解を使うか](choosing.md) を参照。
 
 プレイヤーの番号は、関数に渡す時も結果に出る時も 0 始まりである。
-本文ではプレイヤー 1, 2, 3 と 1 始まりで書き、コードの番号 0, 1, 2 に対応させる。
+本文でもコードと同じ番号を使い、3 人ゲームのプレイヤーを 0, 1, 2 と書く。
 
 ## 共通のサンプル入力
 
 結果を見比べられるように、できるだけ同じ入力を使う。
 
 - 3 人ゲーム: 辞書式順の特性関数 `[0, 0, 0, 4, 6, 8, 12]`。
-  各人の単独の値は 0、v({1, 2}) = 4、v({1, 3}) = 6、v({2, 3}) = 8、v(N) = 12 である。
+  各人の単独の値は 0、v({0, 1}) = 4、v({0, 2}) = 6、v({1, 2}) = 8、v(N) = 12 である。
   コアは空でなく、凸ゲームではない。
   分け方の解の多くはこのゲームで計算する。
 - 重み付き投票ゲーム `[51; 35, 20, 15, 15, 15]`: 5 党の重みが 35, 20, 15, 15, 15 で、可決には 51 票が必要である。
@@ -36,10 +36,10 @@ use coopgame::{ExplicitGame, nucleolus};
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let result = nucleolus::nucleolus(&game)?;
-    println!("{:.4?}", result.allocation); // [2.0000, 4.0000, 6.0000]
+    println!("{:.4?}", result.allocation()); // [2.0000, 4.0000, 6.0000]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(close(&result.allocation, &[2.0, 4.0, 6.0]));
+    assert!(close(result.allocation(), &[2.0, 4.0, 6.0]));
     Ok(())
 }
 ```
@@ -66,12 +66,12 @@ use coopgame::{Domain, ExplicitGame, nucleolus};
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let least = nucleolus::least_core(&game, Domain::Imputation)?;
-    println!("{:.4}", least.epsilon); // -2.0000
-    println!("{:.4?}", least.allocation); // [2.0000, 4.0000, 6.0000]
+    println!("{:.4}", least.epsilon()); // -2.0000
+    println!("{:.4?}", least.allocation()); // [2.0000, 4.0000, 6.0000]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!((least.epsilon + 2.0).abs() < 1e-6);
-    assert!(close(&least.allocation, &[2.0, 4.0, 6.0]));
+    assert!((least.epsilon() + 2.0).abs() < 1e-6);
+    assert!(close(least.allocation(), &[2.0, 4.0, 6.0]));
     Ok(())
 }
 ```
@@ -115,7 +115,7 @@ game = coopgame.Game([0, 0, 0, 4, 6, 8, 12], order="lex")
 print(game.has_nonempty_core(), game.is_convex())  # => True False
 ```
 
-S = {1, 3}、T = {2, 3} で v(S ∪ T) + v(S ∩ T) = 12 + 0 が v(S) + v(T) = 14 より小さいので、凸ではない。
+S = {0, 2}、T = {1, 2} で v(S ∪ T) + v(S ∩ T) = 12 + 0 が v(S) + v(T) = 14 より小さいので、凸ではない。
 
 <!-- example: shapley -->
 ### Shapley 値
@@ -145,7 +145,7 @@ print([round(v, 4) for v in coopgame.shapley(game)])  # => [3.0, 4.0, 5.0]
 ```
 
 このゲームは凸でないので、Shapley 値はコアに入るとは限らない。
-(3, 4, 5) では提携 {2, 3} の超過が 8 - 9 = -1 で、コアには入っている。
+(3, 4, 5) では提携 {1, 2} の超過が 8 - 9 = -1 で、コアには入っている。
 
 <!-- example: banzhaf -->
 ### Banzhaf 値
@@ -287,10 +287,10 @@ use coopgame::nucleolus::variants;
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let result = variants::disruption_nucleolus(&game)?;
-    println!("{:.4?}", result.allocation); // [2.6667, 4.0000, 5.3333]
+    println!("{:.4?}", result.allocation()); // [2.6667, 4.0000, 5.3333]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(close(&result.allocation, &[8.0 / 3.0, 4.0, 16.0 / 3.0]));
+    assert!(close(result.allocation(), &[8.0 / 3.0, 4.0, 16.0 / 3.0]));
     Ok(())
 }
 ```
@@ -317,10 +317,10 @@ use coopgame::{Domain, ExplicitGame};
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let result = variants::per_capita_nucleolus(&game, Domain::Imputation)?;
-    println!("{:.4?}", result.allocation); // [2.0000, 4.0000, 6.0000]
+    println!("{:.4?}", result.allocation()); // [2.0000, 4.0000, 6.0000]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(close(&result.allocation, &[2.0, 4.0, 6.0]));
+    assert!(close(result.allocation(), &[2.0, 4.0, 6.0]));
     Ok(())
 }
 ```
@@ -348,10 +348,10 @@ use coopgame::{Domain, ExplicitGame};
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let result = variants::proportional_nucleolus(&game, Domain::Imputation)?;
-    println!("{:.4?}", result.allocation); // [1.3333, 4.0000, 6.6667]
+    println!("{:.4?}", result.allocation()); // [1.3333, 4.0000, 6.6667]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(close(&result.allocation, &[4.0 / 3.0, 4.0, 20.0 / 3.0]));
+    assert!(close(result.allocation(), &[4.0 / 3.0, 4.0, 20.0 / 3.0]));
     Ok(())
 }
 ```
@@ -379,10 +379,10 @@ use coopgame::nucleolus::variants;
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let result = variants::modiclus(&game)?;
-    println!("{:.4?}", result.allocation); // [2.6667, 4.6667, 4.6667]
+    println!("{:.4?}", result.allocation()); // [2.6667, 4.6667, 4.6667]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(close(&result.allocation, &[8.0 / 3.0, 14.0 / 3.0, 14.0 / 3.0]));
+    assert!(close(result.allocation(), &[8.0 / 3.0, 14.0 / 3.0, 14.0 / 3.0]));
     Ok(())
 }
 ```
@@ -395,7 +395,7 @@ result = coopgame.modiclus(game)
 print([round(v, 4) for v in result["allocation"]])  # => [2.6667, 4.6667, 4.6667]
 ```
 
-仁 (2, 4, 6) と比べて、プレイヤー 3 の取り分が小さい。
+仁 (2, 4, 6) と比べて、プレイヤー 2 の取り分が小さい。
 
 <!-- example: anti -->
 ### anti-nucleolus・anti-prenucleolus
@@ -414,17 +414,17 @@ fn main() -> coopgame::Result<()> {
     // 共通の 3 人ゲーム: anti-prenucleolus は定義されるが、anti-nucleolus はエラー
     let shared = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let pre = variants::anti_prenucleolus(&shared)?;
-    println!("{:.4?}", pre.allocation); // [4.0000, 4.0000, 4.0000]
-    assert!(close(&pre.allocation, &[4.0, 4.0, 4.0]));
+    println!("{:.4?}", pre.allocation()); // [4.0000, 4.0000, 4.0000]
+    assert!(close(pre.allocation(), &[4.0, 4.0, 4.0]));
     assert!(variants::anti_nucleolus(&shared).is_err());
 
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 6.0, 10.0, 10.0, 12.0])?;
     let pre = variants::anti_prenucleolus(&game)?;
     let anti = variants::anti_nucleolus(&game)?;
-    println!("{:.4?}", pre.allocation); // [4.0000, 4.0000, 4.0000]
-    println!("{:.4?}", anti.allocation); // [3.0000, 3.0000, 6.0000]
-    assert!(close(&pre.allocation, &[4.0, 4.0, 4.0]));
-    assert!(close(&anti.allocation, &[3.0, 3.0, 6.0]));
+    println!("{:.4?}", pre.allocation()); // [4.0000, 4.0000, 4.0000]
+    println!("{:.4?}", anti.allocation()); // [3.0000, 3.0000, 6.0000]
+    assert!(close(pre.allocation(), &[4.0, 4.0, 4.0]));
+    assert!(close(anti.allocation(), &[3.0, 3.0, 6.0]));
     Ok(())
 }
 ```
@@ -440,7 +440,7 @@ print([round(v, 4) for v in coopgame.anti_prenucleolus(game)["allocation"]])  # 
 print([round(v, 4) for v in coopgame.anti_nucleolus(game)["allocation"]])  # => [3.0, 3.0, 6.0]
 ```
 
-2 つ目のゲームでは、anti-prenucleolus (4, 4, 4) がプレイヤー 3 の下限 6 を下回るので、anti-nucleolus は下限に張り付いた (3, 3, 6) になる。
+2 つ目のゲームでは、anti-prenucleolus (4, 4, 4) がプレイヤー 2 の下限 6 を下回るので、anti-nucleolus は下限に張り付いた (3, 3, 6) になる。
 
 <!-- example: kernel -->
 ### カーネル (英: kernel)
@@ -455,14 +455,14 @@ use coopgame::{Domain, ExplicitGame};
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let point = kernel::kernel_point(&game, Domain::Imputation, None, TransferOptions::for_game(&game))?;
-    println!("{:.4?}", point.allocation); // [2.0000, 4.0000, 6.0000]
+    println!("{:.4?}", point.allocation()); // [2.0000, 4.0000, 6.0000]
 
     let set = kernel::kernel_set(&game, Domain::Imputation, SetOptions::for_game(&game))?;
     println!("{} {}", set.pieces.len(), set.pieces[0].dimension); // 1 0
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(point.converged);
-    assert!(close(&point.allocation, &[2.0, 4.0, 6.0]));
+    assert!(point.converged());
+    assert!(close(point.allocation(), &[2.0, 4.0, 6.0]));
     assert_eq!(set.pieces.len(), 1);
     assert_eq!(set.pieces[0].dimension, 0);
     assert!(close(&set.pieces[0].point, &[2.0, 4.0, 6.0]));
@@ -580,7 +580,7 @@ Shapley 値は、区間 [0, 3] の費用 3 を 3 機で、[3, 6] の費用 3 を
 <!-- example: bird -->
 ### 最小全域木ゲームと Bird 規則
 
-供給元 0 と 3 人 (頂点 1, 2, 3) を結ぶ費用が下の行列のとき、全員を供給元につなぐ費用を分ける。
+供給元 0 と 3 人 (頂点 1, 2, 3 がプレイヤー 0, 1, 2) を結ぶ費用が下の行列のとき、全員を供給元につなぐ費用を分ける。
 Bird 規則 (最小全域木で各人から供給元側への辺の費用を払う) と、仁による費用の分担を求める。
 
 ```rust
@@ -594,7 +594,7 @@ fn main() -> coopgame::Result<()> {
         vec![5.0, 2.0, 0.0, 3.0],
         vec![7.0, 6.0, 3.0, 0.0],
     ])?;
-    let total = game.cost(&PlayerSet::full(3));
+    let total = game.cost(&PlayerSet::grand(3));
     let bird = game.bird_rule();
     let nucleolus = game.nucleolus_costs()?;
     println!("{total:.4}"); // 9.0000
@@ -671,7 +671,7 @@ print([round(v, 4) for v in result["owen"]], round(result["value"], 4))  # => [4
 <!-- example: cost -->
 ### 費用ゲーム
 
-3 人で共同配送する時の費用が、単独で 6, 6, 8、2 人で 9 ({1, 2})・11 ({1, 3})・12 ({2, 3})、3 人で 15 の場合に、費用の分担を求める。
+3 人で共同配送する時の費用が、単独で 6, 6, 8、2 人で 9 ({0, 1})・11 ({0, 2})・12 ({1, 2})、3 人で 15 の場合に、費用の分担を求める。
 仁は費用を節約ゲーム (単独の費用の合計 - 提携の費用) に直して求め、費用に戻す。
 
 ```rust
@@ -705,7 +705,7 @@ print([round(v, 4) for v in coopgame.shapley(costs)])  # => [4.0, 4.5, 6.5]
 <!-- example: myerson -->
 ### Myerson 値
 
-3 人ゲームで、協力できる相手が通信グラフ 1-2-3 (辺 {1, 2} と {2, 3}) で決まる場合の Myerson 値を求める。
+3 人ゲームで、協力できる相手が通信グラフ 0-1-2 (辺 {0, 1} と {1, 2}) で決まる場合の Myerson 値を求める。
 グラフで連結でない提携は、連結成分ごとの値の和しか得られないとしたゲームの Shapley 値である。
 
 ```rust
@@ -729,12 +729,12 @@ game = coopgame.Game([0, 0, 0, 4, 6, 8, 12], order="lex")
 print([round(v, 4) for v in coopgame.myerson(game, [(0, 1), (1, 2)])])  # => [2.0, 6.0, 4.0]
 ```
 
-プレイヤー 1 と 3 は直接つながっていないので v({1, 3}) = 6 は 0 になり、間にいるプレイヤー 2 の取り分が Shapley 値 (3, 4, 5) の 4 から 6 に増える。
+プレイヤー 0 と 2 は直接つながっていないので v({0, 2}) = 6 は 0 になり、間にいるプレイヤー 1 の取り分が Shapley 値 (3, 4, 5) の 4 から 6 に増える。
 
 <!-- example: structure -->
 ### 提携構造のある解 (Aumann–Drèze 値・Owen 値・提携構造つきの仁)
 
-3 人ゲームで、プレイヤーが {1, 2} と {3} のグループに分かれている場合を考える。
+3 人ゲームで、プレイヤーが {0, 1} と {2} のグループに分かれている場合を考える。
 Aumann–Drèze 値と提携構造つきの仁は各グループの中で v(グループ) を分け、Owen 値はグループを事前の連合として v(N) を分ける。
 
 ```rust
@@ -749,12 +749,12 @@ fn main() -> coopgame::Result<()> {
     let nucleolus = partition::nucleolus(&game, &blocks, Domain::Imputation)?;
     println!("{aumann_dreze:.4?}"); // [2.0000, 2.0000, 0.0000]
     println!("{owen:.4?}"); // [3.5000, 4.5000, 4.0000]
-    println!("{:.4?}", nucleolus.allocation); // [1.0000, 3.0000, 0.0000]
+    println!("{:.4?}", nucleolus.allocation()); // [1.0000, 3.0000, 0.0000]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
     assert!(close(&aumann_dreze, &[2.0, 2.0, 0.0]));
     assert!(close(&owen, &[3.5, 4.5, 4.0]));
-    assert!(close(&nucleolus.allocation, &[1.0, 3.0, 0.0]));
+    assert!(close(nucleolus.allocation(), &[1.0, 3.0, 0.0]));
     Ok(())
 }
 ```
@@ -770,8 +770,8 @@ result = coopgame.structured_nucleolus(game, blocks)
 print([round(v, 4) for v in result["allocation"]])  # => [1.0, 3.0, 0.0]
 ```
 
-Aumann–Drèze 値は {1, 2} の中の Shapley 値なので v({1, 2}) = 4 を等分する。
-提携構造つきの仁 (1, 3, 0) は、提携 {1, 3} と {2, 3} の超過 6 - x_1 と 8 - x_2 が等しく (どちらも 5) なる点である。
+Aumann–Drèze 値は {0, 1} の中の Shapley 値なので v({0, 1}) = 4 を等分する。
+提携構造つきの仁 (1, 3, 0) は、提携 {0, 2} と {1, 2} の超過 6 - x_0 と 8 - x_1 が等しく (どちらも 5) なる点である。
 
 ## 投票力指数
 
@@ -907,7 +907,7 @@ print(indices["minimal_winning"])  # => [[0, 1], [0, 2, 3], [0, 2, 4], [0, 3, 4]
 print([round(v, 4) for v in indices["deegan_packel"]])  # => [0.3, 0.15, 0.1833, 0.1833, 0.1833]
 ```
 
-最小勝利提携は {1, 2}、{1, 3, 4}、{1, 3, 5}、{1, 4, 5}、{2, 3, 4, 5} の 5 つで、重み 15 の党が重み 20 の党より大きくなる。
+最小勝利提携は {0, 1}、{0, 2, 3}、{0, 2, 4}、{0, 3, 4}、{1, 2, 3, 4} の 5 つで、重み 15 の党が重み 20 の党より大きくなる。
 
 <!-- example: publicGood -->
 ### Public Good 指数
@@ -1017,7 +1017,7 @@ print(coopgame.power_indices(game)["coleman_collectivity"])  # => 0.40625
 
 ```rust
 use coopgame::analysis::explain::{self, ExplainOptions};
-use coopgame::{ExplicitGame, properties};
+use coopgame::{Coalition, ExplicitGame, properties};
 
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
@@ -1027,13 +1027,13 @@ fn main() -> coopgame::Result<()> {
     println!("{nucleolus_in_core} {other_in_core}"); // true false
 
     let report = explain::report(&game, &[6.0, 3.0, 3.0], ExplainOptions::default())?;
-    let worst: Vec<usize> = report.levels[0].coalitions[0].players().collect();
-    println!("{:.4} {worst:?}", report.max_excess); // 2.0000 [1, 2]
+    let worst = report.levels[0].coalitions[0];
+    println!("{:.4} {worst}", report.max_excess); // 2.0000 {1, 2}
 
     assert!(nucleolus_in_core);
     assert!(!other_in_core);
     assert!((report.max_excess - 2.0).abs() < 1e-9);
-    assert_eq!(worst, vec![1, 2]);
+    assert_eq!(worst, Coalition::from_players(&[1, 2]));
     Ok(())
 }
 ```
@@ -1047,7 +1047,7 @@ report = coopgame.explain(game, [6, 3, 3])
 print(round(report["max_excess"], 4), report["levels"][0]["coalitions"])  # => 2.0 [[1, 2]]
 ```
 
-(6, 3, 3) では提携 {2, 3} (番号 [1, 2]) が値 8 に対して 6 しか受け取っておらず、超過 2 が正なので、この提携は抜けると得をする。
+(6, 3, 3) では提携 {1, 2} が値 8 に対して 6 しか受け取っておらず、超過 2 が正なので、この提携は抜けると得をする。
 
 <!-- example: certify -->
 ### 仁であることの検証
@@ -1096,7 +1096,7 @@ print(certified["satisfied"], [str(v) for v in certified["allocation"]])  # => T
 入らない場合は、反論のない異議 (誰が、誰に対して、どの提携で) を返す。
 
 ```rust
-use coopgame::{Domain, ExplicitGame, bargaining};
+use coopgame::{Coalition, Domain, ExplicitGame, bargaining};
 
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
@@ -1106,12 +1106,11 @@ fn main() -> coopgame::Result<()> {
     println!("{} {}", nucleolus.is_member(), other.is_member()); // true false
 
     let objection = other.objection.expect("(6, 3, 3) には反論のない異議がある");
-    let coalition: Vec<usize> = objection.coalition.players().collect();
-    println!("{} {} {coalition:?}", objection.objector, objection.target); // 1 0 [1, 2]
+    println!("{} {} {}", objection.objector, objection.target, objection.coalition); // 1 0 {1, 2}
 
     assert!(nucleolus.is_member());
     assert_eq!((objection.objector, objection.target), (1, 0));
-    assert_eq!(coalition, vec![1, 2]);
+    assert_eq!(objection.coalition, Coalition::from_players(&[1, 2]));
     Ok(())
 }
 ```
@@ -1127,7 +1126,7 @@ objection = other["objection"]
 print(objection["objector"], objection["target"], objection["coalition"])  # => 1 0 [1, 2]
 ```
 
-(6, 3, 3) では、プレイヤー 2 (番号 1) がプレイヤー 1 (番号 0) に対して提携 {2, 3} で異議を出し、プレイヤー 1 はそれに反論できない。
+(6, 3, 3) では、プレイヤー 1 がプレイヤー 0 に対して提携 {1, 2} で異議を出し、プレイヤー 0 はそれに反論できない。
 
 <!-- example: uncertainty -->
 ### 値が不確かなときの配分の揺れ
@@ -1142,7 +1141,7 @@ fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let interval = IntervalGame::around(&game, 0.1)?;
     let distribution = uncertainty::interval_monte_carlo(&interval, 50, 1, |g| {
-        Ok(nucleolus::nucleolus(g)?.allocation)
+        Ok(nucleolus::nucleolus(g)?.into_allocation())
     })?;
     println!("{:.1?}", distribution.mean); // [2.1, 4.0, 5.9]
     println!("{} {}", distribution.samples, distribution.failures); // 50 0

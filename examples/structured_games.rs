@@ -41,7 +41,7 @@ fn airport() -> coopgame::Result<()> {
     // 滑走路に必要な費用が 3, 6, 12 の 3 機。提携の費用は、提携の中で最も大きい費用である。
     println!("== 空港ゲーム (必要な費用 3, 6, 12)");
     let game = AirportGame::new(vec![3.0, 6.0, 12.0])?;
-    let total = game.cost(&PlayerSet::full(3));
+    let total = game.cost(&PlayerSet::grand(3));
     // Shapley 値は Littlechild–Owen の式 (区間ごとの費用を、その区間を使う機で等分する)。
     let shapley = game.shapley_costs();
     // 仁は、節約ゲームが凸であることを使う凸ゲームの手法で求める。
@@ -58,7 +58,7 @@ fn airport() -> coopgame::Result<()> {
 }
 
 fn spanning_tree() -> coopgame::Result<()> {
-    // 頂点 0 が供給元、頂点 1, 2, 3 がプレイヤー 1, 2, 3 (関数の番号は 0, 1, 2)。
+    // 頂点 0 が供給元、頂点 1, 2, 3 がプレイヤー 0, 1, 2。
     // 行列の (i, j) 成分が頂点 i と j を結ぶ費用である。
     println!("== 最小全域木ゲーム (供給元 0 と 3 人)");
     let game = SpanningTreeGame::new(vec![
@@ -67,7 +67,7 @@ fn spanning_tree() -> coopgame::Result<()> {
         vec![5.0, 2.0, 0.0, 3.0],
         vec![7.0, 6.0, 3.0, 0.0],
     ])?;
-    let total = game.cost(&PlayerSet::full(3));
+    let total = game.cost(&PlayerSet::grand(3));
     // Bird 規則: 最小全域木で、各人が自分から供給元側への辺の費用を払う。コアに属する。
     let bird = game.bird_rule();
     // 仁は全提携の表で逐次 LP を解いて求める。
@@ -92,7 +92,7 @@ fn production() -> coopgame::Result<()> {
         vec![vec![2.0, 1.0], vec![1.0, 2.0], vec![3.0, 3.0]], // 人 x 資源
     )?;
     // 全員の資源 (6, 6) で作れる売上の最大。
-    let value = game.value(&PlayerSet::full(3));
+    let value = game.value(&PlayerSet::grand(3));
     // 双対 LP の最適解 (資源 1 単位の影の価格) で各人の資源を評価したものが Owen 配分である。
     let prices = game.shadow_prices()?;
     let owen = game.owen_allocation()?;
@@ -108,7 +108,7 @@ fn production() -> coopgame::Result<()> {
 }
 
 fn cost() -> coopgame::Result<()> {
-    // 共同配送の費用 c(S)。単独で 6, 6, 8、2 人で 9 ({1, 2})・11 ({1, 3})・12 ({2, 3})、3 人で 15。
+    // 共同配送の費用 c(S)。単独で 6, 6, 8、2 人で 9 ({0, 1})・11 ({0, 2})・12 ({1, 2})、3 人で 15。
     println!("== 費用ゲーム (共同配送)");
     let game = CostGame::new(ExplicitGame::from_lex(&[
         6.0, 6.0, 8.0, 9.0, 11.0, 12.0, 15.0,
@@ -140,7 +140,6 @@ fn cost() -> coopgame::Result<()> {
 }
 
 fn bankruptcy() -> coopgame::Result<()> {
-    // 遺産 200 を、請求 100, 200, 300 の 3 人で分ける。
     println!("== 破産問題 (遺産 200、請求 100, 200, 300)");
     let estate = 200.0;
     let claims = [100.0, 200.0, 300.0];
@@ -167,7 +166,7 @@ fn bankruptcy() -> coopgame::Result<()> {
     // タルムード則は破産ゲーム v(S) = max(0, 遺産 - S の外の請求の合計) の仁に一致する。
     // 全提携の表に直して逐次 LP で求めた仁と比べる。
     let game = BankruptcyGame::new(estate, claims.to_vec())?;
-    let lp = nucleolus::nucleolus(&ExplicitGame::tabulate(&game)?)?.allocation;
+    let lp = nucleolus::nucleolus(&ExplicitGame::tabulate(&game)?)?.into_allocation();
     println!("  破産ゲームの仁 (逐次 LP): {lp:.4?}");
 
     assert!(close(&talmud, &[50.0, 75.0, 75.0], 1e-6));
