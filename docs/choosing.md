@@ -93,7 +93,7 @@ flowchart TD
 | 状況 | 方法 |
 |---|---|
 | 30 人以下 | 全提携の表 (`ExplicitGame`) で全ての関数を使える。仁は制約生成で 18 人を 0.3 秒程度 ([比較](comparison.md)) |
-| 破産・重み付き投票・空港など | オラクル (`oracle`) で人数の上限なく仁を求める |
+| 破産・重み付き投票・空港など | オラクル版の仁 (`nucleolus::oracle`) で人数の上限なく仁を求める |
 | 凸ゲーム | `nucleolus::convex::nucleolus` (誘導部分グラフゲームで 64 人を 17 秒) |
 | それ以上 (データ評価など) | `values::shapley_sampling`、`nucleolus::sampled::nucleolus` で近似 |
 
