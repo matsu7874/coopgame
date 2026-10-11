@@ -131,7 +131,7 @@ fn five_player_games() {
 }
 
 /// 優加法的でコアも空でないのに、カーネルが 1 点にならない 5 人ゲーム
-/// (`examples/prekernel_study.rs` の superadditive, seed 18)。
+/// (`examples/study_prekernel.rs` の superadditive, seed 18)。
 #[test]
 fn superadditive_game_with_segment_kernel() {
     let game = generators::random_superadditive(5, 18).unwrap();

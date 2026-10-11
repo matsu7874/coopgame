@@ -2,7 +2,7 @@
 //! 結果を事後検証で分類する。CSV を標準出力に出す。
 //!
 //! ```bash
-//! cargo run --release --example assumption_study -- 4,5,6,7,8,9 10 > data/analysis/assumption-study.csv
+//! cargo run --release --example study_assumption -- 4,5,6,7,8,9 10 > data/analysis/assumption-study.csv
 //! ```
 //!
 //! `superadditive` は有理数で構築したゲーム (`generators::random_superadditive_exact`) を使い、

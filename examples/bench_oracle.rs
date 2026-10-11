@@ -1,9 +1,9 @@
 //! オラクル型ゲームの仁の計算時間を、人数を変えて測る。CSV を標準出力に出す。
 //!
 //! ```bash
-//! cargo run --release --example oracle_scaling -- bankruptcy 10,20,40,70,100
-//! cargo run --release --example oracle_scaling -- majority 9,15,21,31
-//! cargo run --release --example oracle_scaling -- voting 10,20,30,40
+//! cargo run --release --example bench_oracle -- bankruptcy 10,20,40,70,100
+//! cargo run --release --example bench_oracle -- majority 9,15,21,31
+//! cargo run --release --example bench_oracle -- voting 10,20,30,40
 //! ```
 //!
 //! - bankruptcy: 請求 1-100 の一様整数、遺産は請求の和の一様乱数倍。タルムード則との差を出す。

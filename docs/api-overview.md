@@ -2,6 +2,7 @@
 
 coopgame のモジュールと関数、使っている手法の一覧である。
 各関数の詳しい説明は [docs.rs](https://docs.rs/coopgame) を参照。
+モジュールを組み合わせて使う例は [使い方の例](../examples/README.md) にある。
 
 LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を使う。外部の商用ソルバーは不要。
 
@@ -83,7 +84,7 @@ LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を�
 | 配分の説明・比較 | `analysis::explain::{report, render, compare}` | 不満 (超過) の大きい提携の段、コアに属するか、最小コアの値、プレイヤーごとの最も不満な提携。複数の配分を安定性で比べる |
 | 値の不確かさの分析 | `analysis::uncertainty::{monte_carlo, IntervalGame, interval_monte_carlo, influence, key_coalitions}` | 値の分布・区間から配分の分布 (平均・標準偏差・分位点) を求め、どの提携の値が配分を決めているかを感度 `dx/dv(S)` で示す |
 | 配分集合の図 | `analysis::plot::{imputation_figure, PlotOptions, core_vertices}` | 3-4 人のゲームの配分集合 (三角形・四面体) にコア・カーネル・仁・Shapley 値・任意の点を描いた SVG。ライト・ダークの両方に対応 |
-| 反例の探索と縮小 | `analysis::search::{search, shrink}` | 性質を満たさないゲームをランダムに探し、プレイヤーの除去・値の単純化で反例を小さくする。実例は `examples/counterexample_search.rs`・`data/analysis/counterexamples.txt` |
+| 反例の探索と縮小 | `analysis::search::{search, shrink}` | 性質を満たさないゲームをランダムに探し、プレイヤーの除去・値の単純化で反例を小さくする。実例は `examples/study_counterexamples.rs`・`data/analysis/counterexamples.txt` |
 
 ## 入出力とゲームの生成
 

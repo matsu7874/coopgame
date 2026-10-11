@@ -1,7 +1,7 @@
 //! 有理数だけの仁のソルバー (`nucleolus::exact::nucleolus`) の計測。CSV を標準出力に出す。
 //!
 //! ```bash
-//! cargo run --release --example exact_scaling -- 3,4,5,6,7,8,9,10 > data/bench/exact-scaling.csv
+//! cargo run --release --example bench_exact -- 3,4,5,6,7,8,9,10 > data/bench/exact-scaling.csv
 //! ```
 //!
 //! BNF タイプ 1, 2, 4 (seed 1) の仁を有理数で求め、浮動小数点の LP の仁を厳密に検証した配分

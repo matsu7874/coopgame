@@ -84,6 +84,7 @@ coopgame shapley v.txt                               # Shapley 値
 ## ドキュメント
 
 - [チュートリアル](docs/tutorial/README.md): 古典的な論文 (Shapley–Shubik の投票力指数、タルムードの破産問題など) の結果を再現しながら使い方を学ぶ。
+- [使い方の例](examples/README.md): 目的ごとに、ゲームの作成から結果の検証までを通して動かせるプログラム (`cargo run --example quickstart` など)。
 - [大きいゲーム](docs/large-games.md)・[性能と制約](docs/performance.md): 30 人を超えるゲームの扱い方、規模の上限、計測例。
 - [保証の種類](docs/guarantees.md)・[既存実装との比較](docs/comparison.md)・[参考文献](docs/references.md): 結果の正しさの根拠。
 

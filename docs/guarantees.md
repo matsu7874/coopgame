@@ -118,7 +118,7 @@
 
 ## 実験: 凸と仮定して一般のゲームに使う (`data/analysis/assumption-study.csv`)
 
-`examples/assumption_study.rs` で、凸ゲームの手法を `Assume::convex` で包んで 6 クラスのゲームに使い、
+`examples/study_assumption.rs` で、凸ゲームの手法を `Assume::convex` で包んで 6 クラスのゲームに使い、
 `Unverified::verify` で検証した。n = 4-10、各クラス・各 n で seed 0-9 (計 420 ゲーム)。
 `superadditive` は有理数で構築したゲーム (`random_superadditive_exact`) を使い、有理数の値で検証した。
 
@@ -176,10 +176,10 @@
 
 ```bash
 cargo build --release --examples
-target/release/examples/assumption_study 4,5,6,7,8,9,10 10 > data/analysis/assumption-study.csv   # 約 20 秒
-target/release/examples/convex_scaling graph 10,16,24,32,48,64 3 > data/bench/convex-graph.csv
-target/release/examples/convex_scaling bankruptcy 10,20,30,40 3 > data/bench/convex-bankruptcy.csv
-target/release/examples/auto_threshold 8,10,12,14,16,18,20 3 > data/bench/auto-threshold.csv
+target/release/examples/study_assumption 4,5,6,7,8,9,10 10 > data/analysis/assumption-study.csv   # 約 20 秒
+target/release/examples/bench_convex graph 10,16,24,32,48,64 3 > data/bench/convex-graph.csv
+target/release/examples/bench_convex bankruptcy 10,20,30,40 3 > data/bench/convex-bankruptcy.csv
+target/release/examples/bench_auto_threshold 8,10,12,14,16,18,20 3 > data/bench/auto-threshold.csv
 python3 scripts/verify_claims.py
 ```
 

@@ -22,7 +22,7 @@ cargo build --release --features cli   # target/release/coopgame
 | `src/` | ライブラリ |
 | `src/bin/coopgame.rs` | CLI (feature `cli`) |
 | `tests/` | 結合テスト。`tests/common/mod.rs` は独立に実装した基準 (タルムード則など) と補助関数で、examples からも `#[path]` で読み込む |
-| `examples/` | 計測と分析のプログラム。文書が引用する出力は `data/` に保存している |
+| `examples/` | 使い方の例 (接頭辞なし) と、計測 (`bench_`)・分析 (`study_`) のプログラム。計測と分析の出力のうち文書が引用するものは `data/` に保存している。一覧は `examples/README.md` |
 | `python/` | PyO3 による Python バインディング (配布名 `coopgame-py`、import 名 `coopgame`) |
 | `data/` | 文書が引用する計測 (`bench/`)・他の実装との比較 (`compare/`)・分析 (`analysis/`) のデータ。`data/SHA256SUMS` で照合する |
 | `docs/` | 利用者と、現状を理解したい人向けの文書 (チュートリアル、CLI と入力形式、性能と制約、保証の設計、他の実装との比較、文献と根拠、再現の手順)。一覧は `docs/README.md` |
@@ -37,6 +37,8 @@ cargo build --release --features cli   # target/release/coopgame
 - 同じ解を別の手法で求めるものは、解のモジュールの下に公開のサブモジュールとして置く (例: `nucleolus::exact`・`nucleolus::oracle`)。
 - 1 つのモジュールをファイルに分けるだけのときは、サブモジュールを非公開にして親から `pub use` する (例: `kernel` の `set.rs`)。
   公開パスは 1 つにし、説明は公開している項目の文書コメントに書く。
+- 公開モジュールを足したら、使い方の例 (`examples/` の `bench_`・`study_` 以外) のどれかで使う。
+  使い方の例は `Cargo.toml` で `test = true`・`harness = false` にし、`cargo test` で実行させる (どちらも `tests/examples_coverage.rs` が確かめる)。
 - 依存は下の段から上の段への一方向にする。各モジュールは自分より下の段にあるモジュールだけを参照し、同じ段どうしは参照しない (テストのコードは除く)。
 
 | 段 | モジュール |
@@ -58,7 +60,7 @@ CI は使っていないので、コミット前に次を実行する。
 ```bash
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
-cargo test --release --all-features
+cargo test --release --all-features     # 使い方の例 (examples/ の bench_・study_ 以外) も実行する
 # Python バインディングを変更した場合
 (cd python && cargo fmt --check && cargo clippy -- -D warnings && maturin develop --release && pytest tests)
 ```

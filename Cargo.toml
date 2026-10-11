@@ -32,6 +32,66 @@ name = "coopgame"
 path = "src/bin/coopgame.rs"
 required-features = ["cli"]
 
+# 使い方の例。`cargo test` が main を実行し、例の中の assert で結果を確かめる
+# (bench_・study_ の計測と分析は対象外)。
+
+[[example]]
+name = "quickstart"
+test = true
+harness = false
+
+[[example]]
+name = "custom_game"
+test = true
+harness = false
+
+[[example]]
+name = "nucleolus_methods"
+test = true
+harness = false
+
+[[example]]
+name = "large_games"
+test = true
+harness = false
+
+[[example]]
+name = "verification"
+test = true
+harness = false
+
+[[example]]
+name = "compare_solutions"
+test = true
+harness = false
+
+[[example]]
+name = "voting_power"
+test = true
+harness = false
+
+[[example]]
+name = "structured_games"
+test = true
+harness = false
+
+[[example]]
+name = "cooperation_structures"
+test = true
+harness = false
+
+[[example]]
+name = "analysis"
+test = true
+harness = false
+
+# 名前付きの JSON・CSV を読む例 (`io` モジュール)
+[[example]]
+name = "io"
+required-features = ["io"]
+test = true
+harness = false
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]

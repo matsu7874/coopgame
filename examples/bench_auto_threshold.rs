@@ -2,7 +2,7 @@
 //! `relative_difference` は 2 つの配分の最大絶対差を `max|v|` で割った値。
 //!
 //! ```bash
-//! cargo run --release --example auto_threshold -- 8,10,12,14,16,18 3
+//! cargo run --release --example bench_auto_threshold -- 8,10,12,14,16,18 3
 //! ```
 
 use std::time::Instant;

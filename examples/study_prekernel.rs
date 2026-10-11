@@ -1,7 +1,7 @@
 //! プレカーネル・カーネルの形とゲームの性質の関係を調べ、CSV を標準出力に出す。
 //!
 //! ```bash
-//! cargo run --release --example prekernel_study -- [最大人数] [seed 数] [最小人数] > study.csv
+//! cargo run --release --example study_prekernel -- [最大人数] [seed 数] [最小人数] > study.csv
 //! ```
 //!
 //! 摂動実験では、真部分提携の値に `[-eps, eps] * max|v|` の一様乱数を足した
