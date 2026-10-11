@@ -38,11 +38,7 @@ fn owen_value_properties() {
         for unions in &structures(6)[2..] {
             let value = owen(&game, unions).unwrap();
             let quotient = values::shapley(&quotient_game(&game, unions).unwrap());
-            let sums: Vec<f64> = unions
-                .blocks()
-                .iter()
-                .map(|b| b.players().map(|i| value[i]).sum())
-                .collect();
+            let sums: Vec<f64> = unions.blocks().iter().map(|b| b.sum(&value)).collect();
             assert_close(
                 &sums,
                 &quotient,
@@ -74,7 +70,7 @@ fn aumann_dreze_value_properties() {
         for structure in &structures(6)[2..] {
             let value = aumann_dreze(&game, structure).unwrap();
             for &block in structure.blocks() {
-                let sum: f64 = block.players().map(|i| value[i]).sum();
+                let sum = block.sum(&value);
                 assert!((sum - game.value(block)).abs() <= tolerance);
             }
         }
@@ -110,7 +106,7 @@ fn structured_nucleolus_properties() {
                     continue;
                 };
                 for &block in structure.blocks() {
-                    let sum: f64 = block.players().map(|i| result.allocation[i]).sum();
+                    let sum = block.sum(&result.allocation);
                     assert!((sum - game.value(block)).abs() <= tolerance);
                 }
                 if domain == Domain::Imputation {

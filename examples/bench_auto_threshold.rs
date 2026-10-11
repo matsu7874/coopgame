@@ -49,7 +49,7 @@ fn main() {
             let solution = convex::nucleolus(&game).unwrap();
             let convex_seconds = started.elapsed().as_secs_f64();
             let scale = game.game().max_abs_value().max(1.0);
-            let difference = max_abs_difference(&lp, &solution.allocation) / scale;
+            let difference = max_abs_difference(&lp, solution.allocation()) / scale;
             println!("{n},{seed},{lp_seconds:.4},{convex_seconds:.4},{difference:.2e}");
         }
     }

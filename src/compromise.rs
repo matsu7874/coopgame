@@ -17,10 +17,10 @@ use crate::game::{Coalition, ExplicitGame};
 
 /// 理想の支払い `M_i = v(N) - v(N \ {i})`。
 pub fn utopia_payoffs(game: &ExplicitGame) -> Vec<f64> {
-    let grand = game.grand();
-    let total = game.value(grand);
-    (0..game.players())
-        .map(|i| total - game.value(Coalition(grand.0 & !(1 << i))))
+    let n = game.players();
+    let total = game.value(game.grand());
+    (0..n)
+        .map(|i| total - game.value(Coalition::singleton(i).complement(n)))
         .collect()
 }
 
@@ -32,8 +32,8 @@ pub fn minimal_rights(game: &ExplicitGame) -> Vec<f64> {
     for mask in 1..1u64 << n {
         let coalition = Coalition(mask);
         let value = game.value(coalition);
-        let utopia_sum: f64 = coalition.players().map(|j| utopia[j]).sum();
-        for i in coalition.players() {
+        let utopia_sum: f64 = coalition.members().map(|j| utopia[j]).sum();
+        for i in coalition.members() {
             // v(S) - sum_{j in S \ {i}} M_j
             let remainder = value - (utopia_sum - utopia[i]);
             if remainder > rights[i] {
@@ -56,10 +56,8 @@ pub fn tau_value(game: &ExplicitGame) -> Result<Vec<f64>> {
     let total = game.value(game.grand());
     if let Some(i) = (0..game.players()).find(|&i| rights[i] > utopia[i] + tol) {
         return Err(Error::InvalidArgument(format!(
-            "準平衡でない: プレイヤー {} の最小の権利 {} が理想の支払い {} を超える",
-            i + 1,
-            rights[i],
-            utopia[i]
+            "準平衡でない: プレイヤー {i} の最小の権利 {} が理想の支払い {} を超える",
+            rights[i], utopia[i]
         )));
     }
     let (low, high): (f64, f64) = (rights.iter().sum(), utopia.iter().sum());
@@ -185,11 +183,10 @@ mod tests {
         let game = ExplicitGame::from_lex(&[1.0, 0.0, 2.0, 4.0, 6.0, 8.0, 12.0]).unwrap();
         let x = gately_point(&game).unwrap();
         assert!((x.iter().sum::<f64>() - 12.0).abs() < 1e-9);
-        let grand = game.grand();
         let propensity: Vec<f64> = (0..3)
             .map(|i| {
-                let others = Coalition(grand.0 & !(1 << i));
-                let x_others: f64 = others.players().map(|j| x[j]).sum();
+                let others = Coalition::singleton(i).complement(3);
+                let x_others = others.sum(&x);
                 (x_others - game.value(others)) / (x[i] - game.value(Coalition::singleton(i)))
             })
             .collect();

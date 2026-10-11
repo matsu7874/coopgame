@@ -52,7 +52,7 @@ Kohlberg は、配分が仁であるための必要十分条件を、超過の�
 [`verify::kohlberg`](https://docs.rs/coopgame/latest/coopgame/verify/fn.kohlberg.html) はこの条件を判定する。
 
 例として、Peleg と Sudhölter の教科書（2007）の Example 5.5.12 を使う。
-`v({1,2}) = 10`、`v(N) = 2`、他の提携の値は 0 である。
+`v({0,1}) = 10`、`v(N) = 2`、他の提携の値は 0 である (教科書の 1 始まりの番号では `v({1,2}) = 10`)。
 個人合理性 `x_i >= v({i})` を課さない**プレ仁**は (3, 3, -4)、課す仁は (1, 1, 0) になり、2 つが異なる。
 
 ```rust

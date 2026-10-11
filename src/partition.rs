@@ -99,7 +99,7 @@ pub fn aumann_dreze(game: &ExplicitGame, structure: &CoalitionStructure) -> Resu
     let mut value = vec![0.0; game.players()];
     for &block in structure.blocks() {
         let shapley = values::shapley(&game.subgame(block)?);
-        for (i, phi) in block.players().zip(shapley) {
+        for (i, phi) in block.members().zip(shapley) {
             value[i] = phi;
         }
     }
@@ -120,7 +120,7 @@ pub fn owen(game: &ExplicitGame, unions: &CoalitionStructure) -> Result<Vec<f64>
             .filter(|(l, _)| *l != k)
             .map(|(_, c)| *c)
             .collect();
-        let members: Vec<usize> = union.players().collect();
+        let members: Vec<usize> = union.members().collect();
         let b = members.len();
         let fb = factorials(b);
         for &i in &members {

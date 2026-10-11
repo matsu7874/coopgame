@@ -7,10 +7,10 @@ use num_traits::{One, Signed, Zero};
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::exact::{ExactGame, Rational, format_rational, to_f64, to_rational};
+use crate::game::excess_table;
 use crate::game::{Coalition, ExplicitGame};
 use crate::linalg::Span;
 use crate::rational::{ExactEchelon, Inserted, indicator, simplex};
-use crate::surplus::excesses;
 
 /// 厳密な検証の結果。
 #[derive(Clone, Debug)]
@@ -91,7 +91,7 @@ pub fn recover_allocation(
         )));
     }
     let full = (1usize << n) - 1;
-    let excess = excesses(game, x);
+    let excess = excess_table(game, x);
     let mut order: Vec<usize> = (1..full).collect();
     order.sort_by(|a, b| excess[*b].total_cmp(&excess[*a]));
 
@@ -190,7 +190,7 @@ pub fn kohlberg_exact(game: &ExactGame, x: &[Rational], domain: Domain) -> Exact
                 Ordering::Less => {
                     return ExactReport::fail(
                         x.to_vec(),
-                        format!("個人合理性を満たさない: x_{} < v({{{}}})", i + 1, i + 1),
+                        format!("個人合理性を満たさない: x_{i} < v({{{i}}})"),
                         0,
                     );
                 }

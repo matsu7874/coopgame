@@ -45,10 +45,8 @@ fn main() -> coopgame::Result<()> {
     println!("カーネル全体: 多面体 {} 個", kernel_set.pieces.len());
     for (i, piece) in kernel_set.pieces.iter().enumerate() {
         println!(
-            "  多面体 {}: 次元 {}、含まれる点 {:.4?}",
-            i + 1,
-            piece.dimension,
-            piece.point
+            "  多面体 {i}: 次元 {}、含まれる点 {:.4?}",
+            piece.dimension, piece.point
         );
     }
     println!();
@@ -67,8 +65,9 @@ fn main() -> coopgame::Result<()> {
     assert_eq!(kernel_set.pieces[0].dimension, 0);
     assert!(close(&kernel_set.pieces[0].point, &[2.0, 4.0, 6.0], 1e-6));
 
-    // 名前と配分の組にして compare に渡す。
-    let candidates: Vec<(String, Vec<f64>)> = [
+    // compare には配分だけを渡す。結果の行は渡した順に並び、表では 0 始まりの番号で示される。
+    // 解の名前と番号の対応は、ここで持つ。
+    let (names, candidates): (Vec<&str>, Vec<Vec<f64>>) = [
         ("Shapley 値", shapley),
         ("Banzhaf 値", banzhaf),
         ("solidarity 値", solidarity),
@@ -78,37 +77,35 @@ fn main() -> coopgame::Result<()> {
         ("仁", nucleolus),
     ]
     .into_iter()
-    .map(|(name, x)| (name.to_string(), x))
-    .collect();
+    .unzip();
 
     // 各配分の合計も並べる。Banzhaf 値だけ v(N) = 12 と一致しない。
     println!("各解の配分と合計:");
-    for (name, x) in &candidates {
-        println!("  {name}: {x:.4?} 合計 {:.4}", x.iter().sum::<f64>());
+    for (k, (name, x)) in names.iter().zip(&candidates).enumerate() {
+        println!("  {k} {name}: {x:.4?} 合計 {:.4}", x.iter().sum::<f64>());
     }
     println!();
 
-    // 安定性の指標で比べる。表の列はタブ区切りで、プレイヤーは 1 始まりで表示される。
+    // 安定性の指標で比べる。表の列はタブ区切りで、解とプレイヤーは 0 始まりの番号で表示される。
     let rows = explain::compare(&game, &candidates)?;
     println!("安定性の比較:");
-    print!("{}", explain::render_comparison(&rows, None));
+    print!("{}", explain::render_comparison(&rows));
 
     // 比較の結果を確かめる (docs/examples.md の値)。
     // 最大の不満 (空提携と全体提携を除く提携の超過の最大値)。
     // 仁は最大の不満を最小にするので、合計が v(N) の解の中で最も小さい。
     let expected_max_excess = [-1.0, -2.0, -1.0 / 3.0, -1.5, -4.0 / 3.0, -2.0, -2.0];
-    for (row, expected) in rows.iter().zip(expected_max_excess) {
+    for ((row, expected), name) in rows.iter().zip(expected_max_excess).zip(&names) {
         assert!(
             (row.max_excess - expected).abs() < 1e-6,
-            "{}: {}",
-            row.name,
+            "{name}: {}",
             row.max_excess
         );
-        assert_eq!(row.blocking_coalitions, 0, "{}", row.name);
+        assert_eq!(row.blocking_coalitions, 0, "{name}");
     }
     // Banzhaf 値は合計が 13.5 で効率性を満たさないので、コアに入らない。他はどれもコアに入る。
-    for row in &rows {
-        assert_eq!(row.in_core, row.name != "Banzhaf 値", "{}", row.name);
+    for (row, name) in rows.iter().zip(&names) {
+        assert_eq!(row.in_core, *name != "Banzhaf 値", "{name}");
     }
     Ok(())
 }

@@ -71,7 +71,7 @@ pub(crate) fn maximize() -> Problem {
 
 /// `x(S)` の線形式。
 pub(crate) fn coalition_expr(x: &[Variable], coalition: Coalition) -> Vec<(Variable, f64)> {
-    coalition.players().map(|i| (x[i], 1.0)).collect()
+    coalition.members().map(|i| (x[i], 1.0)).collect()
 }
 
 pub(crate) fn add(problem: &mut Problem, terms: Vec<(Variable, f64)>, op: ComparisonOp, rhs: f64) {

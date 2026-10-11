@@ -85,7 +85,7 @@ pub fn bnf(kind: u8, n: usize, seed: u64) -> Result<ExplicitGame> {
 /// 重み付き投票ゲーム: 重みの和が `quota` 以上なら 1、そうでなければ 0。
 pub fn weighted_voting(weights: &[f64], quota: f64) -> Result<ExplicitGame> {
     ExplicitGame::from_fn(weights.len(), |coalition| {
-        let weight: f64 = coalition.players().map(|i| weights[i]).sum();
+        let weight: f64 = coalition.members().map(|i| weights[i]).sum();
         if weight >= quota { 1.0 } else { 0.0 }
     })
 }

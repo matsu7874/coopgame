@@ -75,7 +75,7 @@ impl LinearProductionGame {
 
     /// 資源の影の価格 `y*` (全員の LP の双対問題の最適解)。
     pub fn shadow_prices(&self) -> Result<Vec<f64>> {
-        let b = self.pooled(&PlayerSet::full(self.resources.len()));
+        let b = self.pooled(&PlayerSet::grand(self.resources.len()));
         let mut problem = lp::minimize();
         let y: Vec<Variable> = b
             .iter()

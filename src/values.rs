@@ -52,11 +52,11 @@ pub fn solidarity(game: &ExplicitGame) -> Vec<f64> {
         let value = game.value(coalition);
         let size = coalition.len();
         let average = coalition
-            .players()
+            .members()
             .map(|k| value - game.value(Coalition(mask & !(1 << k))))
             .sum::<f64>()
             / size as f64;
-        for i in coalition.players() {
+        for i in coalition.members() {
             values[i] += weights[size] * average;
         }
     }

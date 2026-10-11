@@ -29,11 +29,37 @@ impl Concept {
 }
 
 /// 手法によらない共通の結果。
+///
+/// 保証 ([`Guarantee`]) はライブラリが計算した事実からだけ付くので、`Solution` を作れるのは
+/// ライブラリの中だけで、フィールドは読み出しの関数で読む。任意の配分を検証するには
+/// [`crate::verify::check`] に配分を直接渡す。
 #[derive(Clone, Debug, PartialEq)]
 pub struct Solution {
-    pub concept: Concept,
-    pub allocation: Vec<f64>,
-    pub guarantee: Guarantee,
+    pub(crate) concept: Concept,
+    pub(crate) allocation: Vec<f64>,
+    pub(crate) guarantee: Guarantee,
+    pub(crate) method: &'static str,
+}
+
+impl Solution {
+    pub fn concept(&self) -> Concept {
+        self.concept
+    }
+
+    pub fn allocation(&self) -> &[f64] {
+        &self.allocation
+    }
+
+    pub fn into_allocation(self) -> Vec<f64> {
+        self.allocation
+    }
+
+    pub fn guarantee(&self) -> Guarantee {
+        self.guarantee
+    }
+
     /// 使った手法の名前 (例: `"sequential-lp"`、`"talmud-rule"`、`"convex-transfer"`)。
-    pub method: &'static str,
+    pub fn method(&self) -> &'static str {
+        self.method
+    }
 }

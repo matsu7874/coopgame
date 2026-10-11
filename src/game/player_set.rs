@@ -1,8 +1,16 @@
 //! 任意の人数の提携 ([`PlayerSet`]) と、提携の値を返すゲーム ([`SetFunction`])。
 
+use std::fmt;
+
+use crate::error::{Error, Result};
+use crate::game::coalition::write_members;
 use crate::game::{Coalition, ExplicitGame};
 
-/// 任意の人数の提携。プレイヤー `i` は `words[i / 64]` のビット `i % 64` に対応する。
+/// 任意の人数のプレイヤーの集合。プレイヤー `i` は `words[i / 64]` のビット `i % 64` に対応する。
+///
+/// 64 人までの集合は [`Coalition`]。2 つの型は同じ名前の操作を持つ。
+/// `Coalition` へは `Coalition::try_from(&set)` で、`Coalition` からは [`PlayerSet::from_coalition`] で変換する。
+/// 表示 (`Display`) は 0 始まりの番号を `{0, 2}` の形で並べる。
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PlayerSet {
     players: usize,
@@ -10,19 +18,21 @@ pub struct PlayerSet {
 }
 
 impl PlayerSet {
-    pub(crate) fn empty(players: usize) -> PlayerSet {
+    /// `players` 人のうちの空提携。
+    pub fn empty(players: usize) -> PlayerSet {
         PlayerSet {
             players,
             words: vec![0; players.div_ceil(64)],
         }
     }
 
-    pub fn full(players: usize) -> PlayerSet {
-        let mut set = PlayerSet::empty(players);
-        for i in 0..players {
-            set.insert(i);
-        }
-        set
+    /// `players` 人全員からなる全体提携。
+    pub fn grand(players: usize) -> PlayerSet {
+        PlayerSet::empty(players).complement()
+    }
+
+    pub fn singleton(players: usize, player: usize) -> PlayerSet {
+        PlayerSet::from_players(players, &[player])
     }
 
     pub fn from_players(players: usize, members: &[usize]) -> PlayerSet {
@@ -52,7 +62,7 @@ impl PlayerSet {
     /// 64 人以下なら [`Coalition`] に変換する。
     pub(crate) fn to_coalition(&self) -> Option<Coalition> {
         match self.words.as_slice() {
-            [] => Some(Coalition::EMPTY),
+            [] => Some(Coalition::empty()),
             [word] => Some(Coalition(*word)),
             _ => None,
         }
@@ -63,7 +73,7 @@ impl PlayerSet {
         self.players
     }
 
-    pub(crate) fn insert(&mut self, player: usize) {
+    pub fn insert(&mut self, player: usize) {
         debug_assert!(player < self.players);
         self.words[player / 64] |= 1 << (player % 64);
     }
@@ -97,12 +107,50 @@ impl PlayerSet {
         !self.is_empty() && !self.is_full()
     }
 
-    pub(crate) fn complement(&self) -> PlayerSet {
-        let mut set = PlayerSet::full(self.players);
-        for (word, own) in set.words.iter_mut().zip(&self.words) {
-            *word &= !own;
+    /// 2 つの集合の語ごとの演算。人数が違えばパニックする。
+    fn combine(&self, other: &PlayerSet, op: impl Fn(u64, u64) -> u64) -> PlayerSet {
+        assert_eq!(
+            self.players, other.players,
+            "人数の違う集合は組み合わせられない"
+        );
+        PlayerSet {
+            players: self.players,
+            words: self
+                .words
+                .iter()
+                .zip(&other.words)
+                .map(|(&a, &b)| op(a, b))
+                .collect(),
         }
-        set
+    }
+
+    pub fn union(&self, other: &PlayerSet) -> PlayerSet {
+        self.combine(other, |a, b| a | b)
+    }
+
+    pub fn intersection(&self, other: &PlayerSet) -> PlayerSet {
+        self.combine(other, |a, b| a & b)
+    }
+
+    pub fn is_subset(&self, other: &PlayerSet) -> bool {
+        assert_eq!(self.players, other.players, "人数の違う集合は比べられない");
+        self.words
+            .iter()
+            .zip(&other.words)
+            .all(|(a, b)| a & !b == 0)
+    }
+
+    /// この提携に入らないプレイヤーの提携。
+    pub fn complement(&self) -> PlayerSet {
+        let mut words: Vec<u64> = self.words.iter().map(|w| !w).collect();
+        // 最後の語の、人数を超えるビットを落とす。
+        if let (Some(last), rest @ 1..) = (words.last_mut(), self.players % 64) {
+            *last &= (1u64 << rest) - 1;
+        }
+        PlayerSet {
+            players: self.players,
+            words,
+        }
     }
 
     /// メンバーを昇順に列挙する。
@@ -133,6 +181,25 @@ impl PlayerSet {
     }
 }
 
+impl fmt::Display for PlayerSet {
+    /// メンバーの番号 (0 始まり) を `{0, 2}` の形で書く。
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_members(f, self.members())
+    }
+}
+
+impl TryFrom<&PlayerSet> for Coalition {
+    type Error = Error;
+
+    /// 64 人以下の集合を変換する。それより多ければ [`Error::TooManyPlayers`]。
+    fn try_from(set: &PlayerSet) -> Result<Coalition> {
+        set.to_coalition().ok_or(Error::TooManyPlayers {
+            players: set.players,
+            max: 64,
+        })
+    }
+}
+
 /// 提携の値を返すゲーム。
 pub trait SetFunction {
     fn players(&self) -> usize;
@@ -156,9 +223,9 @@ impl<G: SetFunction + ?Sized> SetFunction for &G {
 /// 全体提携、1 人提携、`n - 1` 人提携の値の絶対値の最大 (1 以上)。評価は `2n + 1` 回。
 pub fn value_scale<G: SetFunction + ?Sized>(game: &G) -> f64 {
     let n = game.players();
-    let mut scale = game.value(&PlayerSet::full(n)).abs().max(1.0);
+    let mut scale = game.value(&PlayerSet::grand(n)).abs().max(1.0);
     for i in 0..n {
-        let single = PlayerSet::from_players(n, &[i]);
+        let single = PlayerSet::singleton(n, i);
         scale = scale
             .max(game.value(&single).abs())
             .max(game.value(&single.complement()).abs());
@@ -190,13 +257,50 @@ mod tests {
         assert_eq!(set.complement().len(), 126);
         set.toggle(64);
         assert!(!set.contains(64));
-        assert!(PlayerSet::full(130).is_full());
-        assert!(!PlayerSet::full(130).is_proper());
+        assert!(PlayerSet::grand(130).is_full());
+        assert!(!PlayerSet::grand(130).is_proper());
         let small = PlayerSet::from_players(5, &[1, 3]);
         assert_eq!(small.to_coalition(), Some(Coalition::from_players(&[1, 3])));
         assert_eq!(
             PlayerSet::from_coalition(5, Coalition::from_players(&[1, 3])),
             small
         );
+    }
+
+    #[test]
+    fn same_operations_as_coalition() {
+        // 64 人以下では、Coalition と同じ結果になる。
+        let (a, b) = (
+            Coalition::from_players(&[0, 2]),
+            Coalition::from_players(&[2, 3]),
+        );
+        let (sa, sb) = (
+            PlayerSet::from_coalition(5, a),
+            PlayerSet::from_coalition(5, b),
+        );
+        let same = |set: PlayerSet, c: Coalition| {
+            assert_eq!(Coalition::try_from(&set).unwrap(), c);
+            assert_eq!(set.to_string(), c.to_string());
+        };
+        same(sa.union(&sb), a.union(b));
+        same(sa.intersection(&sb), a.intersection(b));
+        same(sa.complement(), a.complement(5));
+        same(PlayerSet::grand(5), Coalition::grand(5));
+        same(PlayerSet::singleton(5, 4), Coalition::singleton(4));
+        same(PlayerSet::empty(5), Coalition::empty());
+        assert!(sa.intersection(&sb).is_subset(&sa) && !sa.is_subset(&sb));
+        assert_eq!(a.to_string(), "{0, 2}");
+        assert_eq!(Coalition::empty().to_string(), "{}");
+    }
+
+    #[test]
+    fn large_sets() {
+        let mut set = PlayerSet::from_players(130, &[0, 64, 129]);
+        assert_eq!(set.to_string(), "{0, 64, 129}");
+        assert_eq!(set.complement().len(), 127);
+        assert!(Coalition::try_from(&set).is_err());
+        set.remove(64);
+        set.insert(1);
+        assert_eq!(set.members().collect::<Vec<_>>(), vec![0, 1, 129]);
     }
 }

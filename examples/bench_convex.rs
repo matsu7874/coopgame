@@ -19,7 +19,7 @@ use coopgame::games::graph::InducedSubgraphGame;
 use coopgame::generators::SplitMix64;
 use coopgame::nucleolus::convex::{self, ConvexOptions};
 use coopgame::verify::{self, Check, VerifyOptions};
-use coopgame::{Concept, Guarantee, Property, Solution, nucleolus};
+use coopgame::{Concept, nucleolus};
 
 #[path = "../tests/common/mod.rs"]
 mod common;
@@ -62,7 +62,7 @@ fn main() {
                         convex::nucleolus_with(&game, ConvexOptions::default()).unwrap();
                     let seconds = started.elapsed().as_secs_f64();
                     let error =
-                        max_abs_difference(&solution.allocation, &game.nucleolus().unwrap());
+                        max_abs_difference(solution.allocation(), &game.nucleolus().unwrap());
                     println!(
                         "bankruptcy,{n},{seed},{seconds:.3},{},{},{},{},{error:.2e},",
                         stats.sweeps, stats.transfers, stats.minimizations, stats.evaluations
@@ -88,20 +88,20 @@ fn main() {
                         let explicit = ExplicitGame::tabulate(&game).unwrap();
                         let lp = nucleolus::nucleolus(&explicit).unwrap().allocation;
                         (
-                            format!("{:.2e}", max_abs_difference(&solution.allocation, &lp)),
+                            format!("{:.2e}", max_abs_difference(solution.allocation(), &lp)),
                             String::new(),
                         )
                     } else {
-                        let candidate = Solution {
-                            concept: Concept::Nucleolus,
-                            allocation: solution.allocation.clone(),
-                            guarantee: Guarantee::Proven(Property::Convex),
-                            method: "convex-transfer",
-                        };
                         let mut options = VerifyOptions::default();
                         options.pairs = 4;
                         options.seed = seed;
-                        let check = verify::check(&game, &candidate, options).unwrap();
+                        let check = verify::check(
+                            &game,
+                            solution.allocation(),
+                            Concept::Nucleolus,
+                            options,
+                        )
+                        .unwrap();
                         let label = match check {
                             Check::Certified { .. } => "certified",
                             Check::Refuted(_) => "refuted",

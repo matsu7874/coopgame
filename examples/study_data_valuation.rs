@@ -159,7 +159,7 @@ fn valuation(sizes: &[usize], budgets: &[usize], seeds: u64) {
             let game = NearestNeighbor::new(&data);
             // leave-one-out は予算によらず n + 1 回
             let started = Instant::now();
-            let full = PlayerSet::full(n);
+            let full = PlayerSet::grand(n);
             let total = game.value(&full);
             let loo: Vec<f64> = (0..n)
                 .map(|i| {

@@ -1,24 +1,26 @@
-//! プレイヤー名付きのゲームの読み書き (JSON・CSV) と、一部の提携だけ値が分かるゲーム。
+//! 提携ごとの値の読み書き (JSON・CSV) と、一部の提携だけ値が分かるゲーム。
+//!
+//! プレイヤーは 0 始まりの番号で書く。
 //!
 //! # JSON
 //!
 //! ```json
 //! {
-//!   "players": ["A", "B", "C"],
+//!   "players": 3,
 //!   "type": "value",
-//!   "values": {"A": 0, "B": 0, "C": 0, "A,B": 4, "A,C": 3, "B,C": 2, "A,B,C": 6}
+//!   "values": {"0": 0, "1": 0, "2": 0, "0,1": 4, "0,2": 3, "1,2": 2, "0,1,2": 6}
 //! }
 //! ```
 //!
 //! - `type` は `"value"` (既定、提携の価値) か `"cost"` (提携の費用)。
-//! - `values` のキーは提携のメンバーの名前をカンマでつないだもの (順序と空白は問わない)。
-//!   `[{"coalition": ["A", "B"], "value": 4}, ...]` の配列でもよい。
-//! - `players` を省くと、`values` に現れた名前を現れた順に使う。
+//! - `values` のキーは提携のメンバーの番号をカンマでつないだもの (順序と空白は問わない)。
+//!   `[{"coalition": [0, 1], "value": 4}, ...]` の配列でもよい。
+//! - `players` (人数) を省くと、現れた最大の番号 + 1 人とする。
 //!
 //! # CSV
 //!
-//! 1 行目は見出し `coalition,value`。提携のメンバーは `|` でつなぐ (例: `A|B,4`)。
-//! 費用ゲームは見出しを `coalition,cost` にする。プレイヤーは現れた順。
+//! 1 行目は見出し `coalition,value`。提携のメンバーの番号は `|` でつなぐ (例: `0|1,4`)。
+//! 費用ゲームは見出しを `coalition,cost` にする。人数は現れた最大の番号 + 1。
 //!
 //! # 値が分からない提携
 //!
@@ -79,7 +81,8 @@ pub enum Missing {
 /// 読み込んだゲーム。
 #[derive(Clone, Debug, PartialEq)]
 pub struct GameData {
-    pub names: Vec<String>,
+    /// 人数。
+    pub players: usize,
     pub kind: Kind,
     /// 値が分かる提携 (空でない) と値。
     pub known: Vec<(Coalition, f64)>,
@@ -92,56 +95,23 @@ fn parse_error(message: impl Into<String>) -> Error {
     }
 }
 
-struct Names {
-    names: Vec<String>,
-    index: HashMap<String, usize>,
-    fixed: bool,
+/// プレイヤーの番号を読む。
+fn player(text: &str) -> Result<usize> {
+    let text = text.trim();
+    text.parse()
+        .map_err(|_| parse_error(format!("プレイヤーの番号 (0 以上の整数) でない: {text:?}")))
 }
 
-impl Names {
-    fn new(fixed: Option<Vec<String>>) -> Result<Names> {
-        let mut names = Names {
-            names: Vec::new(),
-            index: HashMap::new(),
-            fixed: fixed.is_some(),
-        };
-        for name in fixed.unwrap_or_default() {
-            if names
-                .index
-                .insert(name.clone(), names.names.len())
-                .is_some()
-            {
-                return Err(parse_error(format!("プレイヤー名 {name:?} が重複している")));
-            }
-            names.names.push(name);
+fn build(players: Option<usize>, kind: Kind, entries: Vec<(Vec<usize>, f64)>) -> Result<GameData> {
+    let highest = entries.iter().flat_map(|(members, _)| members).max();
+    let n = match (players, highest) {
+        (Some(n), Some(&i)) if i >= n => {
+            return Err(parse_error(format!("プレイヤー番号 {i} が人数 {n} 以上")));
         }
-        Ok(names)
-    }
-
-    fn player(&mut self, name: &str) -> Result<usize> {
-        let name = name.trim();
-        if name.is_empty() {
-            return Err(parse_error("空のプレイヤー名"));
-        }
-        if let Some(&i) = self.index.get(name) {
-            return Ok(i);
-        }
-        if self.fixed {
-            return Err(parse_error(format!("players にない名前 {name:?}")));
-        }
-        let i = self.names.len();
-        self.index.insert(name.to_string(), i);
-        self.names.push(name.to_string());
-        Ok(i)
-    }
-
-    fn coalition<'a>(&mut self, members: impl Iterator<Item = &'a str>) -> Result<Vec<usize>> {
-        members.map(|name| self.player(name)).collect()
-    }
-}
-
-fn build(names: Names, kind: Kind, entries: Vec<(Vec<usize>, f64)>) -> Result<GameData> {
-    let n = names.names.len();
+        (Some(n), _) => n,
+        (None, Some(&i)) => i + 1,
+        (None, None) => 0,
+    };
     if n == 0 {
         return Err(parse_error("プレイヤーがいない"));
     }
@@ -159,15 +129,9 @@ fn build(names: Names, kind: Kind, entries: Vec<(Vec<usize>, f64)>) -> Result<Ga
         if !value.is_finite() {
             return Err(parse_error("値が有限の数でない"));
         }
-        let mask = Coalition::from_players(&members).0;
-        if known.insert(mask, value).is_some() {
-            return Err(parse_error(format!(
-                "提携 {:?} の値が重複している",
-                members
-                    .iter()
-                    .map(|&i| names.names[i].as_str())
-                    .collect::<Vec<_>>()
-            )));
+        let coalition = Coalition::from_players(&members);
+        if known.insert(coalition.0, value).is_some() {
+            return Err(parse_error(format!("提携 {coalition} の値が重複している")));
         }
     }
     let mut known: Vec<(Coalition, f64)> = known
@@ -180,7 +144,7 @@ fn build(names: Names, kind: Kind, entries: Vec<(Vec<usize>, f64)>) -> Result<Ga
         return Err(parse_error("全体提携の値がない"));
     }
     Ok(GameData {
-        names: names.names,
+        players: n,
         kind,
         known,
     })
@@ -197,24 +161,17 @@ pub fn parse_json(text: &str) -> Result<GameData> {
     };
     let players = match root.get("players") {
         None => None,
-        Some(Value::Array(list)) => Some(
-            list.iter()
-                .map(|v| {
-                    v.as_str()
-                        .map(|s| s.trim().to_string())
-                        .ok_or_else(|| parse_error("players は文字列の配列"))
-                })
-                .collect::<Result<Vec<_>>>()?,
+        Some(v) => Some(
+            v.as_u64()
+                .ok_or_else(|| parse_error("players は人数 (0 以上の整数)"))? as usize,
         ),
-        Some(_) => return Err(parse_error("players は文字列の配列")),
     };
-    let mut names = Names::new(players)?;
     let number = |v: &Value| v.as_f64().ok_or_else(|| parse_error("値は数"));
     let mut entries = Vec::new();
     match root.get("values") {
         Some(Value::Object(map)) => {
             for (key, value) in map {
-                let members = names.coalition(key.split(','))?;
+                let members = key.split(',').map(player).collect::<Result<_>>()?;
                 entries.push((members, number(value)?));
             }
         }
@@ -223,23 +180,24 @@ pub fn parse_json(text: &str) -> Result<GameData> {
                 let members = item
                     .get("coalition")
                     .and_then(Value::as_array)
-                    .ok_or_else(|| parse_error("各要素に coalition (名前の配列) が必要"))?;
-                let members: Vec<&str> = members
+                    .ok_or_else(|| parse_error("各要素に coalition (番号の配列) が必要"))?;
+                let members: Vec<usize> = members
                     .iter()
                     .map(|m| {
-                        m.as_str()
-                            .ok_or_else(|| parse_error("coalition は名前の配列"))
+                        m.as_u64()
+                            .map(|i| i as usize)
+                            .ok_or_else(|| parse_error("coalition は番号 (0 以上の整数) の配列"))
                     })
                     .collect::<Result<_>>()?;
                 let value = item
                     .get("value")
                     .ok_or_else(|| parse_error("各要素に value が必要"))?;
-                entries.push((names.coalition(members.into_iter())?, number(value)?));
+                entries.push((members, number(value)?));
             }
         }
         _ => return Err(parse_error("values (オブジェクトか配列) が必要")),
     }
-    build(names, kind, entries)
+    build(players, kind, entries)
 }
 
 /// CSV のテキストを読む (見出し `coalition,value` か `coalition,cost`)。
@@ -259,7 +217,6 @@ pub fn parse_csv(text: &str) -> Result<GameData> {
                 "見出しは coalition,value か coalition,cost: {header:?}"
             ))
         })?;
-    let mut names = Names::new(None)?;
     let mut entries = Vec::new();
     for (line, row) in lines {
         let (coalition, value) = row.rsplit_once(',').ok_or(Error::Parse {
@@ -270,15 +227,17 @@ pub fn parse_csv(text: &str) -> Result<GameData> {
             line,
             message: format!("値として読めない: {value:?}"),
         })?;
-        let members = names
-            .coalition(coalition.split('|'))
+        let members = coalition
+            .split('|')
+            .map(player)
+            .collect::<Result<_>>()
             .map_err(|e| Error::Parse {
                 line,
                 message: e.to_string(),
             })?;
         entries.push((members, value));
     }
-    build(names, kind, entries)
+    build(None, kind, entries)
 }
 
 /// 拡張子 (`.json` か `.csv`) で形式を選んで読む。
@@ -295,13 +254,9 @@ pub fn parse_by_extension(path: &str, text: &str) -> Result<GameData> {
 }
 
 impl GameData {
-    pub fn players(&self) -> usize {
-        self.names.len()
-    }
-
     /// 値が分からない (空でない) 提携。
     pub fn missing(&self) -> Vec<Coalition> {
-        let n = self.players();
+        let n = self.players;
         if n > MAX_PLAYERS {
             return Vec::new();
         }
@@ -312,21 +267,9 @@ impl GameData {
             .collect()
     }
 
-    /// 提携のメンバーの名前 (番号の昇順)。
-    pub fn member_names(&self, coalition: Coalition) -> Vec<&str> {
-        coalition
-            .players()
-            .map(|i| self.names[i].as_str())
-            .collect()
-    }
-
-    fn describe(&self, coalition: Coalition) -> String {
-        crate::game::format_coalition(coalition, Some(&self.names))
-    }
-
     /// 全提携の値の表にする。
     pub fn to_explicit(&self, missing: Missing) -> Result<ExplicitGame> {
-        let n = self.players();
+        let n = self.players;
         if n > MAX_PLAYERS {
             return Err(Error::TooManyPlayers {
                 players: n,
@@ -335,7 +278,7 @@ impl GameData {
         }
         let absent = self.missing();
         if missing == Missing::Error && !absent.is_empty() {
-            let listed: Vec<String> = absent.iter().take(10).map(|c| self.describe(*c)).collect();
+            let listed: Vec<String> = absent.iter().take(10).map(Coalition::to_string).collect();
             return Err(Error::InvalidArgument(format!(
                 "値が分からない提携が {} 個ある: {}{} (0 とみなすか、分かる提携だけで解く)",
                 absent.len(),
@@ -357,7 +300,7 @@ impl GameData {
                 "値が分かる提携だけで解くのは価値のゲーム (type = value) に限る".into(),
             ));
         }
-        let n = self.players();
+        let n = self.players;
         let known: HashMap<PlayerSet, f64> = self
             .known
             .iter()
@@ -372,12 +315,16 @@ impl GameData {
             .known
             .iter()
             .map(|(c, v)| {
-                let key = self.member_names(*c);
-                (key.join(","), Value::from(*v))
+                let key = c
+                    .members()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                (key, Value::from(*v))
             })
             .collect();
         let root = serde_json::json!({
-            "players": self.names,
+            "players": self.players,
             "type": self.kind.as_str(),
             "values": values,
         });
@@ -403,10 +350,10 @@ impl PartialGame {
     /// 結果は真のゲームの仁とは限らないので、保証は [`Guarantee::Approximate`] にする。
     pub fn nucleolus(&self, domain: Domain) -> Result<NucleolusResult> {
         let n = self.players;
-        let full = PlayerSet::full(n);
+        let full = PlayerSet::grand(n);
         let mut absent = Vec::new();
         for i in 0..n {
-            let single = PlayerSet::from_players(n, &[i]);
+            let single = PlayerSet::singleton(n, i);
             for set in [single.complement(), single] {
                 if set.is_proper() && !self.known.contains_key(&set) {
                     absent.push(set);
@@ -468,14 +415,14 @@ mod tests {
     use crate::nucleolus;
 
     const JSON: &str = r#"{
-        "players": ["A", "B", "C"],
-        "values": {"A": 0, "B": 0, "C": 0, "A,B": 4, "A, C": 3, "C,B": 2, "A,B,C": 6}
+        "players": 3,
+        "values": {"0": 0, "1": 0, "2": 0, "0,1": 4, "0, 2": 3, "2,1": 2, "0,1,2": 6}
     }"#;
 
     #[test]
     fn json_and_csv_give_same_game() {
         let from_json = parse_json(JSON).unwrap();
-        let csv = "coalition,value\nA,0\nB,0\nC,0\nA|B,4\nA|C,3\nB|C,2\nA|B|C,6\n";
+        let csv = "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|2,3\n1|2,2\n0|1|2,6\n";
         let from_csv = parse_csv(csv).unwrap();
         assert_eq!(from_json, from_csv);
         let game = from_json.to_explicit(Missing::Error).unwrap();
@@ -488,21 +435,21 @@ mod tests {
     #[test]
     fn array_form_and_cost_type() {
         let text = r#"{"type": "cost", "values": [
-            {"coalition": ["x"], "value": 5}, {"coalition": ["y"], "value": 7},
-            {"coalition": ["x", "y"], "value": 9}]}"#;
+            {"coalition": [0], "value": 5}, {"coalition": [1], "value": 7},
+            {"coalition": [0, 1], "value": 9}]}"#;
         let data = parse_json(text).unwrap();
         assert_eq!(data.kind, Kind::Cost);
-        assert_eq!(data.names, vec!["x".to_string(), "y".to_string()]);
+        assert_eq!(data.players, 2);
         assert!(data.partial().is_err());
     }
 
     #[test]
     fn missing_values_are_reported_or_filled() {
-        let csv = "coalition,value\nA,1\nB,1\nC,1\nA|B,3\nA|B|C,6\n";
+        let csv = "coalition,value\n0,1\n1,1\n2,1\n0|1,3\n0|1|2,6\n";
         let data = parse_csv(csv).unwrap();
         assert_eq!(data.missing().len(), 2);
         let err = data.to_explicit(Missing::Error).unwrap_err().to_string();
-        assert!(err.contains("{A, C}") && err.contains("{B, C}"), "{err}");
+        assert!(err.contains("{0, 2}") && err.contains("{1, 2}"), "{err}");
         let filled = data.to_explicit(Missing::Zero).unwrap();
         assert_eq!(filled.value(Coalition::from_players(&[0, 2])), 0.0);
     }
@@ -523,7 +470,7 @@ mod tests {
         }
         assert_eq!(partial.guarantee, Guarantee::Approximate);
         // 1 人提携の補集合 (2 人提携) が欠けていると解けない。
-        let csv = "coalition,value\nA,0\nB,0\nC,0\nA|B,4\nA|B|C,6\n";
+        let csv = "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|1|2,6\n";
         assert!(
             parse_csv(csv)
                 .unwrap()
@@ -536,10 +483,11 @@ mod tests {
 
     #[test]
     fn rejects_bad_input() {
-        assert!(parse_json(r#"{"players": ["A"], "values": {"B": 1}}"#).is_err());
-        assert!(parse_json(r#"{"values": {"A": 1, "A": 2}}"#).is_ok()); // JSON のキー重複は後勝ち
-        assert!(parse_csv("coalition,value\nA,1\nA,2\n").is_err());
-        assert!(parse_csv("coalition,value\nA,1\nB,1\n").is_err()); // 全体提携がない
-        assert!(parse_csv("name,value\nA,1\n").is_err());
+        assert!(parse_json(r#"{"players": 1, "values": {"1": 1}}"#).is_err()); // 人数の範囲外
+        assert!(parse_json(r#"{"values": {"0": 1, "0": 2}}"#).is_ok()); // JSON のキー重複は後勝ち
+        assert!(parse_json(r#"{"values": {"A": 1}}"#).is_err()); // 番号でない
+        assert!(parse_csv("coalition,value\n0,1\n0,2\n").is_err());
+        assert!(parse_csv("coalition,value\n0,1\n1,1\n").is_err()); // 全体提携がない
+        assert!(parse_csv("name,value\n0,1\n").is_err());
     }
 }

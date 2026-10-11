@@ -15,7 +15,6 @@
 //! ```
 
 use coopgame::ExplicitGame;
-use coopgame::game::format_coalition;
 use coopgame::games::voting::WeightedVotingGame;
 use coopgame::power::SimpleGame;
 use coopgame::values;
@@ -47,7 +46,7 @@ fn main() -> coopgame::Result<()> {
     let minimal: Vec<String> = simple
         .minimal_winning
         .iter()
-        .map(|&c| format_coalition(c, None))
+        .map(|c| c.to_string())
         .collect();
     println!("最小勝利提携 {} 個: {}", minimal.len(), minimal.join(" "));
     println!("各党の決定票の数: {:?}", simple.swings);
@@ -64,7 +63,7 @@ fn main() -> coopgame::Result<()> {
     let initiate = simple.coleman_initiative()?;
     let collectivity = simple.coleman_collectivity();
 
-    // 行が党、列が指数の表にする。党は 1 始まりの番号と重みで表示する。
+    // 行が党、列が指数の表にする。党は 0 始まりの番号と重みで表示する。
     let columns: [(&str, &[f64]); 8] = [
         ("Shapley-Shubik", &shapley_shubik),
         ("Banzhaf (値)", &banzhaf_raw),
@@ -83,8 +82,7 @@ fn main() -> coopgame::Result<()> {
             .map(|(_, index)| format!("{:.4}", index[player]))
             .collect();
         println!(
-            "{}\t{}\t{}",
-            player + 1,
+            "{player}\t{}\t{}",
             voting.weights()[player],
             cells.join("\t")
         );

@@ -1,6 +1,6 @@
-//! プレイヤー名付きの JSON・CSV を読む例 (`io` モジュール、feature `io`)。
+//! 提携ごとの値を書いた JSON・CSV を読む例 (`io` モジュール、feature `io`)。
 //!
-//! 1. JSON と CSV で同じ 3 人ゲームを読み、仁と Shapley 値を名前付きで出す。
+//! 1. JSON と CSV で同じ 3 人ゲームを読み、仁と Shapley 値を求める。読んだゲームを JSON に書き戻す。
 //! 2. 費用ゲーム (`"type": "cost"`) を読み、費用の分担を求める。
 //! 3. 値が分からない提携のあるゲームを、0 とみなす場合と、分かる提携だけで解く場合 (`PartialGame`) で比べる。
 //!
@@ -9,57 +9,57 @@
 //! ```
 //!
 //! 入力は例の中に文字列で埋め込んでいる (ファイルは読まない)。形式は docs/input-format.md を参照。
-//! 読み込んだプレイヤーは名前の出てきた順に 0 始まりの番号が付く。表示には `GameData::names` を使う。
+//! プレイヤーは 0 始まりの番号で書く。名前と番号の対応が必要なら、利用側で持つ。
 
-use coopgame::game::{format_coalition, player_name};
 use coopgame::games::cost::CostGame;
 use coopgame::io::{self, Kind, Missing};
 use coopgame::{Coalition, Domain, ExplicitGame, Guarantee, nucleolus, values};
 
 /// 共通のサンプル入力の 3 人ゲーム (辞書式順 [0, 0, 0, 4, 6, 8, 12]) を JSON で書いたもの。
+/// キーは提携のメンバーの番号をカンマでつないだもの。
 const VALUE_JSON: &str = r#"{
-  "players": ["A", "B", "C"],
+  "players": 3,
   "type": "value",
-  "values": {"A": 0, "B": 0, "C": 0, "A,B": 4, "A,C": 6, "B,C": 8, "A,B,C": 12}
+  "values": {"0": 0, "1": 0, "2": 0, "0,1": 4, "0,2": 6, "1,2": 8, "0,1,2": 12}
 }"#;
 
-/// 同じゲームの CSV。提携のメンバーは `|` で区切る。`#` で始まる行は読み飛ばす。
+/// 同じゲームの CSV。提携のメンバーの番号は `|` で区切る。`#` で始まる行は読み飛ばす。
+/// 人数は現れた最大の番号 + 1 になる。
 const VALUE_CSV: &str = "\
 coalition,value
 # 1 人の提携
-A,0
-B,0
-C,0
+0,0
+1,0
+2,0
 # 2 人以上の提携
-A|B,4
-A|C,6
-B|C,8
-A|B|C,12
+0|1,4
+0|2,6
+1|2,8
+0|1|2,12
 ";
 
-/// 3 人の共同配送の費用 (docs/examples.md の費用ゲームの節と同じ値)。値を配列の形で書く。
+/// 3 人の共同配送の費用 (docs/examples.md の費用ゲームの節と同じ値)。値を配列の形で書き、人数は省く。
 const COST_JSON: &str = r#"{
-  "players": ["A", "B", "C"],
   "type": "cost",
   "values": [
-    {"coalition": ["A"], "value": 6},
-    {"coalition": ["B"], "value": 6},
-    {"coalition": ["C"], "value": 8},
-    {"coalition": ["A", "B"], "value": 9},
-    {"coalition": ["A", "C"], "value": 11},
-    {"coalition": ["B", "C"], "value": 12},
-    {"coalition": ["A", "B", "C"], "value": 15}
+    {"coalition": [0], "value": 6},
+    {"coalition": [1], "value": 6},
+    {"coalition": [2], "value": 8},
+    {"coalition": [0, 1], "value": 9},
+    {"coalition": [0, 2], "value": 11},
+    {"coalition": [1, 2], "value": 12},
+    {"coalition": [0, 1, 2], "value": 15}
   ]
 }"#;
 
-/// 4 人ゲームで、提携 {B, D} と {C, D} の値が分からない場合。
+/// 4 人ゲームで、提携 {1, 3} と {2, 3} の値が分からない場合。
 const MISSING_JSON: &str = r#"{
-  "players": ["A", "B", "C", "D"],
+  "players": 4,
   "values": {
-    "A": 0, "B": 0, "C": 0, "D": 0,
-    "A,B": 4, "A,C": 6, "B,C": 8, "A,D": 2,
-    "A,B,C": 12, "A,B,D": 8, "A,C,D": 10, "B,C,D": 12,
-    "A,B,C,D": 18
+    "0": 0, "1": 0, "2": 0, "3": 0,
+    "0,1": 4, "0,2": 6, "1,2": 8, "0,3": 2,
+    "0,1,2": 12, "0,1,3": 8, "0,2,3": 10, "1,2,3": 12,
+    "0,1,2,3": 18
   }
 }"#;
 
@@ -75,35 +75,36 @@ fn value_game() -> coopgame::Result<()> {
     println!("== 価値のゲーム (JSON・CSV) ==");
     let from_json = io::parse_json(VALUE_JSON)?;
     let from_csv = io::parse_csv(VALUE_CSV)?;
-    println!("プレイヤー: {:?}", from_json.names);
+    println!("人数: {}", from_json.players);
     assert_eq!(from_json.kind, Kind::Value);
 
     // 全ての提携の値が分かっているので、Missing::Error でも全提携の表を作れる。
+    assert_eq!(from_json, from_csv);
     let game = from_json.to_explicit(Missing::Error)?;
-    let same = from_csv.to_explicit(Missing::Error)?;
-    assert_eq!(from_json.names, from_csv.names);
-    assert_eq!(game.values(), same.values());
     let lex = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     assert_eq!(game.values(), lex.values());
     println!("JSON と CSV は同じゲームになる。");
 
-    let names = &from_json.names;
     let nucleolus = nucleolus::nucleolus(&game)?;
     let shapley = values::shapley(&game);
     println!(
-        "仁: {} (保証 {})",
-        format_allocation(&nucleolus.allocation, Some(names)),
-        nucleolus.guarantee
+        "仁: {:.4?} (保証 {})",
+        nucleolus.allocation, nucleolus.guarantee
     );
-    println!("Shapley 値: {}", format_allocation(&shapley, Some(names)));
+    println!("Shapley 値: {shapley:.4?}");
     assert!(close(&nucleolus.allocation, &[2.0, 4.0, 6.0], 1e-6));
     assert!(close(&shapley, &[3.0, 4.0, 5.0], 1e-9));
 
-    // 値の分かる提携は GameData::known にある。format_coalition に名前を渡すと {A, B} の形で書ける。
+    // 値の分かる提携は GameData::known にある。提携は {0, 1} の形で表示される。
     println!("読んだ値:");
     for (coalition, value) in &from_json.known {
-        println!("  {}\t{value}", format_coalition(*coalition, Some(names)));
+        println!("  {coalition}\t{value}");
     }
+
+    // to_json は同じ形式の JSON を書く。読み直すと同じゲームになる。
+    let written = from_csv.to_json();
+    println!("JSON に書き戻す:\n{written}");
+    assert_eq!(io::parse_json(&written)?, from_json);
     Ok(())
 }
 
@@ -116,18 +117,9 @@ fn cost_game() -> coopgame::Result<()> {
     let game = CostGame::new(data.to_explicit(Missing::Error)?);
     let nucleolus = game.nucleolus()?;
     let shapley = game.shapley();
-    println!(
-        "単独の費用: {}",
-        format_allocation(&game.standalone(), Some(&data.names))
-    );
-    println!(
-        "仁による分担: {}",
-        format_allocation(&nucleolus, Some(&data.names))
-    );
-    println!(
-        "Shapley 値による分担: {}",
-        format_allocation(&shapley, Some(&data.names))
-    );
+    println!("単独の費用: {:.4?}", game.standalone());
+    println!("仁による分担: {nucleolus:.4?}");
+    println!("Shapley 値による分担: {shapley:.4?}");
     assert!(close(
         &nucleolus,
         &[11.0 / 3.0, 14.0 / 3.0, 20.0 / 3.0],
@@ -142,14 +134,9 @@ fn cost_game() -> coopgame::Result<()> {
 fn missing_values() -> coopgame::Result<()> {
     println!("\n== 値が分からない提携 ==");
     let data = io::parse_json(MISSING_JSON)?;
-    let names = &data.names;
-    let missing: Vec<String> = data
-        .missing()
-        .into_iter()
-        .map(|c| format_coalition(c, Some(names)))
-        .collect();
+    let missing: Vec<String> = data.missing().iter().map(|c| c.to_string()).collect();
     println!("値が分からない提携: {}", missing.join(" "));
-    assert_eq!(missing, vec!["{B, D}", "{C, D}"]);
+    assert_eq!(missing, vec!["{1, 3}", "{2, 3}"]);
 
     // 既定 (Missing::Error) では全提携の表を作れず、エラーで分からない提携を示す。
     match data.to_explicit(Missing::Error) {
@@ -160,9 +147,8 @@ fn missing_values() -> coopgame::Result<()> {
     // Missing::Zero: 分からない値を 0 とみなして全提携の表を作る。
     let zero = nucleolus::nucleolus(&data.to_explicit(Missing::Zero)?)?;
     println!(
-        "0 とみなした仁: {} (保証 {})",
-        format_allocation(&zero.allocation, Some(names)),
-        zero.guarantee
+        "0 とみなした仁: {:.4?} (保証 {})",
+        zero.allocation, zero.guarantee
     );
 
     // PartialGame: 値が分かる提携だけで超過を辞書式に最小化する。
@@ -170,9 +156,9 @@ fn missing_values() -> coopgame::Result<()> {
     let partial = data.partial()?;
     let approximate = partial.nucleolus(Domain::Imputation)?;
     println!(
-        "分かる {} 個の提携だけで解いた仁: {} (保証 {})",
+        "分かる {} 個の提携だけで解いた仁: {:.4?} (保証 {})",
         partial.known(),
-        format_allocation(&approximate.allocation, Some(names)),
+        approximate.allocation,
         approximate.guarantee
     );
     assert_eq!(partial.known(), 13);
@@ -183,29 +169,17 @@ fn missing_values() -> coopgame::Result<()> {
 
     // 分からなかった値が後で分かった場合と比べる。GameData::known に値を足すと全提携の表を作れる。
     let mut complete = data.clone();
-    // 名前から番号を引く公開関数はないので、提携は 0 始まりの番号で書く。
-    complete.known.push((Coalition::from_players(&[1, 3]), 7.0)); // {B, D}
-    complete.known.push((Coalition::from_players(&[2, 3]), 9.0)); // {C, D}
+    complete.known.push((Coalition::from_players(&[1, 3]), 7.0));
+    complete.known.push((Coalition::from_players(&[2, 3]), 9.0));
     assert!(complete.missing().is_empty());
     let exact = nucleolus::nucleolus(&complete.to_explicit(Missing::Error)?)?;
     println!(
-        "{{B, D}} = 7、{{C, D}} = 9 と分かった場合の仁: {} (保証 {})",
-        format_allocation(&exact.allocation, Some(names)),
-        exact.guarantee
+        "{{1, 3}} = 7、{{2, 3}} = 9 と分かった場合の仁: {:.4?} (保証 {})",
+        exact.allocation, exact.guarantee
     );
     // 分からなかった値によっては、分かる提携だけで解いた配分は真のゲームの仁と異なる。
     assert!(close(&exact.allocation, &[2.0, 5.0, 7.0, 4.0], 1e-6));
     Ok(())
-}
-
-/// 配分を `名前: 値` の形で 1 行に書く。名前がなければ 1 始まりの番号を使う。
-fn format_allocation(x: &[f64], names: Option<&[String]>) -> String {
-    let parts: Vec<String> = x
-        .iter()
-        .enumerate()
-        .map(|(i, v)| format!("{}: {v:.4}", player_name(names, i)))
-        .collect();
-    parts.join(", ")
 }
 
 /// 2 つの列が要素ごとに `tolerance` 以内で等しいか。

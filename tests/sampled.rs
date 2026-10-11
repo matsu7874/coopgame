@@ -57,7 +57,7 @@ fn least_core_constraints_hold_on_sampled_coalitions() {
     assert_eq!(evaluations, sampled.evaluations());
     let tolerance = 1e-6 * game.max_abs_value();
     let total: f64 = least.allocation.iter().sum();
-    assert!((total - SetFunction::value(&game, &PlayerSet::full(12))).abs() < tolerance);
+    assert!((total - SetFunction::value(&game, &PlayerSet::grand(12))).abs() < tolerance);
     for set in sampled.coalitions() {
         let excess = SetFunction::value(&game, set) - set.sum(&least.allocation);
         assert!(excess <= least.epsilon + tolerance);

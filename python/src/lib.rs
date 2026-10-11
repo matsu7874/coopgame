@@ -29,7 +29,7 @@ use coopgame::partition;
 use coopgame::properties::{Assume, ConvexChecked};
 use coopgame::verify::{self as verify_core, Check, Verified, VerifyOptions};
 use coopgame::{Coalition, Domain, ExplicitGame, generators, properties};
-use coopgame::{Concept, Guarantee, Solution};
+use coopgame::{Concept, Solution};
 use coopgame::{bargaining, communication, compromise, power, values};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -556,22 +556,21 @@ fn certify_rational<'py>(
 }
 
 /// 配分 `x` を説明する: 不満 (超過) の大きい提携の段、コアに属するか、最小コアの値、
-/// プレイヤーごとの最も不満な提携。`text` に日本語の説明文が入る。
+/// プレイヤーごとの最も不満な提携。`text` に日本語の説明文が入る (プレイヤーは 0 始まりの番号)。
 #[pyfunction]
-#[pyo3(signature = (game, x, levels = 3, names = None))]
+#[pyo3(signature = (game, x, levels = 3))]
 fn explain<'py>(
     py: Python<'py>,
     game: &Game,
     x: Vec<f64>,
     levels: usize,
-    names: Option<Vec<String>>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let mut options = explain_core::ExplainOptions::default();
     options.levels = levels;
     let report = explain_core::report(&game.inner, &x, options).map_err(to_py_err)?;
-    let members = |c: Coalition| c.players().collect::<Vec<_>>();
+    let members = |c: Coalition| c.members().collect::<Vec<_>>();
     let dict = PyDict::new(py);
-    dict.set_item("text", explain_core::render(&report, names.as_deref()))?;
+    dict.set_item("text", explain_core::render(&report))?;
     dict.set_item("max_excess", report.max_excess)?;
     dict.set_item("least_core_epsilon", report.least_core_epsilon)?;
     dict.set_item("in_core", report.in_core)?;
@@ -615,26 +614,21 @@ fn explain<'py>(
     Ok(dict)
 }
 
-/// 複数の配分 (`{名前: 配分}`) を安定性の指標で比べる。`text` に表が入る。
+/// 複数の配分 (配分のリスト) を安定性の指標で比べる。`text` に表が入る。
+/// `rows` は `candidates` と同じ順 (表の行も 0 始まりの番号で示す)。
 #[pyfunction]
-#[pyo3(signature = (game, candidates, names = None))]
 fn compare<'py>(
     py: Python<'py>,
     game: &Game,
-    candidates: Vec<(String, Vec<f64>)>,
-    names: Option<Vec<String>>,
+    candidates: Vec<Vec<f64>>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let rows = explain_core::compare(&game.inner, &candidates).map_err(to_py_err)?;
     let dict = PyDict::new(py);
-    dict.set_item(
-        "text",
-        explain_core::render_comparison(&rows, names.as_deref()),
-    )?;
+    dict.set_item("text", explain_core::render_comparison(&rows))?;
     let table = rows
         .iter()
         .map(|row| {
             let d = PyDict::new(py);
-            d.set_item("name", row.name.clone())?;
             d.set_item("allocation", row.allocation.clone())?;
             d.set_item("max_excess", row.max_excess)?;
             d.set_item("in_core", row.in_core)?;
@@ -680,7 +674,7 @@ fn spanning_tree<'py>(
     dict.set_item("bird", game.bird_rule())?;
     dict.set_item(
         "total_cost",
-        game.cost(&PlayerSet::full(SetFunction::players(&game))),
+        game.cost(&PlayerSet::grand(SetFunction::players(&game))),
     )?;
     if nucleolus {
         dict.set_item("nucleolus", game.nucleolus_costs().map_err(to_py_err)?)?;
@@ -703,7 +697,7 @@ fn linear_production<'py>(
     dict.set_item("owen", game.owen_allocation().map_err(to_py_err)?)?;
     dict.set_item(
         "value",
-        game.value(&PlayerSet::full(SetFunction::players(&game))),
+        game.value(&PlayerSet::grand(SetFunction::players(&game))),
     )?;
     Ok(dict)
 }
@@ -789,7 +783,7 @@ fn influence(
     rows.sort_by(|a, b| b.magnitude().total_cmp(&a.magnitude()));
     Ok(rows
         .into_iter()
-        .map(|row| (row.coalition.players().collect(), row.sensitivity))
+        .map(|row| (row.coalition.members().collect(), row.sensitivity))
         .collect())
 }
 
@@ -864,10 +858,10 @@ fn parse_game_data(text: &str, format: &str) -> PyResult<io_core::GameData> {
     .map_err(to_py_err)
 }
 
-/// プレイヤー名付きのゲーム (JSON か CSV のテキスト) を読む。
+/// ゲーム (JSON か CSV のテキスト) を読む。提携はプレイヤー番号 (0 始まり) で書く。
 ///
 /// 戻り値は `game` (Game。値が分からない提携は `missing="zero"` なら 0、`"error"` なら ValueError)、
-/// `names`、`kind` (`"value"` か `"cost"`)、`missing` (値が分からない提携の名前のリスト)。
+/// `kind` (`"value"` か `"cost"`)、`missing` (値が分からない提携。プレイヤー番号のリストのリスト)。
 #[pyfunction]
 #[pyo3(signature = (text, format = "json", missing = "error"))]
 fn parse_game<'py>(
@@ -885,12 +879,11 @@ fn parse_game<'py>(
     let game = data.to_explicit(policy).map_err(to_py_err)?;
     let dict = PyDict::new(py);
     dict.set_item("game", Py::new(py, Game { inner: game })?)?;
-    dict.set_item("names", data.names.clone())?;
     dict.set_item("kind", data.kind.as_str())?;
-    let missing: Vec<Vec<&str>> = data
+    let missing: Vec<Vec<usize>> = data
         .missing()
         .iter()
-        .map(|&c| data.member_names(c))
+        .map(|c| c.members().collect())
         .collect();
     dict.set_item("missing", missing)?;
     Ok(dict)
@@ -913,7 +906,6 @@ fn partial_nucleolus<'py>(
         .and_then(|partial| partial.nucleolus(domain))
         .map_err(to_py_err)?;
     let dict = nucleolus_dict(py, result)?;
-    dict.set_item("names", data.names)?;
     dict.set_item("known", data.known.len())?;
     Ok(dict)
 }
@@ -954,22 +946,22 @@ fn structured_nucleolus<'py>(
     nucleolus_dict(py, result)
 }
 
-/// 3-4 人のゲームの配分集合の図 (SVG)。コア・カーネル・仁・Shapley 値と `points` の点を描く。
+/// 3-4 人のゲームの配分集合の図 (SVG)。コア・カーネル・仁・Shapley 値と `points` (配分のリスト) の点を描く。
+/// 頂点はプレイヤー番号 (0 始まり)、`points` の点は列での位置 (0 始まり) で示す。
 ///
-/// 辞書 `svg` (文字列)、`core_vertices`、`kernel_pieces`、`points` (ラベル, 配分) の組を返す。
+/// 辞書 `svg` (文字列)、`core_vertices`、`kernel_pieces`、`nucleolus` (仁)、
+/// `shapley` (Shapley 値。`shapley=False` なら None) を返す。
 #[pyfunction]
-#[pyo3(signature = (game, names = None, kernel = true, shapley = true, points = None, title = None))]
+#[pyo3(signature = (game, kernel = true, shapley = true, points = None, title = None))]
 fn plot_svg<'py>(
     py: Python<'py>,
     game: &Game,
-    names: Option<Vec<String>>,
     kernel: bool,
     shapley: bool,
-    points: Option<Vec<(String, Vec<f64>)>>,
+    points: Option<Vec<Vec<f64>>>,
     title: Option<String>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let mut options = plot_core::PlotOptions::default();
-    options.names = names;
     options.kernel = kernel;
     options.shapley = shapley;
     options.points = points.unwrap_or_default();
@@ -979,7 +971,15 @@ fn plot_svg<'py>(
     dict.set_item("svg", figure.svg)?;
     dict.set_item("core_vertices", figure.core_vertices)?;
     dict.set_item("kernel_pieces", figure.kernel_pieces)?;
-    dict.set_item("points", figure.points)?;
+    // shapley = False なら Shapley 値の点はないので None のまま残る。
+    dict.set_item("shapley", py.None())?;
+    for (point, x) in figure.points {
+        match point {
+            plot_core::Point::Nucleolus => dict.set_item("nucleolus", x)?,
+            plot_core::Point::Shapley => dict.set_item("shapley", x)?,
+            plot_core::Point::Extra(_) => {}
+        }
+    }
     Ok(dict)
 }
 
@@ -1053,7 +1053,7 @@ fn power_indices<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDic
     let minimal: Vec<Vec<usize>> = simple
         .minimal_winning
         .iter()
-        .map(|c| c.players().collect())
+        .map(|c| c.members().collect())
         .collect();
     dict.set_item("minimal_winning", minimal)?;
     Ok(dict)
@@ -1251,7 +1251,7 @@ fn bargaining_set<'py>(
             inner.set_item("target", objection.target)?;
             inner.set_item(
                 "coalition",
-                objection.coalition.players().collect::<Vec<_>>(),
+                objection.coalition.members().collect::<Vec<_>>(),
             )?;
             inner.set_item("payoff", objection.payoff)?;
             inner.set_item("margin", objection.margin)?;
@@ -1307,9 +1307,9 @@ fn solution_dict<'py>(
     stats: Option<ConvexStats>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
-    dict.set_item("allocation", solution.allocation.clone())?;
-    dict.set_item("guarantee", solution.guarantee.to_string())?;
-    dict.set_item("method", solution.method)?;
+    dict.set_item("allocation", solution.allocation())?;
+    dict.set_item("guarantee", solution.guarantee().to_string())?;
+    dict.set_item("method", solution.method())?;
     if let Some(stats) = stats {
         dict.set_item("sweeps", stats.sweeps)?;
         dict.set_item("transfers", stats.transfers)?;
@@ -1426,17 +1426,11 @@ fn verify_solution<'py>(
             )));
         }
     };
-    let candidate = Solution {
-        concept,
-        allocation,
-        guarantee: Guarantee::Approximate,
-        method: "user",
-    };
     let check = with_set_function(game, |g| {
         let mut options = VerifyOptions::default();
         options.pairs = pairs;
         options.seed = seed;
-        verify_core::check(g, &candidate, options).map_err(to_py_err)
+        verify_core::check(g, &allocation, concept, options).map_err(to_py_err)
     })?;
     let dict = PyDict::new(py);
     match check {

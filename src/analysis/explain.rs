@@ -14,11 +14,9 @@ use std::fmt::Write as _;
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::{
-    Coalition, ExplicitGame, default_tolerance, format_coalition, player_name as name,
-};
+use crate::game::excess_table;
+use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::nucleolus;
-use crate::surplus::excesses;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
@@ -101,7 +99,7 @@ pub fn report(game: &ExplicitGame, x: &[f64], options: ExplainOptions) -> Result
         .tolerance
         .unwrap_or_else(|| 10.0 * default_tolerance(game));
     let full = game.grand().0;
-    let excess = excesses(game, x);
+    let excess = excess_table(game, x);
     let mut order: Vec<u64> = (1..full).collect();
     order.sort_by(|a, b| {
         excess[*b as usize]
@@ -168,18 +166,15 @@ pub fn report(game: &ExplicitGame, x: &[f64], options: ExplainOptions) -> Result
     })
 }
 
-/// 説明を日本語の文章にする。
-pub fn render(report: &Report, names: Option<&[String]>) -> String {
+/// 説明を日本語の文章にする。プレイヤーは 0 始まりの番号で書く。
+pub fn render(report: &Report) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "配分:");
     for p in &report.players {
         let _ = writeln!(
             out,
-            "  {}: {:.6} (単独の値 {:.6}、協力による増分 {:+.6})",
-            name(names, p.player),
-            p.payoff,
-            p.standalone,
-            p.gain
+            "  プレイヤー {}: {:.6} (単独の値 {:.6}、協力による増分 {:+.6})",
+            p.player, p.payoff, p.standalone, p.gain
         );
     }
     if report.efficiency_gap.abs() > 1e-9 {
@@ -214,11 +209,7 @@ pub fn render(report: &Report, names: Option<&[String]>) -> String {
     );
     let _ = writeln!(out, "\n不満の大きい提携 (超過の大きい順の段):");
     for (k, level) in report.levels.iter().enumerate() {
-        let listed: Vec<String> = level
-            .coalitions
-            .iter()
-            .map(|c| format_coalition(*c, names))
-            .collect();
+        let listed: Vec<String> = level.coalitions.iter().map(Coalition::to_string).collect();
         let more = if level.count > level.coalitions.len() {
             format!(" ほか {} 個", level.count - level.coalitions.len())
         } else {
@@ -236,22 +227,17 @@ pub fn render(report: &Report, names: Option<&[String]>) -> String {
     for p in &report.players {
         let _ = writeln!(
             out,
-            "  {}: 含む提携 {} (超過 {:.6})、含まない提携 {} (超過 {:.6})",
-            name(names, p.player),
-            format_coalition(p.worst_with.0, names),
-            p.worst_with.1,
-            format_coalition(p.worst_without.0, names),
-            p.worst_without.1
+            "  プレイヤー {}: 含む提携 {} (超過 {:.6})、含まない提携 {} (超過 {:.6})",
+            p.player, p.worst_with.0, p.worst_with.1, p.worst_without.0, p.worst_without.1
         );
     }
     out
 }
 
-/// 比較表の 1 行。
+/// 比較表の 1 行。[`compare`] に渡した配分と同じ順に並ぶ。
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct Comparison {
-    pub name: String,
     pub allocation: Vec<f64>,
     pub max_excess: f64,
     pub in_core: bool,
@@ -259,20 +245,19 @@ pub struct Comparison {
     pub blocking_coalitions: usize,
 }
 
-/// 複数の配分を、安定性の指標で比べる。
-pub fn compare(game: &ExplicitGame, candidates: &[(String, Vec<f64>)]) -> Result<Vec<Comparison>> {
+/// 複数の配分を、安定性の指標で比べる。結果は `candidates` と同じ順。
+pub fn compare(game: &ExplicitGame, candidates: &[Vec<f64>]) -> Result<Vec<Comparison>> {
     let tolerance = 10.0 * default_tolerance(game);
     candidates
         .iter()
-        .map(|(name, x)| {
+        .map(|x| {
             check_length(game, x)?;
             // 超過だけで決まる指標なので、最小コアの LP を解く report は使わない。
-            let all = excesses(game, x);
+            let all = excess_table(game, x);
             let proper = &all[1..game.grand().index()];
             let max_excess = proper.iter().copied().fold(f64::NEG_INFINITY, f64::max);
             let efficiency_gap = x.iter().sum::<f64>() - game.value(game.grand());
             Ok(Comparison {
-                name: name.clone(),
                 allocation: x.clone(),
                 max_excess,
                 in_core: efficiency_gap.abs() <= tolerance && max_excess <= tolerance,
@@ -282,22 +267,21 @@ pub fn compare(game: &ExplicitGame, candidates: &[(String, Vec<f64>)]) -> Result
         .collect()
 }
 
-/// 比較表を文章にする (行が配分、列がプレイヤーと指標)。
-pub fn render_comparison(rows: &[Comparison], names: Option<&[String]>) -> String {
+/// 比較表を文章にする (行が配分、列がプレイヤーと指標)。配分とプレイヤーは 0 始まりの番号で書く。
+pub fn render_comparison(rows: &[Comparison]) -> String {
     let mut out = String::new();
     let n = rows.first().map_or(0, |r| r.allocation.len());
-    let header: Vec<String> = (0..n).map(|i| name(names, i)).collect();
+    let header: Vec<String> = (0..n).map(|i| format!("プレイヤー {i}")).collect();
     let _ = writeln!(
         out,
         "解\t{}\t最大の不満\tコア\t離脱で得をする提携の数",
         header.join("\t")
     );
-    for row in rows {
+    for (k, row) in rows.iter().enumerate() {
         let values: Vec<String> = row.allocation.iter().map(|v| format!("{v:.6}")).collect();
         let _ = writeln!(
             out,
-            "{}\t{}\t{:.6}\t{}\t{}",
-            row.name,
+            "{k}\t{}\t{:.6}\t{}\t{}",
             values.join("\t"),
             row.max_excess,
             if row.in_core {
@@ -317,7 +301,7 @@ mod tests {
 
     #[test]
     fn explains_nucleolus_of_pair_game() {
-        // v(12) = 4, v(N) = 4: 仁は (2, 2, 0)。最大の不満は {1, 2}、{3} などの 0。
+        // v({0, 1}) = 4, v(N) = 4: 仁は (2, 2, 0)。最大の不満は {0, 1}、{2} などの 0。
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
         let x = nucleolus::nucleolus(&game).unwrap().allocation;
         let report = report(&game, &x, ExplainOptions::default()).unwrap();
@@ -329,29 +313,22 @@ mod tests {
                 .coalitions
                 .contains(&Coalition::from_players(&[0, 1]))
         );
-        let text = render(&report, Some(&["A".into(), "B".into(), "C".into()]));
+        let text = render(&report);
         assert!(text.contains("コアに属する"), "{text}");
-        assert!(text.contains("{A, B}"), "{text}");
+        assert!(text.contains("{0, 1}"), "{text}");
     }
 
     #[test]
     fn detects_blocking_coalitions() {
         // 3 人多数決: コアは空。等分では 2 人提携が全て超過 1/3 で離脱して得をする。
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]).unwrap();
-        let rows = compare(
-            &game,
-            &[
-                ("等分".into(), vec![1.0 / 3.0; 3]),
-                ("偏り".into(), vec![0.5, 0.5, 0.0]),
-            ],
-        )
-        .unwrap();
+        let rows = compare(&game, &[vec![1.0 / 3.0; 3], vec![0.5, 0.5, 0.0]]).unwrap();
         assert!(!rows[0].in_core && !rows[1].in_core);
         assert_eq!(rows[0].blocking_coalitions, 3);
         assert_eq!(rows[1].blocking_coalitions, 2);
         assert!((rows[0].max_excess - 1.0 / 3.0).abs() < 1e-9);
         let report = report(&game, &[0.5, 0.5, 0.0], ExplainOptions::default()).unwrap();
-        // 3 は {1, 3} か {2, 3} で 0.5 の不満を持つ。
+        // 2 は {0, 2} か {1, 2} で 0.5 の不満を持つ。
         assert!((report.players[2].worst_with.1 - 0.5).abs() < 1e-9);
     }
 }

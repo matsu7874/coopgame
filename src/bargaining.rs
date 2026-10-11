@@ -87,7 +87,7 @@ pub fn check(
                 if !coalition.contains(objector) || coalition.contains(target) {
                     continue;
                 }
-                let excess = game.value(coalition) - coalition.players().map(|k| x[k]).sum::<f64>();
+                let excess = game.value(coalition) - coalition.sum(x);
                 if excess <= tolerance {
                     continue;
                 }
@@ -158,7 +158,7 @@ fn best_objection(
         }
         let mut terms: Vec<(Variable, f64)> = Vec::new();
         let mut outside = 0.0;
-        for k in counter_coalition.players() {
+        for k in counter_coalition.members() {
             match y[k] {
                 Some(var) => terms.push((var, 1.0)),
                 None => outside += x[k],

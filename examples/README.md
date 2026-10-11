@@ -26,7 +26,7 @@
 | `structured_games` | 構造のあるゲームの専用の解法 | `games` (`airport`・`spanning_tree`・`production`・`cost`・`bankruptcy`) |
 | `cooperation_structures` | 提携構造と通信グラフで協力が制限される場合の解 | `partition`、`communication` |
 | `analysis` | 配分を説明し、値の不確かさと感度を見て、図を描き、反例を探す | `analysis` (`explain`・`uncertainty`・`plot`・`search`)、`generators` |
-| `io` | 名前付きの JSON・CSV を読み、値の欠けたゲームを扱う | `io` |
+| `io` | 提携ごとの値 (プレイヤーは 0 始まりの番号) を JSON・CSV で読み書きし、値の欠けたゲームを扱う | `io` |
 
 ```bash
 cargo run --example quickstart

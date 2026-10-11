@@ -56,7 +56,7 @@ impl SampledGame {
         let mut rng = SplitMix64::new(seed);
         let mut coalitions: Vec<PlayerSet> = Vec::new();
         for i in 0..n {
-            let single = PlayerSet::from_players(n, &[i]);
+            let single = PlayerSet::singleton(n, i);
             coalitions.push(single.complement());
             coalitions.push(single);
         }
@@ -98,7 +98,7 @@ impl SampledGame {
                 Ok(())
             };
         for i in 0..n {
-            let single = PlayerSet::from_players(n, &[i]);
+            let single = PlayerSet::singleton(n, i);
             add(single.complement(), &mut values, &mut unique)?;
             add(single, &mut values, &mut unique)?;
         }
@@ -106,7 +106,7 @@ impl SampledGame {
             add(set.complement(), &mut values, &mut unique)?;
             add(set, &mut values, &mut unique)?;
         }
-        let grand_value = finite(game.value(&PlayerSet::full(n)))?;
+        let grand_value = finite(game.value(&PlayerSet::grand(n)))?;
         let scale = values
             .values()
             .fold(grand_value.abs(), |acc, v| acc.max(v.abs()));

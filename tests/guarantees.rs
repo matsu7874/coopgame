@@ -145,9 +145,9 @@ fn convex_method_matches_talmud_and_lp() {
         let bankruptcy = random_bankruptcy(&mut rng, n);
         // Proven の型は結果をそのまま返す。
         let solution: Solution = convex::nucleolus(&bankruptcy).unwrap();
-        assert_eq!(solution.guarantee, Guarantee::Proven(Property::Convex));
+        assert_eq!(solution.guarantee(), Guarantee::Proven(Property::Convex));
         assert_close(
-            &solution.allocation,
+            solution.allocation(),
             &bankruptcy.nucleolus().unwrap(),
             1e-6 * bankruptcy.claims().iter().sum::<f64>().max(1.0),
             &format!("破産 case {case}"),
@@ -156,7 +156,7 @@ fn convex_method_matches_talmud_and_lp() {
         let lp = nucleolus::nucleolus(&ExplicitGame::tabulate(&graph).unwrap()).unwrap();
         let solution = convex::nucleolus(&graph).unwrap();
         assert_close(
-            &solution.allocation,
+            solution.allocation(),
             &lp.allocation,
             1e-6,
             &format!("グラフ case {case}"),
@@ -170,26 +170,26 @@ fn auto_selection_reports_method_and_guarantee() {
     let bankruptcy = random_bankruptcy(&mut rng, 6);
     let solution = bankruptcy.nucleolus_auto().unwrap();
     assert_eq!(
-        (solution.method, solution.guarantee),
+        (solution.method(), solution.guarantee()),
         ("talmud-rule", Guarantee::Proven(Property::Bankruptcy))
     );
 
     let explicit = generators::bnf(1, 6, 0).unwrap();
     let solution = explicit.nucleolus_auto().unwrap();
-    assert_eq!(solution.guarantee, Guarantee::Exact);
+    assert_eq!(solution.guarantee(), Guarantee::Exact);
 
     let voting = WeightedVotingGame::new(vec![3, 2, 2, 1, 1], 5).unwrap();
     let solution = voting.nucleolus_auto().unwrap();
     let expected = nucleolus::nucleolus(&ExplicitGame::tabulate(&voting).unwrap()).unwrap();
-    assert_close(&solution.allocation, &expected.allocation, 1e-6, "投票");
-    assert_eq!(solution.guarantee, Guarantee::Exact);
+    assert_close(solution.allocation(), &expected.allocation, 1e-6, "投票");
+    assert_eq!(solution.guarantee(), Guarantee::Exact);
 
     let graph = random_graph(&mut rng, 7);
     let solution = graph.nucleolus_auto().unwrap();
-    assert_eq!(solution.guarantee, Guarantee::Proven(Property::Convex));
+    assert_eq!(solution.guarantee(), Guarantee::Proven(Property::Convex));
 
     let small = ConvexChecked::new(generators::random_convex(6, 1).unwrap()).unwrap();
-    assert_eq!(small.nucleolus_auto().unwrap().method, "sequential-lp");
+    assert_eq!(small.nucleolus_auto().unwrap().method(), "sequential-lp");
 }
 
 // ---------------------------------------------------------------- 段階 1, 5: 仮定付きの結果と検証
@@ -202,14 +202,14 @@ fn assumed_result_on_convex_game_is_certified() {
         convex::nucleolus(&Assume::convex(game.clone())).unwrap();
     assert_eq!(unverified.property(), Property::Convex);
     assert_eq!(
-        unverified.peek().guarantee,
+        unverified.peek().guarantee(),
         Guarantee::Assumed(Property::Convex)
     );
     match unverified.verify(&game, VerifyOptions::default()).unwrap() {
         Verified::Certified(solution) => {
-            assert_eq!(solution.guarantee, Guarantee::Certified);
+            assert_eq!(solution.guarantee(), Guarantee::Certified);
             let lp = nucleolus::nucleolus(&game).unwrap().allocation;
-            assert_close(&solution.allocation, &lp, 1e-9, "昇格した配分");
+            assert_close(solution.allocation(), &lp, 1e-9, "昇格した配分");
         }
         other => panic!("合格するはず: {other:?}"),
     }
@@ -224,11 +224,11 @@ fn assumed_result_on_non_convex_game_is_refuted() {
     let unverified = convex::nucleolus(&Assume::convex(game.clone())).unwrap();
     match unverified.verify(&game, VerifyOptions::default()).unwrap() {
         Verified::Refuted { solution, reason } => {
-            assert_eq!(solution.guarantee, Guarantee::Assumed(Property::Convex));
+            assert_eq!(solution.guarantee(), Guarantee::Assumed(Property::Convex));
             assert!(reason.contains("個人合理性を満たさない"), "{reason}");
             let pre = nucleolus::prenucleolus(&game).unwrap().allocation;
             assert_close(
-                &solution.allocation,
+                solution.allocation(),
                 &pre,
                 1e-6 * game.max_abs_value(),
                 "プレ仁",
@@ -244,16 +244,10 @@ fn pair_checks_refute_but_do_not_certify_large_games() {
     let mut rng = SplitMix64::new(21);
     let game = random_bankruptcy(&mut rng, 21);
     let talmud = game.nucleolus().unwrap();
-    let candidate = |allocation: Vec<f64>| Solution {
-        concept: Concept::Nucleolus,
-        allocation,
-        guarantee: Guarantee::Exact,
-        method: "test",
-    };
     let mut options = VerifyOptions::default();
     options.pairs = 3;
     options.seed = 1;
-    let check = verify::check(&game, &candidate(talmud.clone()), options).unwrap();
+    let check = verify::check(&game, &talmud, Concept::Nucleolus, options).unwrap();
     assert!(matches!(check, Check::Undecided(_)), "{check:?}");
     // 和を保ったまま全員の配分をずらす。
     let shift: Vec<f64> = (0..21).map(|_| rng.next_f64() - 0.5).collect();
@@ -263,7 +257,7 @@ fn pair_checks_refute_but_do_not_certify_large_games() {
         .zip(&shift)
         .map(|(x, s)| x + 2.0 * (s - mean))
         .collect();
-    let check = verify::check(&game, &candidate(perturbed), options).unwrap();
+    let check = verify::check(&game, &perturbed, Concept::Nucleolus, options).unwrap();
     assert!(matches!(check, Check::Refuted(_)), "{check:?}");
 }
 
@@ -318,7 +312,7 @@ fn rational_construction_makes_certification_possible() {
         .verify_exact(&exact_game, VerifyOptions::default())
         .unwrap()
     {
-        Verified::Certified(solution) => assert_eq!(solution.guarantee, Guarantee::Certified),
+        Verified::Certified(solution) => assert_eq!(solution.guarantee(), Guarantee::Certified),
         other => panic!("合格するはず: {other:?}"),
     }
 }

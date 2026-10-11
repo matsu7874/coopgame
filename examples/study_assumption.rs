@@ -100,7 +100,7 @@ fn main() {
                         ("error", kind.to_string(), None, 0)
                     }
                     Ok((unverified, stats)) => {
-                        let allocation = unverified.peek().allocation.clone();
+                        let allocation = unverified.peek().allocation().to_vec();
                         let verdict = match &exact {
                             Some(exact) => unverified.verify_exact(exact, VerifyOptions::default()),
                             None => unverified.verify(&game, VerifyOptions::default()),

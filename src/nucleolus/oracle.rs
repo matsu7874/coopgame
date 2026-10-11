@@ -82,9 +82,9 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
         if n == 0 {
             return Err(Error::InvalidArgument("プレイヤーがいない".into()));
         }
-        let grand = PlayerSet::full(n);
+        let grand = PlayerSet::grand(n);
         let lower: Vec<f64> = (0..n)
-            .map(|i| game.value(&PlayerSet::from_players(n, &[i])))
+            .map(|i| game.value(&PlayerSet::singleton(n, i)))
             .collect();
         check_imputation_set(game, domain, tolerance)?;
         let mut span = Span::new(n);
@@ -104,7 +104,7 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
         };
         // 1 人提携とその補集合があれば、最初の LP は有界になる。
         for i in 0..n {
-            let single = PlayerSet::from_players(n, &[i]);
+            let single = PlayerSet::singleton(n, i);
             solver.remember(single.complement());
             solver.remember(single);
         }
@@ -114,7 +114,7 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
     fn run(&mut self) -> Result<NucleolusResult> {
         if self.n == 1 {
             return Ok(NucleolusResult {
-                allocation: vec![self.game.value(&PlayerSet::full(1))],
+                allocation: vec![self.game.value(&PlayerSet::grand(1))],
                 levels: Vec::new(),
                 lp_solves: 0,
                 rows_added: 0,

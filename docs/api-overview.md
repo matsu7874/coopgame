@@ -6,6 +6,13 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 
 LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を使う。外部の商用ソルバーは不要。
 
+## プレイヤーの扱い
+
+ライブラリは解の計算と検証に特化している。
+プレイヤーは 0 始まりの番号 (`usize`) だけで扱い、提携は `Coalition` (64 人まで) と `PlayerSet` (任意の人数) で表す。
+2 つの型は同じ名前の操作 (`empty`・`singleton`・`grand`・`members`・`insert`・`union`・`complement`・`sum` など) を持ち、表示 (`Display`) は `{0, 2}` の形である。
+名前などのラベルと番号の対応は扱わない (名前の引数・入出力・表示はない) ので、必要なら利用側で持つ。
+
 ## モジュールの構成
 
 | 目的 | モジュール |
@@ -40,7 +47,7 @@ LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を�
 | disruption nucleolus | `nucleolus::variants::disruption_nucleolus` | 抜ける傾向を、コアの上で `e(S, x) / (v(N) - v(S) - v(N \ S))` の辞書式最小化に直して同じ逐次 LP で解く (Littlechild & Vaidya 1976)。コアが空でないゲームに限る |
 | anti-prenucleolus・anti-nucleolus | `nucleolus::variants::{anti_prenucleolus, anti_nucleolus}`、`ExplicitGame::dual` | 超過を小さい順に辞書式に最大化する解。双対ゲーム `v*(S) = v(N) - v(N \ S)` のプレ仁・仁として求める (Funaki & Meinhardt 2006) |
 | 提携構造・事前の連合 | `partition::{CoalitionStructure, aumann_dreze, owen, nucleolus, quotient_game}` | Aumann–Drèze 値 (ブロック内の Shapley 値)、提携構造つきの仁 (各ブロックで `x(B) = v(B)`)、Owen 値 (事前の連合) |
-| 超過・最大余剰 `s_ij` | `surplus::excesses`, `surplus::max_surplus` | 超過の上位の提携だけを部分ソートして走査 |
+| 超過・最大余剰 `s_ij` | `surplus::{excess, excesses, max_surplus}`、`game::oracle::OracleGame::excess_order` | `excesses` は空でない全提携の超過をビット順に返す。超過の大きい順に見るには `excess_order`。最大余剰は超過の上位の提携だけを部分ソートして走査 |
 
 ## 結果を検証する
 
@@ -51,7 +58,7 @@ LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を�
 | カーネル・プレカーネルの検証 | `kernel::is_in_kernel`, `kernel::kernel_violation` | 最大余剰の釣り合い条件 |
 | 交渉集合・プレ交渉集合への所属 | `bargaining::{check, is_in_bargaining_set}` | 組 `(i, j)` と提携 `S` ごとに、反論のない異議があるかを LP で判定。異議があればその支払いを返す |
 | ゲームの性質 | `properties::{is_superadditive, is_convex, is_zero_monotonic, is_in_core}`、`nucleolus::has_nonempty_core` | 定義どおりの判定、コアが空でないかは最小コアの LP |
-| 結果の事後検証 | `verify::{check, check_exact}`、`Unverified::verify` | 20 人以下は有理数の厳密な検証、26 人以下は組ごとのカーネル条件で否定 |
+| 結果の事後検証 | `verify::{check, check_exact}`、`Unverified::verify` | 配分 `&[f64]` と解の種類 (`Concept`) を受け取る。20 人以下は有理数の厳密な検証、26 人以下は組ごとのカーネル条件で否定。保証を `certified` に上げるのは `Unverified::verify`・`verify_exact` だけ |
 | 保証のある手法の自動選択 | `auto::AutoNucleolus` | ゲームの型から、保証のある手法のうち最も速いものを選ぶ |
 
 結果に付く保証の種類 (`exact`・`proven`・`assumed`・`certified`・`approximate`) は [保証の種類と、性質に基づく手法の使い分け](guarantees.md) を参照。
@@ -81,16 +88,16 @@ LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を�
 
 | 対象 | 関数 | 手法 |
 |---|---|---|
-| 配分の説明・比較 | `analysis::explain::{report, render, compare}` | 不満 (超過) の大きい提携の段、コアに属するか、最小コアの値、プレイヤーごとの最も不満な提携。複数の配分を安定性で比べる |
+| 配分の説明・比較 | `analysis::explain::{report, render, compare, render_comparison}` | 不満 (超過) の大きい提携の段、コアに属するか、最小コアの値、プレイヤーごとの最も不満な提携。複数の配分を安定性で比べる (結果は入力と同じ順)。文章ではプレイヤーを「プレイヤー 0」、提携を `{0, 2}` と書く |
 | 値の不確かさの分析 | `analysis::uncertainty::{monte_carlo, IntervalGame, interval_monte_carlo, influence, key_coalitions}` | 値の分布・区間から配分の分布 (平均・標準偏差・分位点) を求め、どの提携の値が配分を決めているかを感度 `dx/dv(S)` で示す |
-| 配分集合の図 | `analysis::plot::{imputation_figure, PlotOptions, core_vertices}` | 3-4 人のゲームの配分集合 (三角形・四面体) にコア・カーネル・仁・Shapley 値・任意の点を描いた SVG。ライト・ダークの両方に対応 |
+| 配分集合の図 | `analysis::plot::{imputation_figure, PlotOptions, core_vertices}` | 3-4 人のゲームの配分集合 (三角形・四面体) にコア・カーネル・仁・Shapley 値・任意の点 (`PlotOptions::points`) を描いた SVG。頂点のラベルはプレイヤーの番号。ライト・ダークの両方に対応 |
 | 反例の探索と縮小 | `analysis::search::{search, shrink}` | 性質を満たさないゲームをランダムに探し、プレイヤーの除去・値の単純化で反例を小さくする。実例は `examples/study_counterexamples.rs`・`data/analysis/counterexamples.txt` |
 
 ## 入出力とゲームの生成
 
 | 対象 | 関数 | 手法 |
 |---|---|---|
-| プレイヤー名付きの入出力 (feature `io`) | `io::{parse_json, parse_csv, GameData, PartialGame}` | JSON・CSV の読み書き。値が分からない提携はエラー・0・分かる提携だけで解く、から選ぶ ([入力形式](input-format.md)) |
+| JSON・CSV の入出力 (feature `io`) | `io::{parse_json, parse_csv, GameData, PartialGame}` | 提携をプレイヤーの番号 (0 始まり) で書いた JSON・CSV を読み書きする。値が分からない提携はエラー・0・分かる提携だけで解く、から選ぶ ([入力形式](input-format.md)) |
 | ゲーム生成 | `generators::{bnf, bankruptcy, weighted_voting, random_convex, random_superadditive, random_weighted_voting}` | BNF 実装と同じ分布など |
 
 ## 保証の種類ごとのアルゴリズム

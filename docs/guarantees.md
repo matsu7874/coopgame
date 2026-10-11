@@ -44,6 +44,10 @@
 - `verify(game, options)` (または有理数のゲームで `verify_exact`): 検証して `Certified`・`Refuted`・`Undecided` に分ける。
 - `accept_unverified()`: 検証せずに受け入れると明示する。
 
+保証はライブラリが計算した事実からだけ付くので、`Solution` は外から作れず、中身は `allocation()`・`guarantee()`・`concept()`・`method()` で読む。
+手元の任意の配分を確かめるときは、`verify::check(game, x, concept, options)` (有理数のゲームでは `verify::check_exact`) に配分 `x: &[f64]` と解の種類 (`Concept`) を渡す。
+この関数は検証の結果を返すだけで、保証を `certified` に上げるのは `Unverified::verify`・`verify_exact` だけである。
+
 構造的な凸性の根拠:
 
 - 破産ゲーム `v(S) = max(0, (E - D) + d(S))` は、加法的な `d(S)` (`d_i >= 0`) に凸で非減少な関数を合成したもので、優モジュラになる。

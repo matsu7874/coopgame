@@ -95,7 +95,7 @@ fn max_surplus<G: SetFunction + ?Sized>(
     let n = game.players();
     let others: Vec<usize> = (0..n).filter(|&k| k != i && k != j).collect();
     let mut f = |set: &[bool]| {
-        let mut coalition = PlayerSet::from_players(n, &[i]);
+        let mut coalition = PlayerSet::singleton(n, i);
         for (k, inside) in others.iter().zip(set) {
             if *inside {
                 coalition.insert(*k);
@@ -106,7 +106,7 @@ fn max_surplus<G: SetFunction + ?Sized>(
     };
     let minimum = submodular::minimize(others.len(), &mut f, tolerance, max_iterations)?;
     // minimize は f(∅) を引いて正規化しているので戻す: f(∅) = -(v({i}) - x_i)。
-    let single = game.value(&PlayerSet::from_players(n, &[i])) - x[i];
+    let single = game.value(&PlayerSet::singleton(n, i)) - x[i];
     Ok(single - minimum.value)
 }
 
@@ -118,7 +118,7 @@ fn prekernel_point<G: SetFunction + ?Sized>(
     if n == 0 {
         return Err(Error::InvalidArgument("プレイヤーがいない".into()));
     }
-    let total = game.value(&PlayerSet::full(n));
+    let total = game.value(&PlayerSet::grand(n));
     let mut x = vec![total / n as f64; n];
     let mut stats = ConvexStats::default();
     if n == 1 {

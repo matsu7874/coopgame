@@ -29,5 +29,5 @@ coopgame = "0.1"
 
 - 全提携を列挙できない大きいゲーム、人数の多いゲームの近似: [大きいゲーム](../large-games.md)
 - 同じ計算を CLI で行う: [CLI](../cli.md)
-- プレイヤー名付きの JSON・CSV でゲームを読む: [入力形式](../input-format.md)
+- JSON・CSV でゲームを読む: [入力形式](../input-format.md)
 - 全てのモジュールと手法: [機能一覧](../api-overview.md)

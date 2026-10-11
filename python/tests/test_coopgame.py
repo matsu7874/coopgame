@@ -297,12 +297,13 @@ def test_certify_rational_reads_decimals_exactly():
 def test_explain_and_compare():
     game = coopgame.Game([0, 0, 0, 0, 5, 5, 8, 9, 10, 8, 13, 15, 16, 17, 21], order="lex")
     x = coopgame.nucleolus(game)["allocation"]
-    report = coopgame.explain(game, x, names=["A", "B", "C", "D"])
+    report = coopgame.explain(game, x)
     assert report["in_core"] and math.isclose(report["max_excess"], -0.5, abs_tol=1e-9)
     assert sorted(map(tuple, report["levels"][0]["coalitions"])) == [(0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3)]
-    assert "{A, B, C}" in report["text"]
-    table = coopgame.compare(game, [("仁", x), ("Shapley", coopgame.shapley(game))])
+    assert "{0, 1, 2}" in report["text"] and "プレイヤー 3" in report["text"]
+    table = coopgame.compare(game, [x, coopgame.shapley(game)])
     assert [r["in_core"] for r in table["rows"]] == [True, False]
+    assert close(table["rows"][0]["allocation"], x)
     assert table["rows"][1]["blocking_coalitions"] == 1
 
 
@@ -360,19 +361,22 @@ def test_shrink_counterexample():
         coopgame.shrink(game, broken)
 
 
-# ---------------------------------------------------------------- 名前付きの入力・値が分からない提携
+# ---------------------------------------------------------------- JSON・CSV の入力・値が分からない提携
 
 
-def test_named_input_and_missing_values():
-    text = '{"players": ["A", "B", "C"], "values": {"A": 0, "B": 0, "C": 0, "A,B": 4, "A,C": 3, "B,C": 2, "A,B,C": 6}}'
+def test_game_input_and_missing_values():
+    text = '{"players": 3, "values": {"0": 0, "1": 0, "2": 0, "0,1": 4, "0,2": 3, "1,2": 2, "0,1,2": 6}}'
     loaded = coopgame.parse_game(text)
-    assert loaded["names"] == ["A", "B", "C"] and loaded["kind"] == "value" and loaded["missing"] == []
+    assert loaded["game"].players == 3 and loaded["kind"] == "value" and loaded["missing"] == []
     assert coopgame.nucleolus(loaded["game"])["allocation"] == pytest.approx([3, 2, 1])
-    csv = "coalition,value\nA,1\nB,1\nC,1\nD,1\nA|B|C,4\nA|B|D,4\nA|C|D,4\nB|C|D,4\nA|B,3\nA|B|C|D,8\n"
+    # 人数を省くと最大の番号 + 1 人。提携を {"coalition": [...], "value": ...} の列で書いてもよい。
+    listed = '{"values": [{"coalition": [0], "value": 1}, {"coalition": [1], "value": 1}, {"coalition": [0, 1], "value": 3}]}'
+    assert coopgame.parse_game(listed)["game"].values() == [1, 1, 3]
+    csv = "coalition,value\n0,1\n1,1\n2,1\n3,1\n0|1|2,4\n0|1|3,4\n0|2|3,4\n1|2|3,4\n0|1,3\n0|1|2|3,8\n"
     with pytest.raises(ValueError):
         coopgame.parse_game(csv, format="csv")
     filled = coopgame.parse_game(csv, format="csv", missing="zero")
-    assert len(filled["missing"]) == 5
+    assert filled["missing"] == [[0, 2], [1, 2], [0, 3], [1, 3], [2, 3]]
     partial = coopgame.partial_nucleolus(csv, format="csv")
     assert partial["guarantee"] == "approximate" and partial["known"] == 10
     assert sum(partial["allocation"]) == pytest.approx(8)
@@ -394,13 +398,14 @@ def test_coalition_structures():
 
 
 def test_plot_svg():
-    # Ferguson のゲーム: 最初の点は仁 (8/3, 2/3, 5/3)、最後は追加した点。
+    # Ferguson のゲーム: 仁は (8/3, 2/3, 5/3)。追加した点は列での位置 (0 始まり) で示す。
     game = coopgame.Game([-1, 0, 1, 3, 4, 2, 5], order="lex")
-    figure = coopgame.plot_svg(game, names=["A", "B", "C"], points=[("x", [2, 1, 2])])
+    figure = coopgame.plot_svg(game, points=[[2, 1, 2]])
     assert figure["svg"].lstrip().startswith("<svg")
-    assert close(figure["points"][0][1], [8 / 3, 2 / 3, 5 / 3])
-    assert "</svg>" in figure["svg"]
-    assert [label for label, _ in figure["points"]][-1] == "x"
+    assert close(figure["nucleolus"], [8 / 3, 2 / 3, 5 / 3])
+    assert close(figure["shapley"], coopgame.shapley(game))
+    assert "</svg>" in figure["svg"] and "点 0" in figure["svg"]
+    assert coopgame.plot_svg(game, shapley=False)["shapley"] is None
     assert len(figure["core_vertices"]) >= 1
     with pytest.raises(ValueError):
         coopgame.plot_svg(coopgame.Game([0, 0, 1], order="lex"))

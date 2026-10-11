@@ -14,7 +14,7 @@
 
 use std::time::Instant;
 
-use coopgame::game::{Coalition, ExplicitGame, PlayerSet, SetFunction, format_coalition};
+use coopgame::game::{Coalition, ExplicitGame, PlayerSet, SetFunction};
 use coopgame::nucleolus::{self, sampled};
 use coopgame::solution::Guarantee;
 use coopgame::{Domain, values};
@@ -53,11 +53,7 @@ fn small() -> coopgame::Result<()> {
     let game = ExplicitGame::tabulate(&glove)?;
     for players in [&[0, 2][..], &[0, 1, 2], &[0, 2, 3, 4], &[0, 1, 2, 3, 4]] {
         let coalition = Coalition::from_players(players);
-        println!(
-            "v({}) = {}",
-            format_coalition(coalition, None),
-            game.value(coalition)
-        );
+        println!("v({coalition}) = {}", game.value(coalition));
     }
 
     // 表を受け取る手法は全て使える。仁は逐次 LP で求める。

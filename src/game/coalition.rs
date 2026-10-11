@@ -5,14 +5,22 @@
 //! - 辞書式順: 提携を大きさの昇順に並べ、同じ大きさの中ではメンバー列の辞書式順に並べる。
 //!   CoopGame や TUGLab の既定と同じ並び。
 
+use std::fmt;
+
 use crate::error::{Error, Result};
 
-/// プレイヤーの集合。プレイヤー `i` はビット `i` に対応する。
+/// 64 人までのプレイヤーの集合。プレイヤー `i` はビット `i` に対応する。
+///
+/// 任意の人数の集合は [`PlayerSet`](crate::game::PlayerSet)。2 つの型は同じ名前の操作を持つ。
+/// 表示 (`Display`) は 0 始まりの番号を `{0, 2}` の形で並べる。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Coalition(pub u64);
 
 impl Coalition {
-    pub(crate) const EMPTY: Coalition = Coalition(0);
+    /// 空提携。
+    pub const fn empty() -> Coalition {
+        Coalition(0)
+    }
 
     /// `n` 人全員からなる全体提携。
     pub fn grand(n: usize) -> Coalition {
@@ -72,13 +80,38 @@ impl Coalition {
         self.0 == 0
     }
 
+    pub fn insert(&mut self, player: usize) {
+        self.0 |= 1u64 << player;
+    }
+
+    pub fn remove(&mut self, player: usize) {
+        self.0 &= !(1u64 << player);
+    }
+
+    pub fn union(self, other: Coalition) -> Coalition {
+        Coalition(self.0 | other.0)
+    }
+
+    pub fn intersection(self, other: Coalition) -> Coalition {
+        Coalition(self.0 & other.0)
+    }
+
+    pub fn is_subset(self, other: Coalition) -> bool {
+        self.0 & !other.0 == 0
+    }
+
+    /// `n` 人のうち、この提携に入らないプレイヤーの提携。
+    pub fn complement(self, n: usize) -> Coalition {
+        Coalition(Coalition::grand(n).0 & !self.0)
+    }
+
     /// 特性関数ベクトル(ビット順)での位置。
     pub fn index(self) -> usize {
         self.0 as usize
     }
 
     /// メンバーを昇順に列挙する。
-    pub fn players(self) -> impl Iterator<Item = usize> {
+    pub fn members(self) -> impl Iterator<Item = usize> {
         let mut rest = self.0;
         std::iter::from_fn(move || {
             if rest == 0 {
@@ -89,19 +122,27 @@ impl Coalition {
             Some(player)
         })
     }
+
+    /// `x(S)`。
+    pub fn sum(self, x: &[f64]) -> f64 {
+        self.members().map(|i| x[i]).sum()
+    }
 }
 
-/// プレイヤーの名前 (`names` がないか足りなければ 1 始まりの番号)。
-pub fn player_name(names: Option<&[String]>, player: usize) -> String {
-    names
-        .and_then(|names| names.get(player).cloned())
-        .unwrap_or_else(|| (player + 1).to_string())
+impl fmt::Display for Coalition {
+    /// メンバーの番号 (0 始まり) を `{0, 2}` の形で書く。
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_members(f, self.members())
+    }
 }
 
-/// 提携を `{A, B}` の形で書く。
-pub fn format_coalition(coalition: Coalition, names: Option<&[String]>) -> String {
-    let members: Vec<String> = coalition.players().map(|i| player_name(names, i)).collect();
-    format!("{{{}}}", members.join(", "))
+/// メンバーの番号を `{0, 2}` の形で書く ([`Coalition`] と `PlayerSet` の表示)。幅の指定 (`{:<10}`) に従う。
+pub(crate) fn write_members(
+    f: &mut fmt::Formatter<'_>,
+    members: impl Iterator<Item = usize>,
+) -> fmt::Result {
+    let members: Vec<String> = members.map(|i| i.to_string()).collect();
+    f.pad(&format!("{{{}}}", members.join(", ")))
 }
 
 /// 長さ `2^n - 1` のベクトルからプレイヤー数 `n` を求める。
@@ -169,7 +210,7 @@ mod tests {
     fn lexicographic_order_for_three_players() {
         let order: Vec<Vec<usize>> = lexicographic_order(3)
             .into_iter()
-            .map(|s| s.players().collect())
+            .map(|s| s.members().collect())
             .collect();
         assert_eq!(
             order,

@@ -37,6 +37,10 @@ coopgame.kernel_set(game, "preimputation")["pieces"]        # 多面体の一覧
 
 coopgame.talmud(100, [100, 200, 300], exact=True)           # [Fraction(100, 3)] * 3
 
+# JSON・CSV の提携はプレイヤー番号 (0 始まり) で書く。
+loaded = coopgame.parse_game('{"values": {"0": 0, "1": 0, "0,1": 4}}')
+coopgame.nucleolus(loaded["game"])["allocation"]            # [2.0, 2.0]
+
 # 全提携を列挙できないゲームは Python の関数で与える (提携はプレイヤー番号のタプル)。
 majority = coopgame.FunctionGame(101, lambda s: float(len(s) >= 51))
 coopgame.shapley_sampling(majority, 2000, seed=0)           # values, standard_errors, evaluations
@@ -58,11 +62,11 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 | `auto_nucleolus(game)` | 保証のある手法のうち最も速いものを選ぶ |
 | `cost_nucleolus(game)`, `airport(costs)`, `spanning_tree(costs)`, `linear_production(technology, prices, resources)` | 費用ゲームと、構造を持つ費用ゲーム (空港・最小全域木・線形生産) |
 | `uncertainty(game, relative=0.1)` / `uncertainty(lower, upper=upper)`, `influence(game)` | 値の不確かさによる配分の分布と、提携の値に対する感度 |
-| `explain(game, x, levels=3, names=None)`, `compare(game, [(名前, 配分), ...])` | 配分の説明と比較 (`text` に日本語の説明) |
+| `explain(game, x, levels=3)`, `compare(game, [配分, ...])` | 配分の説明と比較 (`text` に日本語の説明)。`compare` の `rows` は入力と同じ順 |
 | `verify_solution(game, allocation, concept)` | 配分が仁 (プレ仁) かを事後検証 (`certified`・`refuted`・`undecided`) |
-| `parse_game(text, format="json", missing="error")`, `partial_nucleolus(text, format)` | プレイヤー名付きの JSON・CSV の読み込みと、値が分かる提携だけで解いた仁 |
+| `parse_game(text, format="json", missing="error")`, `partial_nucleolus(text, format)` | JSON・CSV の読み込み (提携はプレイヤー番号) と、値が分かる提携だけで解いた仁 |
 | `aumann_dreze(game, blocks)`, `owen(game, unions)`, `structured_nucleolus(game, blocks)` | 提携構造・事前の連合のもとでの解 |
-| `plot_svg(game, names=None, kernel=True, shapley=True, points=None, title=None)` | 3-4 人の配分集合の図。SVG 文字列とコアの頂点などを辞書で返す |
+| `plot_svg(game, kernel=True, shapley=True, points=None, title=None)` | 3-4 人の配分集合の図。`points` は配分のリスト。SVG 文字列とコアの頂点などを辞書で返す |
 | `shrink(game, predicate)` | 反例 (`predicate(game)` が真) のまま、ゲームを小さく単純にする |
 | `nucleolus_exact(values, domain, order)` | 有理数だけの逐次 LP による厳密な仁 (10 人まで) |
 | `certify_rational(values, x, domain, order)` | 有理数の値 (`Fraction`・`"8/3"`・`"0.1"`) のゲームで厳密に検証 |
@@ -78,6 +82,7 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 | `sampled_nucleolus`, `sampled_least_core` | サンプルした提携による仁・最小コア |
 | `talmud`, `constrained_equal_awards`, `constrained_equal_losses` | 破産問題の規則 (`exact=True` で `Fraction`) |
 
+- プレイヤーは 0 始まりの番号で表す。提携はプレイヤー番号のリスト (Python の関数にはタプル) で受け渡す。
 - `domain` は `"imputation"` (仁・カーネル) か `"preimputation"` (プレ仁・プレカーネル)。
 - 結果は辞書で返す。キーは Rust の結果の構造体のフィールド名と同じ。`guarantee` に保証の種類が入る。
 - Python の関数が例外を投げると、計算を打ち切ってその例外をそのまま送出する。

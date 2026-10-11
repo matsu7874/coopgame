@@ -13,7 +13,7 @@ use coopgame::{Coalition, ExplicitGame, properties};
 
 /// 費用の分担 `y` がコア (全ての提携で `y(S) <= c(S)`、`y(N) = c(N)`) に属するか。
 fn in_cost_core(n: usize, cost: impl Fn(&PlayerSet) -> f64, y: &[f64], tolerance: f64) -> bool {
-    let full = PlayerSet::full(n);
+    let full = PlayerSet::grand(n);
     if (y.iter().sum::<f64>() - cost(&full)).abs() > tolerance {
         return false;
     }
@@ -122,7 +122,7 @@ fn bird_rule_hand_example() {
     ];
     let game = SpanningTreeGame::new(costs).unwrap();
     assert_eq!(game.bird_rule(), vec![10.0, 3.0, 4.0]);
-    assert_eq!(game.cost(&PlayerSet::full(3)), 17.0);
+    assert_eq!(game.cost(&PlayerSet::grand(3)), 17.0);
     assert_eq!(game.cost(&PlayerSet::from_players(3, &[0, 2])), 18.0);
 }
 
@@ -146,7 +146,7 @@ fn owen_allocation_lies_in_core() {
         let game = LinearProductionGame::new(technology, prices, resources).unwrap();
         let x = game.owen_allocation().unwrap();
         let explicit = ExplicitGame::tabulate(&game).unwrap();
-        let total = game.value(&PlayerSet::full(n));
+        let total = game.value(&PlayerSet::grand(n));
         assert!(
             (x.iter().sum::<f64>() - total).abs() < 1e-6 * total.max(1.0),
             "case {case}"

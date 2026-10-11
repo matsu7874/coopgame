@@ -137,10 +137,11 @@ fn convex_methods(shared: &ExplicitGame) -> coopgame::Result<()> {
     let solution: Solution = convex::nucleolus(&checked)?;
     println!(
         "破産ゲーム (ConvexChecked): {:.4?} 保証 {}",
-        solution.allocation, solution.guarantee
+        solution.allocation(),
+        solution.guarantee()
     );
-    assert!(close(&solution.allocation, &[50.0, 75.0, 75.0], 1e-6));
-    assert_eq!(solution.guarantee, Guarantee::Proven(Property::Convex));
+    assert!(close(solution.allocation(), &[50.0, 75.0, 75.0], 1e-6));
+    assert_eq!(solution.guarantee(), Guarantee::Proven(Property::Convex));
 
     // 共通の 3 人ゲームは凸でないので、ConvexChecked::new は元のゲームを Err で返す。
     assert!(!properties::is_convex(shared));
@@ -153,40 +154,41 @@ fn convex_methods(shared: &ExplicitGame) -> coopgame::Result<()> {
     let unverified: Unverified<Solution> = convex::nucleolus(&Assume::convex(shared))?;
     println!(
         "共通の 3 人ゲーム (Assume): 検証前 {:.4?} 保証 {}",
-        unverified.peek().allocation,
-        unverified.peek().guarantee
+        unverified.peek().allocation(),
+        unverified.peek().guarantee()
     );
     assert_eq!(
-        unverified.peek().guarantee,
+        unverified.peek().guarantee(),
         Guarantee::Assumed(Property::Convex)
     );
     match unverified.verify(shared, VerifyOptions::default())? {
         Verified::Certified(solution) => {
             println!(
                 "  検証に合格: {:.4?} 保証 {}",
-                solution.allocation, solution.guarantee
+                solution.allocation(),
+                solution.guarantee()
             );
-            assert!(close(&solution.allocation, &[2.0, 4.0, 6.0], 1e-6));
-            assert_eq!(solution.guarantee, Guarantee::Certified);
+            assert!(close(solution.allocation(), &[2.0, 4.0, 6.0], 1e-6));
+            assert_eq!(solution.guarantee(), Guarantee::Certified);
         }
         other => panic!("合格するはず: {other:?}"),
     }
 
     // 3. 凸でないゲームを凸と宣言し、結果が否定される例。
-    //    v({1}) = 1、v({2, 3}) = 3、v(N) = 3 のゲームでは、凸ゲームの手法はプレイヤー 1 に 0.5 を配る。
-    //    これは v({1}) = 1 を下回るので、仁ではないと確定する。
+    //    v({0}) = 1、v({1, 2}) = 3、v(N) = 3 のゲームでは、凸ゲームの手法はプレイヤー 0 に 0.5 を配る。
+    //    これは v({0}) = 1 を下回るので、仁ではないと確定する。
     let game = ExplicitGame::from_lex(&[1.0, 0.0, 0.0, 1.0, 1.0, 3.0, 3.0])?;
     assert!(!properties::is_convex(&game));
     let unverified = convex::nucleolus(&Assume::convex(&game))?;
     println!(
         "凸でないゲーム (Assume): 検証前 {:.4?}",
-        unverified.peek().allocation
+        unverified.peek().allocation()
     );
     match unverified.verify(&game, VerifyOptions::default())? {
         Verified::Refuted { solution, reason } => {
             println!("  否定された: {reason}");
-            assert!(close(&solution.allocation, &[0.5, 1.25, 1.25], 1e-6));
-            assert_eq!(solution.guarantee, Guarantee::Assumed(Property::Convex));
+            assert!(close(solution.allocation(), &[0.5, 1.25, 1.25], 1e-6));
+            assert_eq!(solution.guarantee(), Guarantee::Assumed(Property::Convex));
         }
         other => panic!("否定されるはず: {other:?}"),
     }

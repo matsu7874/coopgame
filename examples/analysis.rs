@@ -12,13 +12,13 @@
 //! ```
 //!
 //! 引数でパスを渡した時だけ SVG をファイルに書く。省略時は SVG の大きさと図の要素の数だけを出す。
-//! 関数に渡すプレイヤーの番号は 0 始まりで、提携は `format_coalition` で 1 始まりの番号で表示する。
+//! プレイヤーは 0 始まりの番号で扱い、提携は `{0, 1}` の形で表示する。
 
 use coopgame::analysis::explain::{self, ExplainOptions};
-use coopgame::analysis::plot::{self, PlotOptions};
+use coopgame::analysis::plot::{self, PlotOptions, Point};
 use coopgame::analysis::search::{self, SearchOptions};
 use coopgame::analysis::uncertainty::{self, IntervalGame};
-use coopgame::game::{binary_to_lex, format_coalition};
+use coopgame::game::binary_to_lex;
 use coopgame::{ExplicitGame, generators, nucleolus, properties};
 
 /// コマンドライン引数から SVG の出力先を読む (省略可)。
@@ -29,33 +29,32 @@ fn svg_path() -> Option<String> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 共通のサンプル入力の 3 人ゲーム (辞書式順)。
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
-    let names: Vec<String> = ["A", "B", "C"].iter().map(|s| s.to_string()).collect();
 
-    explain_allocations(&game, &names)?;
-    uncertainty_and_influence(&game, &names)?;
-    draw_figure(&game, &names, svg_path())?;
+    explain_allocations(&game)?;
+    uncertainty_and_influence(&game)?;
+    draw_figure(&game, svg_path())?;
     find_counterexample()?;
     Ok(())
 }
 
 /// 仁 (2, 4, 6) と別の案 (6, 3, 3) を説明する。
-fn explain_allocations(game: &ExplicitGame, names: &[String]) -> coopgame::Result<()> {
+fn explain_allocations(game: &ExplicitGame) -> coopgame::Result<()> {
     println!("== 配分の説明 ==");
     let nucleolus = nucleolus::nucleolus(game)?.allocation;
     assert!(close(&nucleolus, &[2.0, 4.0, 6.0], 1e-6));
 
-    // 仁の説明。render は名前を渡すと提携を {A, B} の形で書く。
+    // 仁の説明。render はプレイヤーを「プレイヤー 0」、提携を {0, 1} の形で書く。
     let report = explain::report(game, &nucleolus, ExplainOptions::default())?;
     println!("-- 仁 --");
-    print!("{}", explain::render(&report, Some(names)));
+    print!("{}", explain::render(&report));
     assert!(report.in_core);
 
-    // 案 (6, 3, 3) はコアに入らない。最も不満な提携は {B, C} (番号 [1, 2]) で、超過は 8 - 6 = 2。
+    // 案 (6, 3, 3) はコアに入らない。最も不満な提携は {1, 2} で、超過は 8 - 6 = 2。
     let proposal = [6.0, 3.0, 3.0];
     let report = explain::report(game, &proposal, ExplainOptions::default())?;
     println!("\n-- 案 (6, 3, 3) --");
-    print!("{}", explain::render(&report, Some(names)));
-    let worst: Vec<usize> = report.levels[0].coalitions[0].players().collect();
+    print!("{}", explain::render(&report));
+    let worst: Vec<usize> = report.levels[0].coalitions[0].members().collect();
     assert!(!report.in_core);
     assert!((report.max_excess - 2.0).abs() < 1e-9);
     assert_eq!(worst, vec![1, 2]);
@@ -63,17 +62,17 @@ fn explain_allocations(game: &ExplicitGame, names: &[String]) -> coopgame::Resul
 }
 
 /// 値が ±10% 揺れたときの仁の分布と、仁を決めている提携の値に対する感度。
-fn uncertainty_and_influence(game: &ExplicitGame, names: &[String]) -> coopgame::Result<()> {
+fn uncertainty_and_influence(game: &ExplicitGame) -> coopgame::Result<()> {
     // 仁を求める関数。標本の仁・感度・基準の仁 x のすべてで使う。
     let solve = |g: &ExplicitGame| Ok(nucleolus::nucleolus(g)?.allocation);
     println!("\n== 値が不確かなときの仁 ==");
     // 各提携の値を ±10% の区間で一様に引き、50 個のゲームの仁をまとめる。seed を固定すると結果も決まる。
     let interval = IntervalGame::around(game, 0.1)?;
     let distribution = uncertainty::interval_monte_carlo(&interval, 50, 1, solve)?;
-    println!("名前\t平均\t標準偏差\t5%\t95%");
-    for (i, name) in names.iter().enumerate() {
+    println!("プレイヤー\t平均\t標準偏差\t5%\t95%");
+    for i in 0..game.players() {
         println!(
-            "{name}\t{:.4}\t{:.4}\t{:.4}\t{:.4}",
+            "{i}\t{:.4}\t{:.4}\t{:.4}\t{:.4}",
             distribution.mean[i],
             distribution.std[i],
             distribution.quantiles[0].1[i],
@@ -94,14 +93,10 @@ fn uncertainty_and_influence(game: &ExplicitGame, names: &[String]) -> coopgame:
     let key = uncertainty::key_coalitions(game, &x, 2)?;
     // 中心差分なので、値を動かす向きで解の形が変わる点では左右の変化率の平均になる。
     let rows = uncertainty::influence(game, &key, 1e-4, solve)?;
-    println!("提携\tdx/dv (A, B, C の順)");
+    println!("提携\tdx/dv (プレイヤー 0, 1, 2 の順)");
     for row in &rows {
         let values: Vec<String> = row.sensitivity.iter().map(|v| format!("{v:+.4}")).collect();
-        println!(
-            "{}\t{}",
-            format_coalition(row.coalition, Some(names)),
-            values.join(" ")
-        );
+        println!("{}\t{}", row.coalition, values.join(" "));
         // 仁は x(N) = v(N) を満たすので、全体提携の値を動かすと和が 1、それ以外は和が 0 だけ動く。
         let total: f64 = row.sensitivity.iter().sum();
         let expected = if row.coalition == game.grand() {
@@ -118,14 +113,12 @@ fn uncertainty_and_influence(game: &ExplicitGame, names: &[String]) -> coopgame:
 /// 配分集合の図。`path` があれば SVG を書く。
 fn draw_figure(
     game: &ExplicitGame,
-    names: &[String],
     path: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n== 配分集合の図 ==");
     // PlotOptions は #[non_exhaustive] なので既定値から作る。案 (6, 3, 3) も点として描く。
     let mut options = PlotOptions::default();
-    options.names = Some(names.to_vec());
-    options.points = vec![("案".to_string(), vec![6.0, 3.0, 3.0])];
+    options.points = vec![vec![6.0, 3.0, 3.0]];
     let figure = plot::imputation_figure(game, &options)?;
 
     println!("コアの頂点 {} 個:", figure.core_vertices.len());
@@ -134,11 +127,18 @@ fn draw_figure(
     }
     println!("カーネルの多面体 {} 個", figure.kernel_pieces.len());
     println!("描いた点:");
-    for (label, x) in &figure.points {
-        println!("  {label}: {x:.4?}");
+    for (point, x) in &figure.points {
+        println!("  {point}: {x:.4?}");
     }
-    // 点は仁・Shapley 値・追加の点の順。
-    assert_eq!(figure.points.len(), 3);
+    // 点は仁・Shapley 値・追加の点の順。追加の点は options.points での位置 (0 始まり) で示す。
+    assert_eq!(
+        figure
+            .points
+            .iter()
+            .map(|(point, _)| *point)
+            .collect::<Vec<_>>(),
+        [Point::Nucleolus, Point::Shapley, Point::Extra(0)]
+    );
     assert!(close(&figure.points[0].1, &[2.0, 4.0, 6.0], 1e-6));
     assert!(close(&figure.points[1].1, &[3.0, 4.0, 5.0], 1e-9));
     assert!(!figure.core_vertices.is_empty());
@@ -189,7 +189,7 @@ fn find_counterexample() -> coopgame::Result<()> {
     assert!(properties::is_superadditive(&found.game));
     assert!(!properties::is_convex(&found.game));
     // seed を固定しているので、縮小した結果も決まる。
-    // v(N) + v({2}) = 2 < v({1, 2}) + v({2, 3}) = 3 なので凸でない。
+    // v(N) + v({1}) = 2 < v({0, 1}) + v({1, 2}) = 3 なので凸でない。
     assert_eq!(shrunk, vec![0.0, 0.0, 0.0, 2.0, 0.0, 1.0, 2.0]);
     Ok(())
 }
