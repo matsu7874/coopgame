@@ -7,27 +7,27 @@ TU 協力ゲームの仁・カーネル・Shapley 値などの解を計算し、
 ## 機能
 
 - **解を求める**
-  - 仁・プレ仁・最小コア (`nucleolus`)。有理数による厳密な計算にも対応 (`exact`)
-  - カーネル・プレカーネルの 1 点 (`kernel`) と、6 人までの全体 (`kernel_set`)
+  - 仁・プレ仁・最小コア (`nucleolus`)。有理数による厳密な計算にも対応 (`nucleolus::exact`)
+  - カーネル・プレカーネルの 1 点 (`kernel`) と、6 人までの全体 (`kernel::kernel_set`)
   - Shapley 値・Banzhaf 値の厳密計算とサンプリング推定、solidarity 値 (`values`)
   - tau 値・Gately 点 (`compromise`)、通信グラフのもとでの Myerson 値 (`communication`)
   - 単純ゲームの投票力指数: Johnston・Deegan–Packel・Public Good (Holler)・Coleman (`power`)
-  - per capita 仁・比例仁・modiclus・disruption nucleolus・anti-nucleolus (`variants`)
+  - per capita 仁・比例仁・modiclus・disruption nucleolus・anti-nucleolus (`nucleolus::variants`)
   - 提携構造のある解: Aumann–Drèze 値・Owen 値・提携構造つきの仁 (`partition`)
 - **結果を検証する**
-  - 仁の Kohlberg 基準 (`kohlberg`) と、有理数による厳密な検証 (`exact`)
+  - 仁の Kohlberg 基準と、有理数による厳密な検証 (`verify`)
   - カーネル条件 (`kernel`)・交渉集合への所属 (`bargaining`)
   - 凸性・コアなどゲームの性質 (`properties`)
   - 結果に付く保証の種類と事後検証 (`verify`、`auto`)
 - **大きいゲームを扱う**
-  - 全提携を列挙しないオラクル (`oracle`)
-  - 凸ゲームの仁 (`convex`)
-  - 提携のサンプリングによる近似 (`sampled`)
+  - 全提携を列挙しないオラクル (`game::oracle`、`nucleolus::oracle`)
+  - 凸ゲームの仁 (`nucleolus::convex`)
+  - 提携のサンプリングによる近似 (`nucleolus::sampled`)
 - **特定のゲームを解く**
-  - 破産ゲーム (タルムード則)、空港ゲーム、最小全域木ゲーム、線形生産ゲーム、重み付き投票ゲーム、費用ゲーム
+  - 破産ゲーム (タルムード則)、空港ゲーム、最小全域木ゲーム、線形生産ゲーム、重み付き投票ゲーム、費用ゲーム (`games`)
 - **配分を分析する**
-  - 配分の説明と比較 (`explain`)、値の不確かさと感度 (`uncertainty`)
-  - 3-4 人の配分集合の図 (`plot`)、性質の反例の探索 (`search`)
+  - 配分の説明と比較 (`analysis::explain`)、値の不確かさと感度 (`analysis::uncertainty`)
+  - 3-4 人の配分集合の図 (`analysis::plot`)、性質の反例の探索 (`analysis::search`)
 - **入出力**
   - プレイヤー名付きの JSON・CSV (`io`)、ランダムなゲームの生成 (`generators`)
 
@@ -54,14 +54,14 @@ cargo install coopgame --features cli
 ## 使い方
 
 ```rust
-use coopgame::{Domain, ExplicitGame, kernel, kohlberg, nucleolus, values};
+use coopgame::{Domain, ExplicitGame, kernel, nucleolus, values, verify};
 
 fn main() -> coopgame::Result<()> {
     // 3 人ゲームの特性関数 (辞書式順: {1}, {2}, {3}, {1,2}, {1,3}, {2,3}, {1,2,3})
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0])?;
 
     let x = nucleolus::nucleolus(&game)?.allocation; // 仁 [2, 2, 0]
-    assert!(kohlberg::verify(&game, &x, Domain::Imputation)?.satisfied);
+    assert!(verify::kohlberg(&game, &x, Domain::Imputation)?.satisfied);
     assert!(kernel::is_in_kernel(&game, &x, Domain::Imputation, 1e-9));
 
     let phi = values::shapley(&game); // Shapley 値 [2, 2, 0]

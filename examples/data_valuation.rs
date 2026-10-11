@@ -18,9 +18,9 @@
 
 use std::time::Instant;
 
+use coopgame::game::{PlayerSet, SetFunction};
 use coopgame::generators::{self, SplitMix64};
-use coopgame::oracle::{PlayerSet, SetFunction};
-use coopgame::sampled::{SampledGame, sampled_least_core, sampled_nucleolus};
+use coopgame::nucleolus::sampled::{self, SampledGame};
 use coopgame::{Domain, nucleolus, values};
 
 #[path = "../tests/common/mod.rs"]
@@ -196,14 +196,14 @@ fn valuation(sizes: &[usize], budgets: &[usize], seeds: u64) {
 
                 let pairs = budget.saturating_sub(2 * n) / 2;
                 let started = Instant::now();
-                match sampled_least_core(&game, pairs, seed, Domain::Preimputation) {
+                match sampled::least_core(&game, pairs, seed, Domain::Preimputation) {
                     Ok((least, evaluations)) => {
                         report("least_core", &least.allocation, evaluations, started)
                     }
                     Err(err) => eprintln!("least_core n={n} seed={seed} budget={budget}: {err}"),
                 }
                 let started = Instant::now();
-                match sampled_nucleolus(&game, pairs, seed, Domain::Preimputation) {
+                match sampled::nucleolus(&game, pairs, seed, Domain::Preimputation) {
                     Ok(result) => {
                         report("nucleolus", &result.allocation, result.evaluations, started)
                     }
@@ -226,7 +226,8 @@ fn convergence() {
                 for pairs in [25, 50, 100, 200, 400, 800, 1600] {
                     let sampled = SampledGame::sample(&game, pairs, 100 + seed).unwrap();
                     let approx =
-                        sampled_nucleolus(&game, pairs, 100 + seed, Domain::Preimputation).unwrap();
+                        sampled::nucleolus(&game, pairs, 100 + seed, Domain::Preimputation)
+                            .unwrap();
                     let error = max_abs_difference(&approx.allocation, &exact) / scale;
                     println!(
                         "{kind},{n},{seed},{pairs},{},{error:.6}",
@@ -245,17 +246,39 @@ fn parse_list(text: Option<&String>, default: &str) -> Vec<usize> {
         .collect()
 }
 
-fn main() {
+/// 実行する実験 (コマンドライン引数で選ぶ)。
+enum Command {
+    Convergence,
+    Valuation {
+        sizes: Vec<usize>,
+        budgets: Vec<usize>,
+        seeds: u64,
+    },
+}
+
+/// `convergence` か `valuation [n,...] [予算,...] [seed 数]` を読む。どちらでもなければ `None`。
+fn parse_args() -> Option<Command> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        Some("convergence") => convergence(),
-        Some("valuation") => {
-            let sizes = parse_list(args.get(1), "50");
-            let budgets = parse_list(args.get(2), "2000");
-            let seeds: u64 = args.get(3).map_or(3, |s| s.parse().expect("seed 数"));
-            valuation(&sizes, &budgets, seeds);
-        }
-        _ => {
+        Some("convergence") => Some(Command::Convergence),
+        Some("valuation") => Some(Command::Valuation {
+            sizes: parse_list(args.get(1), "50"),
+            budgets: parse_list(args.get(2), "2000"),
+            seeds: args.get(3).map_or(3, |s| s.parse().expect("seed 数")),
+        }),
+        _ => None,
+    }
+}
+
+fn main() {
+    match parse_args() {
+        Some(Command::Convergence) => convergence(),
+        Some(Command::Valuation {
+            sizes,
+            budgets,
+            seeds,
+        }) => valuation(&sizes, &budgets, seeds),
+        None => {
             eprintln!("使い方: data_valuation convergence | valuation <n,...> <予算,...> <seed 数>")
         }
     }

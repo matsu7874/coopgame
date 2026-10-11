@@ -187,7 +187,7 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generators::SplitMix64;
+    use crate::rng::SplitMix64;
 
     /// 総当たりの最小値。
     fn brute_force(m: usize, f: &dyn Fn(&[bool]) -> f64) -> f64 {

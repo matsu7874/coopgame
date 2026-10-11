@@ -9,9 +9,8 @@
 //!     (`B_k` は i の連合、`Q` は R の連合の和、`m` は連合の数、`b = |B_k|`)。
 
 use crate::Domain;
-use crate::coalition::Coalition;
 use crate::error::{Error, Result};
-use crate::game::ExplicitGame;
+use crate::game::{Coalition, ExplicitGame};
 use crate::nucleolus::{self, NucleolusResult, Options};
 use crate::values;
 

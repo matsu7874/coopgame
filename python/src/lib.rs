@@ -7,29 +7,30 @@
 
 use std::cell::RefCell;
 
+use coopgame::analysis::explain as explain_core;
+use coopgame::analysis::plot as plot_core;
+use coopgame::analysis::search as search_core;
+use coopgame::analysis::uncertainty as uncertainty_core;
 use coopgame::auto::AutoNucleolus;
-use coopgame::convex::{self, ConvexOptions, ConvexStats};
-use coopgame::cost::CostGame;
-use coopgame::exact::{self, Rational};
-use coopgame::explain as explain_core;
+use coopgame::game::exact::{self, Rational};
+use coopgame::game::{PlayerSet, SetFunction};
+use coopgame::games::airport::AirportGame;
+use coopgame::games::bankruptcy;
+use coopgame::games::cost::CostGame;
+use coopgame::games::graph::InducedSubgraphGame;
+use coopgame::games::production::LinearProductionGame;
+use coopgame::games::spanning_tree::SpanningTreeGame;
 use coopgame::io as io_core;
-use coopgame::kernel::{self, TransferOptions};
-use coopgame::kernel_set::{self as kernel_set_core, Row, SetOptions};
+use coopgame::kernel::{self, Row, SetOptions, TransferOptions};
+use coopgame::nucleolus::convex::{self, ConvexOptions, ConvexStats};
 use coopgame::nucleolus::{self as nucleolus_core, Method, Options};
-use coopgame::oracle::airport::AirportGame;
-use coopgame::oracle::graph::InducedSubgraphGame;
-use coopgame::oracle::production::LinearProductionGame;
-use coopgame::oracle::spanning_tree::SpanningTreeGame;
-use coopgame::oracle::{PlayerSet, SetFunction};
+use coopgame::nucleolus::{sampled, variants};
 use coopgame::partition;
-use coopgame::plot as plot_core;
-use coopgame::search as search_core;
-use coopgame::structure::{Assume, ConvexChecked};
-use coopgame::uncertainty as uncertainty_core;
+use coopgame::properties::{Assume, ConvexChecked};
 use coopgame::verify::{self as verify_core, Check, Verified, VerifyOptions};
-use coopgame::{Coalition, Domain, ExplicitGame, bankruptcy, generators, kohlberg, properties};
+use coopgame::{Coalition, Domain, ExplicitGame, generators, properties};
 use coopgame::{Concept, Guarantee, Solution};
-use coopgame::{bargaining, communication, compromise, power, sampled, values, variants};
+use coopgame::{bargaining, communication, compromise, power, values};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
@@ -192,7 +193,7 @@ impl Game {
     }
 
     fn has_nonempty_core(&self) -> PyResult<bool> {
-        properties::has_nonempty_core(&self.inner).map_err(to_py_err)
+        nucleolus_core::has_nonempty_core(&self.inner).map_err(to_py_err)
     }
 
     #[pyo3(signature = (x, tolerance = 1e-9))]
@@ -411,7 +412,7 @@ fn kernel_violation(game: &Game, x: Vec<f64>, domain: &str) -> PyResult<f64> {
 #[pyfunction]
 #[pyo3(signature = (game, x, domain = "imputation", tolerance = None))]
 fn is_in_kernel(game: &Game, x: Vec<f64>, domain: &str, tolerance: Option<f64>) -> PyResult<bool> {
-    let tolerance = tolerance.unwrap_or_else(|| coopgame::default_tolerance(&game.inner));
+    let tolerance = tolerance.unwrap_or_else(|| coopgame::game::default_tolerance(&game.inner));
     Ok(kernel::is_in_kernel(
         &game.inner,
         &x,
@@ -452,8 +453,8 @@ fn kernel_set<'py>(
     if let Some(max_nodes) = max_nodes {
         options.max_nodes = max_nodes;
     }
-    let mut set = kernel_set_core::kernel_set(&game.inner, parse_domain(domain)?, options)
-        .map_err(to_py_err)?;
+    let mut set =
+        kernel::kernel_set(&game.inner, parse_domain(domain)?, options).map_err(to_py_err)?;
     if merge {
         set = set.merge_collinear_segments(10.0 * options.tolerance);
     }
@@ -498,7 +499,8 @@ fn verify<'py>(
     domain: &str,
 ) -> PyResult<Bound<'py, PyDict>> {
     check_length(game, &x)?;
-    let report = kohlberg::verify(&game.inner, &x, parse_domain(domain)?).map_err(to_py_err)?;
+    let report =
+        verify_core::kohlberg(&game.inner, &x, parse_domain(domain)?).map_err(to_py_err)?;
     let dict = PyDict::new(py);
     dict.set_item("satisfied", report.satisfied)?;
     dict.set_item("reason", report.reason)?;
@@ -518,7 +520,7 @@ fn certify<'py>(
     domain: &str,
 ) -> PyResult<Bound<'py, PyDict>> {
     check_length(game, &x)?;
-    let report = exact::certify(&game.inner, &x, parse_domain(domain)?).map_err(to_py_err)?;
+    let report = verify_core::certify(&game.inner, &x, parse_domain(domain)?).map_err(to_py_err)?;
     let dict = PyDict::new(py);
     dict.set_item("allocation", fractions(py, &report.allocation)?)?;
     dict.set_item("satisfied", report.satisfied)?;
@@ -544,7 +546,7 @@ fn certify_rational<'py>(
     if x.len() != game.players() {
         return Err(PyValueError::new_err("配分の長さがプレイヤー数と異なる"));
     }
-    let report = exact::certify_exact(&game, &x, parse_domain(domain)?).map_err(to_py_err)?;
+    let report = verify_core::certify_exact(&game, &x, parse_domain(domain)?).map_err(to_py_err)?;
     let dict = PyDict::new(py);
     dict.set_item("allocation", fractions(py, &report.allocation)?)?;
     dict.set_item("satisfied", report.satisfied)?;
@@ -803,7 +805,7 @@ fn nucleolus_exact<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let game = exact_game(values, order)?;
     let result =
-        exact::nucleolus::nucleolus_exact(&game, parse_domain(domain)?).map_err(to_py_err)?;
+        nucleolus_core::exact::nucleolus(&game, parse_domain(domain)?).map_err(to_py_err)?;
     let dict = PyDict::new(py);
     dict.set_item("allocation", fractions(py, &result.allocation)?)?;
     dict.set_item("levels", fractions(py, &result.levels)?)?;
@@ -1144,7 +1146,7 @@ fn sampled_nucleolus<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let domain = parse_domain(domain)?;
     let result = with_set_function(game, |g| {
-        sampled::sampled_nucleolus(g, pairs, seed, domain).map_err(to_py_err)
+        sampled::nucleolus(g, pairs, seed, domain).map_err(to_py_err)
     })?;
     let dict = PyDict::new(py);
     dict.set_item("allocation", result.allocation)?;
@@ -1167,7 +1169,7 @@ fn sampled_least_core<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let domain = parse_domain(domain)?;
     let (least, evaluations) = with_set_function(game, |g| {
-        sampled::sampled_least_core(g, pairs, seed, domain).map_err(to_py_err)
+        sampled::least_core(g, pairs, seed, domain).map_err(to_py_err)
     })?;
     let dict = PyDict::new(py);
     dict.set_item("allocation", least.allocation)?;
@@ -1234,7 +1236,8 @@ fn bargaining_set<'py>(
     domain: &str,
     tolerance: Option<f64>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let tolerance = tolerance.unwrap_or_else(|| 10.0 * coopgame::default_tolerance(&game.inner));
+    let tolerance =
+        tolerance.unwrap_or_else(|| 10.0 * coopgame::game::default_tolerance(&game.inner));
     let report =
         bargaining::check(&game.inner, &x, parse_domain(domain)?, tolerance).map_err(to_py_err)?;
     let dict = PyDict::new(py);

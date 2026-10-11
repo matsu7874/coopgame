@@ -3,19 +3,19 @@
 use std::process::ExitCode;
 use std::time::Instant;
 
-use coopgame::coalition::player_name;
-use coopgame::convex::{self, ConvexOptions};
-use coopgame::cost;
-use coopgame::kernel::{self, TransferOptions};
-use coopgame::kernel_set::{self, SetOptions};
-use coopgame::nucleolus::{Method, Options};
-use coopgame::oracle::airport::AirportGame;
-use coopgame::structure;
-use coopgame::verify::{Verified, VerifyOptions};
+use coopgame::analysis::{explain, plot, uncertainty};
+use coopgame::game::exact::{self, format_rational};
+use coopgame::game::{default_tolerance, format_coalition, player_name};
+use coopgame::games::airport::AirportGame;
+use coopgame::games::{bankruptcy, cost};
+use coopgame::kernel::{self, SetOptions, TransferOptions};
+use coopgame::nucleolus::convex::{self, ConvexOptions};
+use coopgame::nucleolus::{Method, Options, variants};
+use coopgame::properties::{Assume, ConvexChecked};
+use coopgame::verify::{self, Verified, VerifyOptions};
 use coopgame::{
-    Domain, ExplicitGame, bankruptcy, bargaining, communication, compromise, default_tolerance,
-    exact, explain, generators, io, kohlberg, nucleolus, partition, plot, power, uncertainty,
-    values, variants,
+    Domain, ExplicitGame, bargaining, communication, compromise, generators, io, nucleolus,
+    partition, power, values,
 };
 
 const USAGE: &str = "\
@@ -233,9 +233,8 @@ fn run(raw: &[String]) -> CliResult<()> {
                 // 値を有理数として読み、有理数だけの逐次 LP で解く。分数で出す。
                 let game = read_exact_game(args.file(0)?, args.has("--lex"))?;
                 let started = Instant::now();
-                let result = exact::nucleolus::nucleolus_exact(&game, args.domain())?;
-                let levels: Vec<String> =
-                    result.levels.iter().map(exact::format_rational).collect();
+                let result = nucleolus::exact::nucleolus(&game, args.domain())?;
+                let levels: Vec<String> = result.levels.iter().map(format_rational).collect();
                 eprintln!(
                     "time={:.6}s lp_solves={} levels=[{}]",
                     started.elapsed().as_secs_f64(),
@@ -243,7 +242,7 @@ fn run(raw: &[String]) -> CliResult<()> {
                     levels.join(", ")
                 );
                 for value in &result.allocation {
-                    println!("{}", exact::format_rational(value));
+                    println!("{}", format_rational(value));
                 }
                 return Ok(());
             }
@@ -520,7 +519,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             let game = read_game(args.file(0)?, args.has("--lex"))?;
             let started = Instant::now();
             if args.has("--assume") {
-                let assumed = structure::Assume::convex(game.clone());
+                let assumed = Assume::convex(game.clone());
                 let (unverified, stats) =
                     convex::nucleolus_with(&assumed, ConvexOptions::default())
                         .map_err(|e| format!("凸と仮定した手法が失敗した: {e}"))?;
@@ -549,7 +548,7 @@ fn run(raw: &[String]) -> CliResult<()> {
                     _ => print_allocation(&allocation),
                 }
             } else {
-                let checked = structure::ConvexChecked::new(game).map_err(|_| {
+                let checked = ConvexChecked::new(game).map_err(|_| {
                     "ゲームが凸でない (凸と仮定して試すには --assume を付ける)".to_string()
                 })?;
                 let (solution, stats) = convex::nucleolus_with(&checked, ConvexOptions::default())?;
@@ -585,7 +584,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             let mut options = SetOptions::for_game(&game);
             options.max_nodes = args.number("--max-nodes", options.max_nodes)?;
             let started = Instant::now();
-            let mut set = kernel_set::kernel_set(&game, args.domain(), options)?;
+            let mut set = kernel::kernel_set(&game, args.domain(), options)?;
             if args.has("--merge") {
                 set = set.merge_collinear_segments(10.0 * options.tolerance);
             }
@@ -620,7 +619,7 @@ fn run(raw: &[String]) -> CliResult<()> {
                     .collect::<coopgame::Result<_>>()?;
                 let allocation = bankruptcy::talmud_rule(parse(estate)?, &claims)?;
                 for value in &allocation {
-                    println!("{}", exact::format_rational(value));
+                    println!("{}", format_rational(value));
                 }
             } else {
                 let estate: f64 = estate
@@ -637,15 +636,15 @@ fn run(raw: &[String]) -> CliResult<()> {
             let started = Instant::now();
             let report = if args.has("--rational") {
                 let game = read_exact_game(args.file(0)?, args.has("--lex"))?;
-                exact::certify_exact(&game, &x, args.domain())
+                verify::certify_exact(&game, &x, args.domain())
             } else {
                 let game = read_game(args.file(0)?, args.has("--lex"))?;
-                exact::certify(&game, &x, args.domain())
+                verify::certify(&game, &x, args.domain())
             }?;
             let difference = if report.allocation.is_empty() {
                 f64::NAN
             } else {
-                exact::max_difference(&report.allocation, &x)?
+                verify::max_difference(&report.allocation, &x)?
             };
             eprintln!(
                 "certified={} time={:.6}s levels={} max_difference={difference:e}{}",
@@ -658,7 +657,7 @@ fn run(raw: &[String]) -> CliResult<()> {
                     .unwrap_or_default()
             );
             for value in &report.allocation {
-                println!("{}", exact::format_rational(value));
+                println!("{}", format_rational(value));
             }
             if !report.satisfied {
                 return Err("厳密な検証に合格しなかった".into());
@@ -669,7 +668,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             let game = read_game(args.file(0)?, args.has("--lex"))?;
             let x = read_values(args.file(1)?)?;
             let domain = args.domain();
-            let report = kohlberg::verify(&game, &x, domain)?;
+            let report = verify::kohlberg(&game, &x, domain)?;
             let tolerance = 10.0 * default_tolerance(&game);
             let in_kernel = kernel::is_in_kernel(&game, &x, domain, tolerance);
             println!(
@@ -793,7 +792,7 @@ fn run(raw: &[String]) -> CliResult<()> {
                     row.sensitivity.iter().map(|v| format!("{v:.4}")).collect();
                 println!(
                     "{}\t{:.4}\t{}",
-                    explain::format_coalition(row.coalition, names.as_deref()),
+                    format_coalition(row.coalition, names.as_deref()),
                     row.magnitude(),
                     values.join(" ")
                 );
@@ -1000,7 +999,7 @@ fn bench_one(game: &ExplicitGame, method: &str) -> CliResult<String> {
     } else {
         nucleolus::nucleolus_with(game, options).map(|r| {
             let seconds = started.elapsed().as_secs_f64();
-            let verified = kohlberg::verify(game, &r.allocation, domain)
+            let verified = verify::kohlberg(game, &r.allocation, domain)
                 .map(|report| report.satisfied)
                 .unwrap_or(false);
             format!(

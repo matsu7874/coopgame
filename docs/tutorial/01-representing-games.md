@@ -2,7 +2,7 @@
 
 TU 協力ゲーム（英: transferable utility game）は、プレイヤーの集合 `N` と、各提携 `S` の値 `v(S)` を与える特性関数で表す。
 coopgame では、特性関数を [`ExplicitGame`](https://docs.rs/coopgame/latest/coopgame/game/struct.ExplicitGame.html) に保持する。
-提携はビット集合 [`Coalition`](https://docs.rs/coopgame/latest/coopgame/coalition/struct.Coalition.html) で表し、プレイヤー `i`（0 始まり）がビット `i` に対応する。
+提携はビット集合 [`Coalition`](https://docs.rs/coopgame/latest/coopgame/game/struct.Coalition.html) で表し、プレイヤー `i`（0 始まり）がビット `i` に対応する。
 
 ゲームの作り方は 2 通りある。
 

@@ -2,8 +2,8 @@
 
 use microlp::{ComparisonOp, OptimizationDirection, Problem, Solution, Variable};
 
-use crate::coalition::Coalition;
 use crate::error::{Error, Result};
+use crate::game::Coalition;
 
 pub(crate) use microlp::ComparisonOp as Cmp;
 

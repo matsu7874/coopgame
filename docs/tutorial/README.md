@@ -20,8 +20,8 @@ coopgame = "0.1"
 |---|---|---|
 | [1. ゲームの表し方](01-representing-games.md) | 特性関数と提携の表し方 | `ExplicitGame`、`Coalition` |
 | [2. 投票力を測る](02-voting-power.md) | 国連安全保障理事会の投票力 (Shapley–Shubik 1954)、Nassau 郡の議会 (Banzhaf 1965) | `values::shapley`、`values::banzhaf`、`WeightedVotingGame` |
-| [3. 公平に分ける](03-fair-division.md) | タルムードの破産問題 (Aumann–Maschler 1985)、空港ゲームと Ibn Ezra の相続 (Littlechild–Owen 1973、Aumann 2010) | `bankruptcy::talmud_rule`、`exact::nucleolus`、`AirportGame` |
-| [4. 安定性と検証](04-stability-and-verification.md) | 凸ゲームのコアと Shapley 値 (Shapley 1971)、仁の検証 (Kohlberg 1971) | `properties`、`nucleolus`、`kohlberg::verify` |
+| [3. 公平に分ける](03-fair-division.md) | タルムードの破産問題 (Aumann–Maschler 1985)、空港ゲームと Ibn Ezra の相続 (Littlechild–Owen 1973、Aumann 2010) | `games::bankruptcy::talmud_rule`、`nucleolus::exact`、`AirportGame` |
+| [4. 安定性と検証](04-stability-and-verification.md) | 凸ゲームのコアと Shapley 値 (Shapley 1971)、仁の検証 (Kohlberg 1971) | `properties`、`nucleolus`、`verify::kohlberg` |
 
 1 章で基本の型を説明し、2-4 章はどの順に読んでもよい。
 

@@ -15,16 +15,17 @@ Shapley と Shubik は、Shapley 値を投票ゲームに当てはめ、委員�
 常任理事国の重みを 7、非常任理事国の重みを 1、可決の基準を 37 とすると、常任 5 か国（35）と非常任 2 か国（2）でちょうど 37 になる。
 常任理事国が 1 か国でも欠けると、残りの全員が賛成しても 28 + 6 = 34 で基準に届かない。
 
-[`WeightedVotingGame`](https://docs.rs/coopgame/latest/coopgame/oracle/voting/struct.WeightedVotingGame.html) は値を必要な時に計算する表現なので、[`oracle::tabulate`](https://docs.rs/coopgame/latest/coopgame/oracle/fn.tabulate.html) で全提携の表に直してから [`values::shapley`](https://docs.rs/coopgame/latest/coopgame/values/fn.shapley.html) に渡す。
+[`WeightedVotingGame`](https://docs.rs/coopgame/latest/coopgame/games/voting/struct.WeightedVotingGame.html) は値を必要な時に計算する表現なので、[`ExplicitGame::tabulate`](https://docs.rs/coopgame/latest/coopgame/game/struct.ExplicitGame.html#method.tabulate) で全提携の表に直してから [`values::shapley`](https://docs.rs/coopgame/latest/coopgame/values/fn.shapley.html) に渡す。
 
 ```rust
-use coopgame::oracle::{tabulate, voting::WeightedVotingGame};
+use coopgame::ExplicitGame;
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::values;
 
 fn main() -> coopgame::Result<()> {
     let mut weights = vec![7; 5]; // 常任理事国
     weights.extend(vec![1; 6]); // 非常任理事国
-    let council = tabulate(&WeightedVotingGame::new(weights, 37)?)?;
+    let council = ExplicitGame::tabulate(&WeightedVotingGame::new(weights, 37)?)?;
     let power = values::shapley(&council);
 
     let close = |a: f64, b: f64| (a - b).abs() < 1e-12;
@@ -42,13 +43,14 @@ fn main() -> coopgame::Result<()> {
 重みを 7 と 1 のまま、基準を 35 + 4 = 39 にすると、同じ計算ができる。
 
 ```rust
-use coopgame::oracle::{tabulate, voting::WeightedVotingGame};
+use coopgame::ExplicitGame;
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::values;
 
 fn main() -> coopgame::Result<()> {
     let mut weights = vec![7; 5];
     weights.extend(vec![1; 10]);
-    let council = tabulate(&WeightedVotingGame::new(weights, 39)?)?;
+    let council = ExplicitGame::tabulate(&WeightedVotingGame::new(weights, 39)?)?;
     let power = values::shapley(&council);
     assert!((power[0] - 0.1963).abs() < 1e-4); // 常任理事国 1 か国
     assert!((power[5] - 0.0019).abs() < 1e-4); // 非常任理事国 1 か国
@@ -65,12 +67,13 @@ Banzhaf 値は、各プレイヤーが決定的になる（抜けると可決が
 [`values::banzhaf`](https://docs.rs/coopgame/latest/coopgame/values/fn.banzhaf.html) で計算できる。
 
 ```rust
-use coopgame::oracle::{tabulate, voting::WeightedVotingGame};
+use coopgame::ExplicitGame;
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::values;
 
 fn main() -> coopgame::Result<()> {
     // Hempstead 第 1 区, 第 2 区, North Hempstead, Oyster Bay, Glen Cove, Long Beach
-    let board = tabulate(&WeightedVotingGame::new(vec![31, 31, 21, 28, 2, 2], 58)?)?;
+    let board = ExplicitGame::tabulate(&WeightedVotingGame::new(vec![31, 31, 21, 28, 2, 2], 58)?)?;
     let power = values::banzhaf(&board);
     assert_eq!(power, vec![0.5, 0.5, 0.0, 0.5, 0.0, 0.0]);
     Ok(())

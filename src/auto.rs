@@ -1,8 +1,8 @@
 //! ゲームの型が持つ能力と性質から、保証のある手法のうち最も速いものを選んで仁を求める。
 //!
 //! 選ぶのは保証のある手法 ([`Guarantee::Exact`] か [`Guarantee::Proven`]) だけである。
-//! 性質を宣言しただけのゲーム ([`crate::structure::Assume`]) は [`AutoNucleolus`] を実装しないので、
-//! 自動選択で仮定付きの手法が使われることはない (仮定付きで試すときは [`crate::convex`] などを直接呼ぶ)。
+//! 性質を宣言しただけのゲーム ([`crate::properties::Assume`]) は [`AutoNucleolus`] を実装しないので、
+//! 自動選択で仮定付きの手法が使われることはない (仮定付きで試すときは [`crate::nucleolus::convex`] などを直接呼ぶ)。
 //!
 //! | 型 | 選ぶ手法 | 保証 |
 //! |---|---|---|
@@ -12,17 +12,15 @@
 //! | [`WeightedVotingGame`] | オラクルによる制約生成 | Exact |
 //! | [`InducedSubgraphGame`] | 凸ゲームの手法 | Proven(convex) |
 
-use crate::convex;
 use crate::error::Result;
 use crate::game::ExplicitGame;
-use crate::guarantee::{Guarantee, Property};
+use crate::games::bankruptcy::BankruptcyGame;
+use crate::games::graph::InducedSubgraphGame;
+use crate::games::voting::WeightedVotingGame;
 use crate::nucleolus;
-use crate::oracle::bankruptcy::BankruptcyGame;
-use crate::oracle::graph::InducedSubgraphGame;
-use crate::oracle::nucleolus as oracle_nucleolus;
-use crate::oracle::voting::WeightedVotingGame;
-use crate::solution::{Concept, Solution};
-use crate::structure::ConvexChecked;
+use crate::nucleolus::convex;
+use crate::properties::ConvexChecked;
+use crate::solution::{Concept, Guarantee, Property, Solution};
 
 /// 凸と確認済みの明示ゲームで、逐次 LP を使う人数の上限 (計測で決めた。`docs/guarantees.md`)。
 pub const EXPLICIT_LP_LIMIT: usize = 16;
@@ -74,7 +72,7 @@ impl AutoNucleolus for BankruptcyGame {
 impl AutoNucleolus for WeightedVotingGame {
     fn nucleolus_auto(&self) -> Result<Solution> {
         Ok(exact(
-            oracle_nucleolus::nucleolus(self)?.allocation,
+            nucleolus::oracle::nucleolus(self)?.allocation,
             "oracle-constraint-generation",
         ))
     }

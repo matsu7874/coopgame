@@ -4,14 +4,15 @@ mod common;
 
 use common::assert_close;
 use coopgame::auto::AutoNucleolus;
-use coopgame::convex;
+use coopgame::game::oracle::Separation;
+use coopgame::game::{PlayerSet, SetFunction};
+use coopgame::games::bankruptcy::BankruptcyGame;
+use coopgame::games::graph::InducedSubgraphGame;
+use coopgame::games::voting::WeightedVotingGame;
 use coopgame::generators::{self, SplitMix64};
-use coopgame::oracle::bankruptcy::BankruptcyGame;
-use coopgame::oracle::graph::InducedSubgraphGame;
-use coopgame::oracle::nucleolus as oracle_nucleolus;
-use coopgame::oracle::voting::WeightedVotingGame;
-use coopgame::oracle::{PlayerSet, Separation, SetFunction, tabulate};
-use coopgame::structure::{Assume, ConvexChecked};
+use coopgame::nucleolus::convex;
+use coopgame::nucleolus::oracle as oracle_nucleolus;
+use coopgame::properties::{Assume, ConvexChecked};
 use coopgame::verify::{self, Check, Verified, VerifyOptions};
 use coopgame::{
     Concept, ExplicitGame, Guarantee, Property, Solution, Unverified, nucleolus, properties,
@@ -101,10 +102,10 @@ fn separation_only_game_gives_the_nucleolus() {
 #[test]
 fn tabulate_reproduces_explicit_game() {
     let game = generators::bnf(2, 7, 1).unwrap();
-    assert_eq!(tabulate(&game).unwrap(), game);
+    assert_eq!(ExplicitGame::tabulate(&game).unwrap(), game);
     let mut rng = SplitMix64::new(3);
     let bankruptcy = random_bankruptcy(&mut rng, 6);
-    let table = tabulate(&bankruptcy).unwrap();
+    let table = ExplicitGame::tabulate(&bankruptcy).unwrap();
     let expected = generators::bankruptcy(bankruptcy.estate(), bankruptcy.claims()).unwrap();
     assert_eq!(table, expected);
 }
@@ -118,10 +119,10 @@ fn structural_convexity_claims_hold() {
     for _ in 0..30 {
         let n = 2 + (rng.next_u64() % 7) as usize;
         assert!(properties::is_convex(
-            &tabulate(&random_bankruptcy(&mut rng, n)).unwrap()
+            &ExplicitGame::tabulate(&random_bankruptcy(&mut rng, n)).unwrap()
         ));
         assert!(properties::is_convex(
-            &tabulate(&random_graph(&mut rng, n)).unwrap()
+            &ExplicitGame::tabulate(&random_graph(&mut rng, n)).unwrap()
         ));
     }
     assert!(InducedSubgraphGame::new(3, vec![(0, 1, -1.0)]).is_err());
@@ -152,7 +153,7 @@ fn convex_method_matches_talmud_and_lp() {
             &format!("破産 case {case}"),
         );
         let graph = random_graph(&mut rng, n);
-        let lp = nucleolus::nucleolus(&tabulate(&graph).unwrap()).unwrap();
+        let lp = nucleolus::nucleolus(&ExplicitGame::tabulate(&graph).unwrap()).unwrap();
         let solution = convex::nucleolus(&graph).unwrap();
         assert_close(
             &solution.allocation,
@@ -179,7 +180,7 @@ fn auto_selection_reports_method_and_guarantee() {
 
     let voting = WeightedVotingGame::new(vec![3, 2, 2, 1, 1], 5).unwrap();
     let solution = voting.nucleolus_auto().unwrap();
-    let expected = nucleolus::nucleolus(&tabulate(&voting).unwrap()).unwrap();
+    let expected = nucleolus::nucleolus(&ExplicitGame::tabulate(&voting).unwrap()).unwrap();
     assert_close(&solution.allocation, &expected.allocation, 1e-6, "投票");
     assert_eq!(solution.guarantee, Guarantee::Exact);
 
@@ -224,7 +225,7 @@ fn assumed_result_on_non_convex_game_is_refuted() {
     match unverified.verify(&game, VerifyOptions::default()).unwrap() {
         Verified::Refuted { solution, reason } => {
             assert_eq!(solution.guarantee, Guarantee::Assumed(Property::Convex));
-            assert!(reason.contains("より小さい"), "{reason}");
+            assert!(reason.contains("個人合理性を満たさない"), "{reason}");
             let pre = nucleolus::prenucleolus(&game).unwrap().allocation;
             assert_close(
                 &solution.allocation,
@@ -274,7 +275,7 @@ fn approximate_results_say_so() {
         Guarantee::Approximate
     );
     assert_eq!(
-        coopgame::sampled::sampled_nucleolus(&game, 50, 0, coopgame::Domain::Preimputation)
+        coopgame::nucleolus::sampled::nucleolus(&game, 50, 0, coopgame::Domain::Preimputation)
             .unwrap()
             .guarantee,
         Guarantee::Approximate
@@ -296,11 +297,10 @@ fn approximate_results_say_so() {
 /// LP の仁が厳密な検証に合格しない。同じ乱数で有理数のまま構築すると合格する。
 #[test]
 fn rational_construction_makes_certification_possible() {
-    use coopgame::exact;
     let float_game = generators::random_superadditive(4, 0).unwrap();
     let x = nucleolus::nucleolus(&float_game).unwrap().allocation;
     assert!(
-        !exact::certify(&float_game, &x, coopgame::Domain::Imputation)
+        !verify::certify(&float_game, &x, coopgame::Domain::Imputation)
             .unwrap()
             .satisfied
     );
@@ -308,7 +308,7 @@ fn rational_construction_makes_certification_possible() {
     let exact_game = generators::random_superadditive_exact(4, 0).unwrap();
     let explicit = exact_game.to_explicit().unwrap();
     let x = nucleolus::nucleolus(&explicit).unwrap().allocation;
-    let report = exact::certify_exact(&exact_game, &x, coopgame::Domain::Imputation).unwrap();
+    let report = verify::certify_exact(&exact_game, &x, coopgame::Domain::Imputation).unwrap();
     assert!(report.satisfied, "{:?}", report.reason);
 
     // 有理数のゲームで、凸と仮定した結果も検証できる (このゲームは凸)。
@@ -325,12 +325,12 @@ fn rational_construction_makes_certification_possible() {
 
 #[test]
 fn rational_values_parse_decimals_exactly() {
-    use coopgame::exact::{self, ExactGame, Rational};
+    use coopgame::game::exact::{self, ExactGame, Rational};
     let values = exact::parse_rational_values("0.1\n0.2\n0.3\n0.5\n0.6\n0.7\n# 全体\n1\n").unwrap();
     let game = ExactGame::from_lex(values).unwrap();
     let explicit = game.to_explicit().unwrap();
     let x = nucleolus::nucleolus(&explicit).unwrap().allocation;
-    let report = exact::certify_exact(&game, &x, coopgame::Domain::Imputation).unwrap();
+    let report = verify::certify_exact(&game, &x, coopgame::Domain::Imputation).unwrap();
     let q = |a: i64, b: i64| Rational::new(a.into(), b.into());
     assert_eq!(report.allocation, vec![q(7, 30), q(1, 3), q(13, 30)]);
 }

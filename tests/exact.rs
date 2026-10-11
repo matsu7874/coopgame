@@ -6,8 +6,9 @@
 
 mod common;
 
-use coopgame::exact::{self, Rational};
+use coopgame::game::exact::{self, Rational};
 use coopgame::generators;
+use coopgame::verify;
 use coopgame::{Domain, ExplicitGame, nucleolus};
 use num_rational::BigRational;
 
@@ -40,10 +41,10 @@ fn nucleoli_of_random_games_are_certified() {
                         continue; // 配分集合が空
                     };
                     let x = result.allocation;
-                    let report = exact::certify(&game, &x, domain).unwrap();
+                    let report = verify::certify(&game, &x, domain).unwrap();
                     let label = format!("type{kind} n={n} seed={seed} {domain:?}");
                     assert!(report.satisfied, "{label}: {:?}", report.reason);
-                    let difference = exact::max_difference(&report.allocation, &x).unwrap();
+                    let difference = verify::max_difference(&report.allocation, &x).unwrap();
                     assert!(
                         difference < 1e-6 * game.max_abs_value().max(1.0),
                         "{label}: {difference}"
@@ -61,14 +62,14 @@ fn perturbed_nucleoli_are_rejected() {
             let game = generators::bnf(kind, n, 1).unwrap();
             let exact_game = exact::ExactGame::from_explicit(&game).unwrap();
             let x = solve(&game, Domain::Preimputation);
-            let report = exact::certify(&game, &x, Domain::Preimputation).unwrap();
+            let report = verify::certify(&game, &x, Domain::Preimputation).unwrap();
             assert!(report.satisfied);
             // 厳密な仁を 1/1000 だけ動かすと不合格。
             let mut moved = report.allocation.clone();
             moved[0] += r(1, 1000);
             moved[1] -= r(1, 1000);
             assert!(
-                !exact::kohlberg_exact(&exact_game, &moved, Domain::Preimputation).satisfied,
+                !verify::kohlberg_exact(&exact_game, &moved, Domain::Preimputation).satisfied,
                 "type{kind} n={n}"
             );
         }
@@ -113,7 +114,7 @@ fn literature_answers_are_exact_fractions() {
     ];
     for (values, domain, expected) in cases {
         let game = ExplicitGame::from_lex(values).unwrap();
-        let report = exact::certify(&game, &solve(&game, domain), domain).unwrap();
+        let report = verify::certify(&game, &solve(&game, domain), domain).unwrap();
         assert!(
             report.satisfied,
             "{values:?} {domain:?}: {:?}",
@@ -124,7 +125,7 @@ fn literature_answers_are_exact_fractions() {
     // タルムード: 遺産 100 で (100/3, 100/3, 100/3)
     let game = generators::bankruptcy(100.0, &[100.0, 200.0, 300.0]).unwrap();
     let report =
-        exact::certify(&game, &solve(&game, Domain::Imputation), Domain::Imputation).unwrap();
+        verify::certify(&game, &solve(&game, Domain::Imputation), Domain::Imputation).unwrap();
     assert_eq!(report.allocation, vec![r(100, 3); 3]);
 }
 
@@ -133,12 +134,11 @@ fn literature_answers_are_exact_fractions() {
 /// 有理数だけで求めた仁・プレ仁は、浮動小数点の LP の解を厳密に検証した配分と分数として一致する。
 #[test]
 fn exact_solver_matches_certified_float_solution() {
-    use coopgame::exact::nucleolus::nucleolus_exact;
     for kind in [1, 2, 4] {
         for n in 3..=6 {
             for seed in 0..2 {
                 let game = coopgame::generators::bnf(kind, n, seed).unwrap();
-                let exact_game = coopgame::exact::ExactGame::from_explicit(&game).unwrap();
+                let exact_game = coopgame::game::exact::ExactGame::from_explicit(&game).unwrap();
                 for domain in [
                     coopgame::Domain::Imputation,
                     coopgame::Domain::Preimputation,
@@ -148,9 +148,9 @@ fn exact_solver_matches_certified_float_solution() {
                         continue;
                     };
                     let certified =
-                        coopgame::exact::certify(&game, &float.allocation, domain).unwrap();
+                        coopgame::verify::certify(&game, &float.allocation, domain).unwrap();
                     assert!(certified.satisfied);
-                    let exact = nucleolus_exact(&exact_game, domain).unwrap();
+                    let exact = nucleolus::exact::nucleolus(&exact_game, domain).unwrap();
                     assert_eq!(
                         exact.allocation, certified.allocation,
                         "type{kind} n={n} seed={seed} {domain:?}"
@@ -164,11 +164,10 @@ fn exact_solver_matches_certified_float_solution() {
 /// 浮動小数点の和で作ると厳密な検証が成り立たないゲームも、有理数で構築すれば直接解ける。
 #[test]
 fn exact_solver_on_rationally_built_games() {
-    use coopgame::exact::nucleolus::nucleolus_exact;
     for seed in 0..5 {
         let game = coopgame::generators::random_superadditive_exact(5, seed).unwrap();
-        let result = nucleolus_exact(&game, coopgame::Domain::Imputation).unwrap();
-        let report = coopgame::exact::kohlberg_exact(
+        let result = nucleolus::exact::nucleolus(&game, coopgame::Domain::Imputation).unwrap();
+        let report = coopgame::verify::kohlberg_exact(
             &game,
             &result.allocation,
             coopgame::Domain::Imputation,

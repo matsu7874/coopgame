@@ -7,24 +7,36 @@
 
 use std::time::Instant;
 
-use coopgame::convex;
 use coopgame::generators;
 use coopgame::nucleolus;
-use coopgame::structure::ConvexChecked;
+use coopgame::nucleolus::convex;
+use coopgame::properties::ConvexChecked;
 
 #[path = "../tests/common/mod.rs"]
 mod common;
 use common::max_abs_difference;
 
-fn main() {
+/// コマンドライン引数。
+struct Args {
+    sizes: Vec<usize>,
+    seeds: u64,
+}
+
+/// `[人数,...] [seed 数]` を読む。省略した引数は既定値 (8,10,12 と 3) にする。
+fn parse_args() -> Args {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let sizes: Vec<usize> = args
+    let sizes = args
         .first()
         .map_or("8,10,12", String::as_str)
         .split(',')
         .map(|s| s.parse().expect("人数"))
         .collect();
-    let seeds: u64 = args.get(1).map_or(3, |s| s.parse().expect("seed 数"));
+    let seeds = args.get(1).map_or(3, |s| s.parse().expect("seed 数"));
+    Args { sizes, seeds }
+}
+
+fn main() {
+    let Args { sizes, seeds } = parse_args();
     println!("n,seed,lp_seconds,convex_seconds,relative_difference");
     for &n in &sizes {
         for seed in 0..seeds {

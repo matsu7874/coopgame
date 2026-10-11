@@ -33,13 +33,12 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use crate::coalition::Coalition;
+use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::{ExplicitGame, MAX_PLAYERS};
-use crate::guarantee::Guarantee;
+use crate::game::oracle::OracleGame;
+use crate::game::{Coalition, ExplicitGame, MAX_PLAYERS, PlayerSet, SetFunction};
 use crate::nucleolus::NucleolusResult;
-use crate::oracle::{OracleGame, PlayerSet, SetFunction};
-use crate::{Domain, oracle};
+use crate::solution::Guarantee;
 
 /// 値の種類。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,7 +46,7 @@ use crate::{Domain, oracle};
 pub enum Kind {
     /// 提携の価値 (大きいほどよい)。
     Value,
-    /// 提携の費用 (小さいほどよい)。[`crate::cost::CostGame`] で扱う。
+    /// 提携の費用 (小さいほどよい)。[`crate::games::cost::CostGame`] で扱う。
     Cost,
 }
 
@@ -322,7 +321,7 @@ impl GameData {
     }
 
     fn describe(&self, coalition: Coalition) -> String {
-        crate::coalition::format_coalition(coalition, Some(&self.names))
+        crate::game::format_coalition(coalition, Some(&self.names))
     }
 
     /// 全提携の値の表にする。
@@ -423,10 +422,10 @@ impl PartialGame {
         if !self.known.contains_key(&full) {
             return Err(Error::InvalidArgument("全体提携の値がない".into()));
         }
-        let mut result = oracle::nucleolus::nucleolus_with(
+        let mut result = crate::nucleolus::oracle::nucleolus_with(
             self,
             domain,
-            oracle::nucleolus::default_tolerance(self),
+            crate::nucleolus::oracle::default_tolerance(self),
         )?;
         result.guarantee = Guarantee::Approximate;
         Ok(result)
