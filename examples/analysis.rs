@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// 仁 (2, 4, 6) と別の案 (6, 3, 3) を説明する。
 fn explain_allocations(game: &ExplicitGame) -> coopgame::Result<()> {
     println!("== 配分の説明 ==");
-    let nucleolus = nucleolus::nucleolus(game)?.allocation;
+    let nucleolus = nucleolus::nucleolus(game)?.into_allocation();
     assert!(close(&nucleolus, &[2.0, 4.0, 6.0], 1e-6));
 
     // 仁の説明。render はプレイヤーを「プレイヤー 0」、提携を {0, 1} の形で書く。
@@ -64,7 +64,7 @@ fn explain_allocations(game: &ExplicitGame) -> coopgame::Result<()> {
 /// 値が ±10% 揺れたときの仁の分布と、仁を決めている提携の値に対する感度。
 fn uncertainty_and_influence(game: &ExplicitGame) -> coopgame::Result<()> {
     // 仁を求める関数。標本の仁・感度・基準の仁 x のすべてで使う。
-    let solve = |g: &ExplicitGame| Ok(nucleolus::nucleolus(g)?.allocation);
+    let solve = |g: &ExplicitGame| Ok(nucleolus::nucleolus(g)?.into_allocation());
     println!("\n== 値が不確かなときの仁 ==");
     // 各提携の値を ±10% の区間で一様に引き、50 個のゲームの仁をまとめる。seed を固定すると結果も決まる。
     let interval = IntervalGame::around(game, 0.1)?;

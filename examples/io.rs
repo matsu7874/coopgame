@@ -89,10 +89,11 @@ fn value_game() -> coopgame::Result<()> {
     let shapley = values::shapley(&game);
     println!(
         "仁: {:.4?} (保証 {})",
-        nucleolus.allocation, nucleolus.guarantee
+        nucleolus.allocation(),
+        nucleolus.guarantee()
     );
     println!("Shapley 値: {shapley:.4?}");
-    assert!(close(&nucleolus.allocation, &[2.0, 4.0, 6.0], 1e-6));
+    assert!(close(nucleolus.allocation(), &[2.0, 4.0, 6.0], 1e-6));
     assert!(close(&shapley, &[3.0, 4.0, 5.0], 1e-9));
 
     // 値の分かる提携は GameData::known にある。提携は {0, 1} の形で表示される。
@@ -148,7 +149,8 @@ fn missing_values() -> coopgame::Result<()> {
     let zero = nucleolus::nucleolus(&data.to_explicit(Missing::Zero)?)?;
     println!(
         "0 とみなした仁: {:.4?} (保証 {})",
-        zero.allocation, zero.guarantee
+        zero.allocation(),
+        zero.guarantee()
     );
 
     // PartialGame: 値が分かる提携だけで超過を辞書式に最小化する。
@@ -158,14 +160,14 @@ fn missing_values() -> coopgame::Result<()> {
     println!(
         "分かる {} 個の提携だけで解いた仁: {:.4?} (保証 {})",
         partial.known(),
-        approximate.allocation,
-        approximate.guarantee
+        approximate.allocation(),
+        approximate.guarantee()
     );
     assert_eq!(partial.known(), 13);
-    assert_eq!(approximate.guarantee, Guarantee::Approximate);
-    assert!(!approximate.guarantee.is_reliable());
-    assert!(close(&zero.allocation, &[3.0, 5.0, 7.0, 3.0], 1e-6));
-    assert!(close(&approximate.allocation, &[3.0, 5.0, 7.0, 3.0], 1e-6));
+    assert_eq!(approximate.guarantee(), Guarantee::Approximate);
+    assert!(!approximate.guarantee().is_reliable());
+    assert!(close(zero.allocation(), &[3.0, 5.0, 7.0, 3.0], 1e-6));
+    assert!(close(approximate.allocation(), &[3.0, 5.0, 7.0, 3.0], 1e-6));
 
     // 分からなかった値が後で分かった場合と比べる。GameData::known に値を足すと全提携の表を作れる。
     let mut complete = data.clone();
@@ -175,10 +177,11 @@ fn missing_values() -> coopgame::Result<()> {
     let exact = nucleolus::nucleolus(&complete.to_explicit(Missing::Error)?)?;
     println!(
         "{{1, 3}} = 7、{{2, 3}} = 9 と分かった場合の仁: {:.4?} (保証 {})",
-        exact.allocation, exact.guarantee
+        exact.allocation(),
+        exact.guarantee()
     );
     // 分からなかった値によっては、分かる提携だけで解いた配分は真のゲームの仁と異なる。
-    assert!(close(&exact.allocation, &[2.0, 5.0, 7.0, 4.0], 1e-6));
+    assert!(close(exact.allocation(), &[2.0, 5.0, 7.0, 4.0], 1e-6));
     Ok(())
 }
 

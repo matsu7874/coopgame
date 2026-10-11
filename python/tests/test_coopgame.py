@@ -278,7 +278,7 @@ def test_verify_solution():
     game = coopgame.Game([0, 0, 0, 10, 0, 0, 2], order="lex")
     report = coopgame.verify_solution(game, [1, 1, 0])
     assert report["check"] == "certified" and report["exact"] == [1, 1, 0]
-    assert coopgame.verify_solution(game, [3, 3, -4], concept="prenucleolus")["check"] == "certified"
+    assert coopgame.verify_solution(game, [3, 3, -4], domain="preimputation")["check"] == "certified"
     assert coopgame.verify_solution(game, [1.5, 0.5, 0])["check"] == "refuted"
 
 

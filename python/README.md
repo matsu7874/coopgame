@@ -63,7 +63,7 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 | `cost_nucleolus(game)`, `airport(costs)`, `spanning_tree(costs)`, `linear_production(technology, prices, resources)` | 費用ゲームと、構造を持つ費用ゲーム (空港・最小全域木・線形生産) |
 | `uncertainty(game, relative=0.1)` / `uncertainty(lower, upper=upper)`, `influence(game)` | 値の不確かさによる配分の分布と、提携の値に対する感度 |
 | `explain(game, x, levels=3)`, `compare(game, [配分, ...])` | 配分の説明と比較 (`text` に日本語の説明)。`compare` の `rows` は入力と同じ順 |
-| `verify_solution(game, allocation, concept)` | 配分が仁 (プレ仁) かを事後検証 (`certified`・`refuted`・`undecided`) |
+| `verify_solution(game, allocation, domain)` | 配分が仁 (プレ仁) かを事後検証 (`certified`・`refuted`・`undecided`) |
 | `parse_game(text, format="json", missing="error")`, `partial_nucleolus(text, format)` | JSON・CSV の読み込み (提携はプレイヤー番号) と、値が分かる提携だけで解いた仁 |
 | `aumann_dreze(game, blocks)`, `owen(game, unions)`, `structured_nucleolus(game, blocks)` | 提携構造・事前の連合のもとでの解 |
 | `plot_svg(game, kernel=True, shapley=True, points=None, title=None)` | 3-4 人の配分集合の図。`points` は配分のリスト。SVG 文字列とコアの頂点などを辞書で返す |

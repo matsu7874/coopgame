@@ -169,14 +169,42 @@ impl OracleGame for SampledGame {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct SampledNucleolus {
-    pub allocation: Vec<f64>,
+    pub(crate) allocation: Vec<f64>,
     /// サンプルした提携での最小コアの値 (最大超過の最小値)。
-    pub epsilon: f64,
-    pub levels: Vec<f64>,
+    pub(crate) epsilon: f64,
+    pub(crate) levels: Vec<f64>,
     /// 特性関数を評価した回数。
-    pub evaluations: usize,
+    pub(crate) evaluations: usize,
     /// 常に [`Guarantee::Approximate`] (全提携をサンプルした場合も、検証するまでは近似として扱う)。
-    pub guarantee: Guarantee,
+    pub(crate) guarantee: Guarantee,
+}
+
+impl SampledNucleolus {
+    pub fn allocation(&self) -> &[f64] {
+        &self.allocation
+    }
+
+    pub fn into_allocation(self) -> Vec<f64> {
+        self.allocation
+    }
+
+    /// サンプルした提携での最小コアの値 (最大超過の最小値)。
+    pub fn epsilon(&self) -> f64 {
+        self.epsilon
+    }
+
+    pub fn levels(&self) -> &[f64] {
+        &self.levels
+    }
+
+    /// 特性関数を評価した回数。
+    pub fn evaluations(&self) -> usize {
+        self.evaluations
+    }
+
+    pub fn guarantee(&self) -> Guarantee {
+        self.guarantee
+    }
 }
 
 /// 提携を `pairs` 組サンプルし、制限したゲームの仁 (プレ仁) を求める。

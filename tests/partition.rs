@@ -88,15 +88,15 @@ fn structured_nucleolus_properties() {
             let expected =
                 nucleolus::nucleolus_with(&game, nucleolus::Options::new(&game, domain)).unwrap();
             assert_close(
-                &grand.allocation,
-                &expected.allocation,
+                grand.allocation(),
+                expected.allocation(),
                 tolerance,
                 "全員 1 つ",
             );
             let singles =
                 partition::nucleolus(&game, &CoalitionStructure::singletons(6), domain).unwrap();
             assert_close(
-                &singles.allocation,
+                singles.allocation(),
                 &game.singleton_values(),
                 tolerance,
                 "全員単独",
@@ -106,13 +106,14 @@ fn structured_nucleolus_properties() {
                     continue;
                 };
                 for &block in structure.blocks() {
-                    let sum = block.sum(&result.allocation);
+                    let sum = block.sum(result.allocation());
                     assert!((sum - game.value(block)).abs() <= tolerance);
                 }
                 if domain == Domain::Imputation {
                     for i in 0..6 {
                         assert!(
-                            result.allocation[i] >= game.value(Coalition::singleton(i)) - tolerance
+                            result.allocation()[i]
+                                >= game.value(Coalition::singleton(i)) - tolerance
                         );
                     }
                 }
@@ -127,4 +128,10 @@ fn rejects_invalid_structures() {
     assert!(CoalitionStructure::new(3, &[vec![0, 1], vec![1, 2]]).is_err());
     assert!(CoalitionStructure::new(3, &[vec![0, 1, 2], vec![]]).is_err());
     assert!(CoalitionStructure::new(3, &[vec![0, 3], vec![1, 2]]).is_err());
+}
+
+#[test]
+fn structure_is_displayed_as_blocks() {
+    let structure = CoalitionStructure::new(3, &[vec![0, 1], vec![2]]).unwrap();
+    assert_eq!(structure.to_string(), "{0, 1} {2}");
 }

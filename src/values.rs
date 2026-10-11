@@ -94,13 +94,37 @@ fn marginal_sums(game: &ExplicitGame, weight: impl Fn(usize) -> f64) -> Vec<f64>
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct Estimate {
-    pub values: Vec<f64>,
+    pub(crate) values: Vec<f64>,
     /// 各推定値の標準誤差 (標本標準偏差 / sqrt(標本数))。
-    pub standard_errors: Vec<f64>,
+    pub(crate) standard_errors: Vec<f64>,
     /// 特性関数を評価した回数。
-    pub evaluations: usize,
+    pub(crate) evaluations: usize,
     /// 常に [`Guarantee::Approximate`]。
-    pub guarantee: Guarantee,
+    pub(crate) guarantee: Guarantee,
+}
+
+impl Estimate {
+    pub fn values(&self) -> &[f64] {
+        &self.values
+    }
+
+    pub fn into_values(self) -> Vec<f64> {
+        self.values
+    }
+
+    /// 各推定値の標準誤差 (標本標準偏差 / sqrt(標本数))。
+    pub fn standard_errors(&self) -> &[f64] {
+        &self.standard_errors
+    }
+
+    /// 特性関数を評価した回数。
+    pub fn evaluations(&self) -> usize {
+        self.evaluations
+    }
+
+    pub fn guarantee(&self) -> Guarantee {
+        self.guarantee
+    }
 }
 
 /// 標本平均と標準誤差を逐次的に求める (Welford 法)。

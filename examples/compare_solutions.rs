@@ -32,7 +32,7 @@ fn main() -> coopgame::Result<()> {
     let gately = compromise::gately_point(&game)?;
 
     // 超過に基づく解。仁は逐次 LP、カーネルの 1 点は transfer scheme で求める。
-    let nucleolus = nucleolus::nucleolus(&game)?.allocation;
+    let nucleolus = nucleolus::nucleolus(&game)?.into_allocation();
     let kernel_point = kernel::kernel_point(
         &game,
         Domain::Imputation,
@@ -57,8 +57,8 @@ fn main() -> coopgame::Result<()> {
     assert!(close(&solidarity, &[11.0 / 3.0, 4.0, 13.0 / 3.0], 1e-9));
     assert!(close(&tau, &[2.5, 3.75, 5.75], 1e-9));
     assert!(close(&gately, &[8.0 / 3.0, 4.0, 16.0 / 3.0], 1e-9));
-    assert!(kernel_point.converged);
-    assert!(close(&kernel_point.allocation, &[2.0, 4.0, 6.0], 1e-6));
+    assert!(kernel_point.converged());
+    assert!(close(kernel_point.allocation(), &[2.0, 4.0, 6.0], 1e-6));
     assert!(close(&nucleolus, &[2.0, 4.0, 6.0], 1e-6));
     // カーネル全体は 0 次元の多面体 1 つ、つまり仁の 1 点である。
     assert_eq!(kernel_set.pieces.len(), 1);
@@ -73,7 +73,7 @@ fn main() -> coopgame::Result<()> {
         ("solidarity 値", solidarity),
         ("tau 値", tau),
         ("Gately 点", gately),
-        ("カーネルの 1 点", kernel_point.allocation),
+        ("カーネルの 1 点", kernel_point.into_allocation()),
         ("仁", nucleolus),
     ]
     .into_iter()

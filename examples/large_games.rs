@@ -50,14 +50,14 @@ fn bankruptcy() -> coopgame::Result<()> {
     println!(
         "オラクル版の仁: {:.2?}、LP {} 回、段数 {}",
         started.elapsed(),
-        result.lp_solves,
-        result.levels.len()
+        result.lp_solves(),
+        result.levels().len()
     );
-    println!("先頭の 3 人: {:.4?}", &result.allocation[..3]);
+    println!("先頭の 3 人: {:.4?}", &result.allocation()[..3]);
 
     // 破産ゲームの仁はタルムード則に一致する (閉じた形で求まる)。
     let talmud = game.nucleolus()?;
-    assert!(close(&result.allocation, &talmud, 1e-6 * game.estate()));
+    assert!(close(result.allocation(), &talmud, 1e-6 * game.estate()));
     // どの組も、3 人の共通のサンプル入力と同じ (50, 75, 75) を受け取る。
     for chunk in talmud.chunks(3) {
         assert!(close(chunk, &[50.0, 75.0, 75.0], 1e-9));
@@ -72,7 +72,7 @@ fn bankruptcy() -> coopgame::Result<()> {
 
     // 仁に対して超過の大きい提携を、上から 3 つ見る。
     println!("仁で超過の大きい提携:");
-    print_top_excess(&game, &result.allocation, 3);
+    print_top_excess(&game, result.allocation(), 3);
     println!();
     Ok(())
 }
@@ -87,9 +87,9 @@ fn voting() -> coopgame::Result<()> {
 
     // 最小コア: 全ての提携の超過を epsilon 以下にする配分のうち、epsilon が最小のもの。
     let least = oracle::least_core(&game, Domain::Imputation)?;
-    println!("最小コアの epsilon: {:.4}", least.epsilon);
+    println!("最小コアの epsilon: {:.4}", least.epsilon());
     // epsilon が正なので、コアは空である。
-    assert!((least.epsilon - 1.0 / 3.0).abs() < 1e-6);
+    assert!((least.epsilon() - 1.0 / 3.0).abs() < 1e-6);
 
     let started = Instant::now();
     let auto = game.nucleolus_auto()?;

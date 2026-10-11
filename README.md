@@ -62,7 +62,7 @@ fn main() -> coopgame::Result<()> {
     // 3 人ゲームの特性関数 (辞書式順: {0}, {1}, {2}, {0,1}, {0,2}, {1,2}, {0,1,2})
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0])?;
 
-    let x = nucleolus::nucleolus(&game)?.allocation; // 仁 [2, 2, 0]
+    let x = nucleolus::nucleolus(&game)?.into_allocation(); // 仁 [2, 2, 0]
     assert!(verify::kohlberg(&game, &x, Domain::Imputation)?.satisfied);
     assert!(kernel::is_in_kernel(&game, &x, Domain::Imputation, 1e-9));
 

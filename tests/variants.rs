@@ -19,7 +19,7 @@ fn modiclus_documented_example() {
     .unwrap();
     let result = variants::modiclus(&game).unwrap();
     assert_close(
-        &result.allocation,
+        result.allocation(),
         &[4.25, 5.25, 5.75, 5.75],
         1e-9,
         "modiclus",
@@ -37,12 +37,12 @@ fn per_capita_nucleolus_young_1985() {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 0.0, 9.0, 10.0, 12.0]).unwrap();
     let result = variants::per_capita_nucleolus(&game, Domain::Imputation).unwrap();
     assert_close(
-        &result.allocation,
+        result.allocation(),
         &[2.0 / 3.0, 7.0 / 6.0, 61.0 / 6.0],
         1e-9,
         "per capita",
     );
-    assert_close(&result.levels, &[-2.0 / 3.0, -11.0 / 12.0], 1e-9, "段");
+    assert_close(result.levels(), &[-2.0 / 3.0, -11.0 / 12.0], 1e-9, "段");
 }
 
 /// 定和ゲーム (v(S) + v(N \ S) = v(N)) では、modiclus はプレ仁に一致する (Sudhölter 1997 の要旨)。
@@ -64,8 +64,8 @@ fn modiclus_equals_prenucleolus_for_constant_sum_games() {
             }
         }
         let game = ExplicitGame::from_binary(&values).unwrap();
-        let modiclus = variants::modiclus(&game).unwrap().allocation;
-        let prenucleolus = nucleolus::prenucleolus(&game).unwrap().allocation;
+        let modiclus = variants::modiclus(&game).unwrap().into_allocation();
+        let prenucleolus = nucleolus::prenucleolus(&game).unwrap().into_allocation();
         assert_close(&modiclus, &prenucleolus, 1e-7, &format!("case {case}"));
     }
 }
@@ -76,7 +76,7 @@ fn modiclus_lies_in_core_of_convex_games() {
     for seed in 0..20 {
         let n = 3 + (seed % 4) as usize;
         let game = generators::random_convex(n, seed).unwrap();
-        let x = variants::modiclus(&game).unwrap().allocation;
+        let x = variants::modiclus(&game).unwrap().into_allocation();
         let tolerance = 1e-6 * game.max_abs_value().max(1.0);
         assert!(
             properties::is_in_core(&game, &x, tolerance),
@@ -100,10 +100,10 @@ fn per_capita_and_proportional_lie_in_nonempty_core() {
             }
             let tolerance = 1e-6 * game.max_abs_value().max(1.0);
             let per_capita = variants::per_capita_nucleolus(&game, Domain::Imputation).unwrap();
-            assert!(per_capita.levels[0] <= tolerance);
+            assert!(per_capita.levels()[0] <= tolerance);
             assert!(properties::is_in_core(
                 &game,
-                &per_capita.allocation,
+                per_capita.allocation(),
                 tolerance
             ));
             if game.values().iter().all(|v| *v >= 0.0) {
@@ -111,7 +111,7 @@ fn per_capita_and_proportional_lie_in_nonempty_core() {
                     variants::proportional_nucleolus(&game, Domain::Imputation).unwrap();
                 assert!(properties::is_in_core(
                     &game,
-                    &proportional.allocation,
+                    proportional.allocation(),
                     tolerance
                 ));
             }
@@ -137,16 +137,17 @@ fn kernel_points_lie_in_bargaining_set() {
                         continue;
                     };
                     assert!(
-                        bargaining::is_in_bargaining_set(&game, &result.allocation, domain)
+                        bargaining::is_in_bargaining_set(&game, result.allocation(), domain)
                             .unwrap(),
                         "type{kind} n={n} seed={seed} {domain:?} 仁"
                     );
                     let point =
                         kernel::kernel_point(&game, domain, None, TransferOptions::for_game(&game))
                             .unwrap();
-                    assert!(point.converged);
+                    assert!(point.converged());
                     assert!(
-                        bargaining::is_in_bargaining_set(&game, &point.allocation, domain).unwrap(),
+                        bargaining::is_in_bargaining_set(&game, point.allocation(), domain)
+                            .unwrap(),
                         "type{kind} n={n} seed={seed} {domain:?} カーネル"
                     );
                 }

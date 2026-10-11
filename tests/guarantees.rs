@@ -15,7 +15,7 @@ use coopgame::nucleolus::oracle as oracle_nucleolus;
 use coopgame::properties::{Assume, ConvexChecked};
 use coopgame::verify::{self, Check, Verified, VerifyOptions};
 use coopgame::{
-    Concept, ExplicitGame, Guarantee, Property, Solution, Unverified, nucleolus, properties,
+    Domain, ExplicitGame, Guarantee, Property, Solution, Unverified, nucleolus, properties,
 };
 
 fn random_bankruptcy(rng: &mut SplitMix64, n: usize) -> BankruptcyGame {
@@ -85,10 +85,10 @@ fn separation_only_game_gives_the_nucleolus() {
     for kind in [1, 2, 4] {
         for n in [4, 6, 8] {
             let game = generators::bnf(kind, n, 5).unwrap();
-            let expected = nucleolus::nucleolus(&game).unwrap().allocation;
+            let expected = nucleolus::nucleolus(&game).unwrap().into_allocation();
             let actual = oracle_nucleolus::nucleolus(&SeparationOnly(game.clone()))
                 .unwrap()
-                .allocation;
+                .into_allocation();
             assert_close(
                 &actual,
                 &expected,
@@ -157,7 +157,7 @@ fn convex_method_matches_talmud_and_lp() {
         let solution = convex::nucleolus(&graph).unwrap();
         assert_close(
             solution.allocation(),
-            &lp.allocation,
+            lp.allocation(),
             1e-6,
             &format!("グラフ case {case}"),
         );
@@ -181,7 +181,7 @@ fn auto_selection_reports_method_and_guarantee() {
     let voting = WeightedVotingGame::new(vec![3, 2, 2, 1, 1], 5).unwrap();
     let solution = voting.nucleolus_auto().unwrap();
     let expected = nucleolus::nucleolus(&ExplicitGame::tabulate(&voting).unwrap()).unwrap();
-    assert_close(solution.allocation(), &expected.allocation, 1e-6, "投票");
+    assert_close(solution.allocation(), expected.allocation(), 1e-6, "投票");
     assert_eq!(solution.guarantee(), Guarantee::Exact);
 
     let graph = random_graph(&mut rng, 7);
@@ -208,7 +208,7 @@ fn assumed_result_on_convex_game_is_certified() {
     match unverified.verify(&game, VerifyOptions::default()).unwrap() {
         Verified::Certified(solution) => {
             assert_eq!(solution.guarantee(), Guarantee::Certified);
-            let lp = nucleolus::nucleolus(&game).unwrap().allocation;
+            let lp = nucleolus::nucleolus(&game).unwrap().into_allocation();
             assert_close(solution.allocation(), &lp, 1e-9, "昇格した配分");
         }
         other => panic!("合格するはず: {other:?}"),
@@ -226,7 +226,7 @@ fn assumed_result_on_non_convex_game_is_refuted() {
         Verified::Refuted { solution, reason } => {
             assert_eq!(solution.guarantee(), Guarantee::Assumed(Property::Convex));
             assert!(reason.contains("個人合理性を満たさない"), "{reason}");
-            let pre = nucleolus::prenucleolus(&game).unwrap().allocation;
+            let pre = nucleolus::prenucleolus(&game).unwrap().into_allocation();
             assert_close(
                 solution.allocation(),
                 &pre,
@@ -247,7 +247,7 @@ fn pair_checks_refute_but_do_not_certify_large_games() {
     let mut options = VerifyOptions::default();
     options.pairs = 3;
     options.seed = 1;
-    let check = verify::check(&game, &talmud, Concept::Nucleolus, options).unwrap();
+    let check = verify::check(&game, &talmud, Domain::Imputation, options).unwrap();
     assert!(matches!(check, Check::Undecided(_)), "{check:?}");
     // 和を保ったまま全員の配分をずらす。
     let shift: Vec<f64> = (0..21).map(|_| rng.next_f64() - 0.5).collect();
@@ -257,7 +257,7 @@ fn pair_checks_refute_but_do_not_certify_large_games() {
         .zip(&shift)
         .map(|(x, s)| x + 2.0 * (s - mean))
         .collect();
-    let check = verify::check(&game, &perturbed, Concept::Nucleolus, options).unwrap();
+    let check = verify::check(&game, &perturbed, Domain::Imputation, options).unwrap();
     assert!(matches!(check, Check::Refuted(_)), "{check:?}");
 }
 
@@ -265,17 +265,17 @@ fn pair_checks_refute_but_do_not_certify_large_games() {
 fn approximate_results_say_so() {
     let game = generators::bnf(1, 8, 2).unwrap();
     assert_eq!(
-        coopgame::values::shapley_sampling(&game, 10, 0).guarantee,
+        coopgame::values::shapley_sampling(&game, 10, 0).guarantee(),
         Guarantee::Approximate
     );
     assert_eq!(
         coopgame::nucleolus::sampled::nucleolus(&game, 50, 0, coopgame::Domain::Preimputation)
             .unwrap()
-            .guarantee,
+            .guarantee(),
         Guarantee::Approximate
     );
     assert_eq!(
-        nucleolus::nucleolus(&game).unwrap().guarantee,
+        nucleolus::nucleolus(&game).unwrap().guarantee(),
         Guarantee::Exact
     );
     assert!(!Guarantee::Assumed(Property::Convex).is_reliable());
@@ -292,7 +292,7 @@ fn approximate_results_say_so() {
 #[test]
 fn rational_construction_makes_certification_possible() {
     let float_game = generators::random_superadditive(4, 0).unwrap();
-    let x = nucleolus::nucleolus(&float_game).unwrap().allocation;
+    let x = nucleolus::nucleolus(&float_game).unwrap().into_allocation();
     assert!(
         !verify::certify(&float_game, &x, coopgame::Domain::Imputation)
             .unwrap()
@@ -301,7 +301,7 @@ fn rational_construction_makes_certification_possible() {
 
     let exact_game = generators::random_superadditive_exact(4, 0).unwrap();
     let explicit = exact_game.to_explicit().unwrap();
-    let x = nucleolus::nucleolus(&explicit).unwrap().allocation;
+    let x = nucleolus::nucleolus(&explicit).unwrap().into_allocation();
     let report = verify::certify_exact(&exact_game, &x, coopgame::Domain::Imputation).unwrap();
     assert!(report.satisfied, "{:?}", report.reason);
 
@@ -323,7 +323,7 @@ fn rational_values_parse_decimals_exactly() {
     let values = exact::parse_rational_values("0.1\n0.2\n0.3\n0.5\n0.6\n0.7\n# 全体\n1\n").unwrap();
     let game = ExactGame::from_lex(values).unwrap();
     let explicit = game.to_explicit().unwrap();
-    let x = nucleolus::nucleolus(&explicit).unwrap().allocation;
+    let x = nucleolus::nucleolus(&explicit).unwrap().into_allocation();
     let report = verify::certify_exact(&game, &x, coopgame::Domain::Imputation).unwrap();
     let q = |a: i64, b: i64| Rational::new(a.into(), b.into());
     assert_eq!(report.allocation, vec![q(7, 30), q(1, 3), q(13, 30)]);

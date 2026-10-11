@@ -80,14 +80,14 @@ fn main() {
             match result {
                 Ok(r) => {
                     let error = expected.map_or(String::new(), |e| {
-                        let max = common::max_abs_difference(&r.allocation, &e);
+                        let max = common::max_abs_difference(r.allocation(), &e);
                         format!("{max:e}")
                     });
                     println!(
                         "{kind},{n},{seed},{seconds:.4},{},{},{},{error}",
-                        r.levels.len(),
-                        r.lp_solves,
-                        r.rows_added
+                        r.levels().len(),
+                        r.lp_solves(),
+                        r.rows_added()
                     );
                 }
                 Err(err) => println!("{kind},{n},{seed},{seconds:.4},,,,error:{err}"),

@@ -74,4 +74,4 @@ pub use num_traits;
 
 pub use error::{Error, Result};
 pub use game::{Coalition, Domain, ExplicitGame, PlayerSet, SetFunction};
-pub use solution::{Concept, Guarantee, Property, Solution, Unverified};
+pub use solution::{Guarantee, Property, Solution, Unverified};

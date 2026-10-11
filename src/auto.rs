@@ -13,6 +13,7 @@
 //! | [`InducedSubgraphGame`] | 凸ゲームの手法 | Proven(convex) |
 
 use crate::error::Result;
+use crate::game::Domain;
 use crate::game::ExplicitGame;
 use crate::games::bankruptcy::BankruptcyGame;
 use crate::games::graph::InducedSubgraphGame;
@@ -20,7 +21,7 @@ use crate::games::voting::WeightedVotingGame;
 use crate::nucleolus;
 use crate::nucleolus::convex;
 use crate::properties::ConvexChecked;
-use crate::solution::{Concept, Guarantee, Property, Solution};
+use crate::solution::{Guarantee, Property, Solution};
 
 /// 凸と確認済みの明示ゲームで、逐次 LP を使う人数の上限 (計測で決めた。`docs/guarantees.md`)。
 pub const EXPLICIT_LP_LIMIT: usize = 16;
@@ -30,21 +31,9 @@ pub trait AutoNucleolus {
     fn nucleolus_auto(&self) -> Result<Solution>;
 }
 
-fn exact(allocation: Vec<f64>, method: &'static str) -> Solution {
-    Solution {
-        concept: Concept::Nucleolus,
-        allocation,
-        guarantee: Guarantee::Exact,
-        method,
-    }
-}
-
 impl AutoNucleolus for ExplicitGame {
     fn nucleolus_auto(&self) -> Result<Solution> {
-        Ok(exact(
-            nucleolus::nucleolus(self)?.allocation,
-            "sequential-lp",
-        ))
+        Ok(nucleolus::nucleolus(self)?.into_solution(Domain::Imputation, "sequential-lp"))
     }
 }
 
@@ -61,7 +50,7 @@ impl AutoNucleolus for ConvexChecked {
 impl AutoNucleolus for BankruptcyGame {
     fn nucleolus_auto(&self) -> Result<Solution> {
         Ok(Solution {
-            concept: Concept::Nucleolus,
+            domain: Domain::Imputation,
             allocation: self.nucleolus()?,
             guarantee: Guarantee::Proven(Property::Bankruptcy),
             method: "talmud-rule",
@@ -71,10 +60,8 @@ impl AutoNucleolus for BankruptcyGame {
 
 impl AutoNucleolus for WeightedVotingGame {
     fn nucleolus_auto(&self) -> Result<Solution> {
-        Ok(exact(
-            nucleolus::oracle::nucleolus(self)?.allocation,
-            "oracle-constraint-generation",
-        ))
+        Ok(nucleolus::oracle::nucleolus(self)?
+            .into_solution(Domain::Imputation, "oracle-constraint-generation"))
     }
 }
 

@@ -34,8 +34,7 @@ fn structures(game: &ExplicitGame, shapley: &[f64]) -> coopgame::Result<()> {
     println!("\n== 提携構造 ==");
     // ブロックはメンバーの番号の列で渡す。{0, 1} は [0, 1]、{2} は [2]。
     let blocks = CoalitionStructure::new(3, &[vec![0, 1], vec![2]])?;
-    let listed: Vec<String> = blocks.blocks().iter().map(|b| b.to_string()).collect();
-    println!("グループ: {}", listed.join(" "));
+    println!("グループ: {blocks}");
 
     // Aumann–Drèze 値: 各グループの中の Shapley 値。{0, 1} は v({0, 1}) = 4 を等分し、{2} は単独の値 0。
     let aumann_dreze = partition::aumann_dreze(game, &blocks)?;
@@ -47,9 +46,10 @@ fn structures(game: &ExplicitGame, shapley: &[f64]) -> coopgame::Result<()> {
     let nucleolus = partition::nucleolus(game, &blocks, Domain::Imputation)?;
     println!(
         "提携構造つきの仁: {:.4?} (保証 {})",
-        nucleolus.allocation, nucleolus.guarantee
+        nucleolus.allocation(),
+        nucleolus.guarantee()
     );
-    assert!(close(&nucleolus.allocation, &[1.0, 3.0, 0.0], 1e-6));
+    assert!(close(nucleolus.allocation(), &[1.0, 3.0, 0.0], 1e-6));
 
     // Owen 値: グループを事前の連合とみなし、全員で v(N) = 12 を分ける。
     let owen = partition::owen(game, &blocks)?;

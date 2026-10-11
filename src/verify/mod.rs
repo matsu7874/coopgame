@@ -38,7 +38,7 @@ use crate::game::{ExplicitGame, PlayerSet, SetFunction, value_scale};
 use crate::linalg::max_abs_difference;
 use crate::nucleolus::{self, Options};
 use crate::rng::SplitMix64;
-use crate::solution::{Concept, Guarantee, Solution, Unverified};
+use crate::solution::{Guarantee, Solution, Unverified};
 
 /// 厳密な検証を行う人数の上限 (全提携の値の表と、有理数の LP を使う)。
 pub const MAX_CERTIFY_PLAYERS: usize = 20;
@@ -93,14 +93,14 @@ impl Unverified<Solution> {
         options: VerifyOptions,
     ) -> Result<Verified> {
         let solution = self.peek();
-        let check = check(game, &solution.allocation, solution.concept, options)?;
+        let check = check(game, &solution.allocation, solution.domain, options)?;
         Ok(self.conclude(check))
     }
 
     /// 有理数で構築したゲームの値を使って検証する。
     pub fn verify_exact(self, game: &ExactGame, options: VerifyOptions) -> Result<Verified> {
         let solution = self.peek();
-        let check = check_exact(game, &solution.allocation, solution.concept, options)?;
+        let check = check_exact(game, &solution.allocation, solution.domain, options)?;
         Ok(self.conclude(check))
     }
 
@@ -124,15 +124,15 @@ impl Unverified<Solution> {
     }
 }
 
-/// 配分 `x` がゲーム `game` の `concept` (仁かプレ仁) かを確かめる。
+/// 配分 `x` がゲーム `game` の仁 (`domain` が [`Domain::Imputation`]) か
+/// プレ仁 ([`Domain::Preimputation`]) かを確かめる。
 pub fn check<G: SetFunction + ?Sized>(
     game: &G,
     x: &[f64],
-    concept: Concept,
+    domain: Domain,
     options: VerifyOptions,
 ) -> Result<Check> {
     let n = game.players();
-    let domain = concept.domain();
     let tolerance = 1e-6 * value_scale(game);
     if let Some(refuted) = check_feasibility(game, x, domain)? {
         return Ok(refuted);
@@ -154,11 +154,10 @@ pub fn check<G: SetFunction + ?Sized>(
 pub fn check_exact(
     exact: &ExactGame,
     x: &[f64],
-    concept: Concept,
+    domain: Domain,
     _options: VerifyOptions,
 ) -> Result<Check> {
     let explicit = exact.to_explicit()?;
-    let domain = concept.domain();
     // 実行可能性 (和・個人合理性) は浮動小数点数の値で確かめ、残りは厳密な値で確かめる。
     match check_feasibility(&explicit, x, domain)? {
         Some(refuted) => Ok(refuted),

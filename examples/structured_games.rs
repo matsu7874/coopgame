@@ -167,7 +167,7 @@ fn bankruptcy() -> coopgame::Result<()> {
     // タルムード則は破産ゲーム v(S) = max(0, 遺産 - S の外の請求の合計) の仁に一致する。
     // 全提携の表に直して逐次 LP で求めた仁と比べる。
     let game = BankruptcyGame::new(estate, claims.to_vec())?;
-    let lp = nucleolus::nucleolus(&ExplicitGame::tabulate(&game)?)?.allocation;
+    let lp = nucleolus::nucleolus(&ExplicitGame::tabulate(&game)?)?.into_allocation();
     println!("  破産ゲームの仁 (逐次 LP): {lp:.4?}");
 
     assert!(close(&talmud, &[50.0, 75.0, 75.0], 1e-6));

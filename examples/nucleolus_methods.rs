@@ -34,24 +34,26 @@ fn lp_methods(game: &ExplicitGame) -> coopgame::Result<()> {
     let result = nucleolus::nucleolus(game)?;
     println!(
         "仁:       {:.4?} 保証 {}",
-        result.allocation, result.guarantee
+        result.allocation(),
+        result.guarantee()
     );
-    assert!(close(&result.allocation, &[2.0, 4.0, 6.0], 1e-6));
-    assert_eq!(result.guarantee, Guarantee::Exact);
+    assert!(close(result.allocation(), &[2.0, 4.0, 6.0], 1e-6));
+    assert_eq!(result.guarantee(), Guarantee::Exact);
 
     // プレ仁は、個人合理性 (x_i >= v({i})) を課さずに求める。
     // このゲームではコアが空でないので、仁と一致する。
     let pre = nucleolus::prenucleolus(game)?;
-    println!("プレ仁:   {:.4?}", pre.allocation);
-    assert!(close(&pre.allocation, &[2.0, 4.0, 6.0], 1e-6));
+    println!("プレ仁:   {:.4?}", pre.allocation());
+    assert!(close(pre.allocation(), &[2.0, 4.0, 6.0], 1e-6));
 
     // 最小コア: 全ての提携の超過を epsilon 以下にする配分のうち、epsilon が最小のもの。
     let least = nucleolus::least_core(game, Domain::Imputation)?;
     println!(
         "最小コア: epsilon {:.4}、配分 {:.4?}",
-        least.epsilon, least.allocation
+        least.epsilon(),
+        least.allocation()
     );
-    assert!((least.epsilon + 2.0).abs() < 1e-6);
+    assert!((least.epsilon() + 2.0).abs() < 1e-6);
 
     // epsilon が 0 以下であることは、コアが空でないことと同じである。
     let nonempty = nucleolus::has_nonempty_core(game)?;
@@ -101,23 +103,23 @@ fn variant_methods(game: &ExplicitGame) -> coopgame::Result<()> {
     let modiclus = variants::modiclus(game)?;
     // disruption nucleolus: 提携の抜ける傾向を辞書式に小さくする。
     let disruption = variants::disruption_nucleolus(game)?;
-    println!("per capita 仁:        {:.4?}", per_capita.allocation);
-    println!("比例仁:               {:.4?}", proportional.allocation);
-    println!("modiclus:             {:.4?}", modiclus.allocation);
-    println!("disruption nucleolus: {:.4?}", disruption.allocation);
-    assert!(close(&per_capita.allocation, &[2.0, 4.0, 6.0], 1e-6));
+    println!("per capita 仁:        {:.4?}", per_capita.allocation());
+    println!("比例仁:               {:.4?}", proportional.allocation());
+    println!("modiclus:             {:.4?}", modiclus.allocation());
+    println!("disruption nucleolus: {:.4?}", disruption.allocation());
+    assert!(close(per_capita.allocation(), &[2.0, 4.0, 6.0], 1e-6));
     assert!(close(
-        &proportional.allocation,
+        proportional.allocation(),
         &[4.0 / 3.0, 4.0, 20.0 / 3.0],
         1e-6
     ));
     assert!(close(
-        &modiclus.allocation,
+        modiclus.allocation(),
         &[8.0 / 3.0, 14.0 / 3.0, 14.0 / 3.0],
         1e-6
     ));
     assert!(close(
-        &disruption.allocation,
+        disruption.allocation(),
         &[8.0 / 3.0, 4.0, 16.0 / 3.0],
         1e-6
     ));
@@ -194,8 +196,8 @@ fn convex_methods(shared: &ExplicitGame) -> coopgame::Result<()> {
     }
     // 同じゲームの仁を逐次 LP で求めると (1, 1, 1) になる。
     let lp = nucleolus::nucleolus(&game)?;
-    println!("  逐次 LP の仁: {:.4?}", lp.allocation);
-    assert!(close(&lp.allocation, &[1.0, 1.0, 1.0], 1e-6));
+    println!("  逐次 LP の仁: {:.4?}", lp.allocation());
+    assert!(close(lp.allocation(), &[1.0, 1.0, 1.0], 1e-6));
     Ok(())
 }
 

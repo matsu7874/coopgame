@@ -7,6 +7,7 @@
 
 use std::cell::RefCell;
 
+use coopgame::Solution;
 use coopgame::analysis::explain as explain_core;
 use coopgame::analysis::plot as plot_core;
 use coopgame::analysis::search as search_core;
@@ -29,7 +30,6 @@ use coopgame::partition;
 use coopgame::properties::{Assume, ConvexChecked};
 use coopgame::verify::{self as verify_core, Check, Verified, VerifyOptions};
 use coopgame::{Coalition, Domain, ExplicitGame, generators, properties};
-use coopgame::{Concept, Solution};
 use coopgame::{bargaining, communication, compromise, power, values};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -316,11 +316,11 @@ fn nucleolus_dict<'py>(
     result: nucleolus_core::NucleolusResult,
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
-    dict.set_item("allocation", result.allocation)?;
-    dict.set_item("levels", result.levels)?;
-    dict.set_item("lp_solves", result.lp_solves)?;
-    dict.set_item("rows_added", result.rows_added)?;
-    dict.set_item("guarantee", result.guarantee.to_string())?;
+    dict.set_item("allocation", result.allocation())?;
+    dict.set_item("levels", result.levels())?;
+    dict.set_item("lp_solves", result.lp_solves())?;
+    dict.set_item("rows_added", result.rows_added())?;
+    dict.set_item("guarantee", result.guarantee().to_string())?;
     Ok(dict)
 }
 
@@ -360,9 +360,9 @@ fn least_core<'py>(py: Python<'py>, game: &Game, domain: &str) -> PyResult<Bound
     let result =
         nucleolus_core::least_core(&game.inner, parse_domain(domain)?).map_err(to_py_err)?;
     let dict = PyDict::new(py);
-    dict.set_item("epsilon", result.epsilon)?;
-    dict.set_item("allocation", result.allocation)?;
-    dict.set_item("guarantee", result.guarantee.to_string())?;
+    dict.set_item("epsilon", result.epsilon())?;
+    dict.set_item("allocation", result.allocation())?;
+    dict.set_item("guarantee", result.guarantee().to_string())?;
     Ok(dict)
 }
 
@@ -388,11 +388,11 @@ fn kernel_point<'py>(
     )
     .map_err(to_py_err)?;
     let dict = PyDict::new(py);
-    dict.set_item("allocation", result.allocation)?;
-    dict.set_item("iterations", result.iterations)?;
-    dict.set_item("violation", result.violation)?;
-    dict.set_item("converged", result.converged)?;
-    dict.set_item("guarantee", result.guarantee.to_string())?;
+    dict.set_item("allocation", result.allocation())?;
+    dict.set_item("iterations", result.iterations())?;
+    dict.set_item("violation", result.violation())?;
+    dict.set_item("converged", result.converged())?;
+    dict.set_item("guarantee", result.guarantee().to_string())?;
     Ok(dict)
 }
 
@@ -1099,10 +1099,10 @@ fn normalize(values: Vec<f64>) -> Vec<f64> {
 
 fn estimate_dict<'py>(py: Python<'py>, estimate: values::Estimate) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
-    dict.set_item("values", estimate.values)?;
-    dict.set_item("standard_errors", estimate.standard_errors)?;
-    dict.set_item("evaluations", estimate.evaluations)?;
-    dict.set_item("guarantee", estimate.guarantee.to_string())?;
+    dict.set_item("values", estimate.values())?;
+    dict.set_item("standard_errors", estimate.standard_errors())?;
+    dict.set_item("evaluations", estimate.evaluations())?;
+    dict.set_item("guarantee", estimate.guarantee().to_string())?;
     Ok(dict)
 }
 
@@ -1149,11 +1149,11 @@ fn sampled_nucleolus<'py>(
         sampled::nucleolus(g, pairs, seed, domain).map_err(to_py_err)
     })?;
     let dict = PyDict::new(py);
-    dict.set_item("allocation", result.allocation)?;
-    dict.set_item("epsilon", result.epsilon)?;
-    dict.set_item("levels", result.levels)?;
-    dict.set_item("evaluations", result.evaluations)?;
-    dict.set_item("guarantee", result.guarantee.to_string())?;
+    dict.set_item("allocation", result.allocation())?;
+    dict.set_item("epsilon", result.epsilon())?;
+    dict.set_item("levels", result.levels())?;
+    dict.set_item("evaluations", result.evaluations())?;
+    dict.set_item("guarantee", result.guarantee().to_string())?;
     Ok(dict)
 }
 
@@ -1172,10 +1172,10 @@ fn sampled_least_core<'py>(
         sampled::least_core(g, pairs, seed, domain).map_err(to_py_err)
     })?;
     let dict = PyDict::new(py);
-    dict.set_item("allocation", least.allocation)?;
-    dict.set_item("epsilon", least.epsilon)?;
+    dict.set_item("allocation", least.allocation())?;
+    dict.set_item("epsilon", least.epsilon())?;
     dict.set_item("evaluations", evaluations)?;
-    dict.set_item("guarantee", least.guarantee.to_string())?;
+    dict.set_item("guarantee", least.guarantee().to_string())?;
     Ok(dict)
 }
 
@@ -1184,10 +1184,10 @@ fn lexicographic_dict<'py>(
     result: variants::LexicographicResult,
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
-    dict.set_item("allocation", result.allocation)?;
-    dict.set_item("levels", result.levels)?;
-    dict.set_item("lp_solves", result.lp_solves)?;
-    dict.set_item("guarantee", result.guarantee.to_string())?;
+    dict.set_item("allocation", result.allocation())?;
+    dict.set_item("levels", result.levels())?;
+    dict.set_item("lp_solves", result.lp_solves())?;
+    dict.set_item("guarantee", result.guarantee().to_string())?;
     Ok(dict)
 }
 
@@ -1403,34 +1403,26 @@ fn auto_nucleolus<'py>(py: Python<'py>, game: &Bound<'py, PyAny>) -> PyResult<Bo
     solution_dict(py, &solution, None)
 }
 
-/// 配分 `allocation` が仁 (`concept="nucleolus"`) かプレ仁かを、ゲームの値だけで検証する。
+/// 配分 `allocation` が仁 (`domain="imputation"`) かプレ仁 (`"preimputation"`) かを、ゲームの値だけで検証する。
 ///
 /// 20 人以下は厳密な検証、26 人以下はランダムな `pairs` 組のカーネル条件の総当たり (否定だけができる)。
 /// 戻り値の `check` は `"certified"`・`"refuted"`・`"undecided"`。`certified` なら `exact` に Fraction の配分。
 #[pyfunction]
-#[pyo3(signature = (game, allocation, concept = "nucleolus", pairs = 8, seed = 0))]
+#[pyo3(signature = (game, allocation, domain = "imputation", pairs = 8, seed = 0))]
 fn verify_solution<'py>(
     py: Python<'py>,
     game: &Bound<'py, PyAny>,
     allocation: Vec<f64>,
-    concept: &str,
+    domain: &str,
     pairs: usize,
     seed: u64,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let concept = match concept {
-        "nucleolus" => Concept::Nucleolus,
-        "prenucleolus" => Concept::Prenucleolus,
-        _ => {
-            return Err(PyValueError::new_err(format!(
-                "concept は \"nucleolus\" か \"prenucleolus\": {concept:?}"
-            )));
-        }
-    };
+    let domain = parse_domain(domain)?;
     let check = with_set_function(game, |g| {
         let mut options = VerifyOptions::default();
         options.pairs = pairs;
         options.seed = seed;
-        verify_core::check(g, &allocation, concept, options).map_err(to_py_err)
+        verify_core::check(g, &allocation, domain, options).map_err(to_py_err)
     })?;
     let dict = PyDict::new(py);
     match check {

@@ -43,13 +43,40 @@ impl TransferOptions {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct KernelResult {
-    pub allocation: Vec<f64>,
-    pub iterations: usize,
+    pub(crate) allocation: Vec<f64>,
+    pub(crate) iterations: usize,
     /// 停止時の [`kernel_violation`]。
-    pub violation: f64,
-    pub converged: bool,
+    pub(crate) violation: f64,
+    pub(crate) converged: bool,
     /// 収束すれば [`Guarantee::Exact`] (カーネル条件を許容誤差の範囲で満たす)、しなければ [`Guarantee::Approximate`]。
-    pub guarantee: Guarantee,
+    pub(crate) guarantee: Guarantee,
+}
+
+impl KernelResult {
+    pub fn allocation(&self) -> &[f64] {
+        &self.allocation
+    }
+
+    pub fn into_allocation(self) -> Vec<f64> {
+        self.allocation
+    }
+
+    pub fn iterations(&self) -> usize {
+        self.iterations
+    }
+
+    /// 停止時の [`kernel_violation`]。
+    pub fn violation(&self) -> f64 {
+        self.violation
+    }
+
+    pub fn converged(&self) -> bool {
+        self.converged
+    }
+
+    pub fn guarantee(&self) -> Guarantee {
+        self.guarantee
+    }
 }
 
 /// 最大余剰の不釣り合い。`x` が(プレ)カーネルに属すれば 0。

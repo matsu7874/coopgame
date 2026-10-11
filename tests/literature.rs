@@ -22,7 +22,7 @@ fn check_nucleolus(game: &ExplicitGame, domain: Domain, expected: &[f64], label:
         Domain::Preimputation => nucleolus::prenucleolus(game),
     }
     .unwrap();
-    assert_close(&result.allocation, expected, label);
+    assert_close(result.allocation(), expected, label);
     assert!(
         verify::kohlberg(game, expected, domain).unwrap().satisfied,
         "{label}"
@@ -121,7 +121,7 @@ fn bankruptcy_nucleolus_matches_talmud_rule() {
         let estate = (rng.next_f64() * total).round();
         let game = generators::bankruptcy(estate, &claims).unwrap();
         let expected = talmud_rule(estate, &claims);
-        let actual = nucleolus::nucleolus(&game).unwrap().allocation;
+        let actual = nucleolus::nucleolus(&game).unwrap().into_allocation();
         for (a, e) in actual.iter().zip(&expected) {
             assert!(
                 (a - e).abs() < 1e-6 * total.max(1.0),
@@ -301,13 +301,13 @@ fn sampling_on_large_majority_game() {
     let exact_banzhaf = (log_binomial - 100.0 * 2f64.ln()).exp();
     for i in 0..n {
         assert!(
-            (shapley.values[i] - 1.0 / n as f64).abs() < 5.0 * shapley.standard_errors[i],
+            (shapley.values()[i] - 1.0 / n as f64).abs() < 5.0 * shapley.standard_errors()[i],
             "Shapley {i}"
         );
         assert!(
-            (banzhaf.values[i] - exact_banzhaf).abs() < 5.0 * banzhaf.standard_errors[i],
+            (banzhaf.values()[i] - exact_banzhaf).abs() < 5.0 * banzhaf.standard_errors()[i],
             "Banzhaf {i}"
         );
     }
-    assert!((shapley.values.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+    assert!((shapley.values().iter().sum::<f64>() - 1.0).abs() < 1e-9);
 }

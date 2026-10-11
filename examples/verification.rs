@@ -31,7 +31,7 @@ use coopgame::nucleolus;
 use coopgame::properties;
 use coopgame::surplus;
 use coopgame::verify::{self, Check, VerifyOptions};
-use coopgame::{Concept, Domain, ExplicitGame};
+use coopgame::{Domain, ExplicitGame};
 
 /// 1 つの配分に対する判定の結果。
 struct Findings {
@@ -113,7 +113,7 @@ fn inspect(game: &ExplicitGame, label: &str, x: &[f64]) -> coopgame::Result<Find
     );
 
     // 5. 仁としての事後検証。結果は Certified・Refuted・Undecided のどれかになる。
-    let check = verify::check(game, x, Concept::Nucleolus, VerifyOptions::default())?;
+    let check = verify::check(game, x, Domain::Imputation, VerifyOptions::default())?;
     println!("  事後検証: {}", describe(&check));
 
     // 6. カーネルの条件: どの 2 人の間でも最大余剰が釣り合っているか。
@@ -162,7 +162,7 @@ fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
 
     // 逐次 LP で仁を求める。これが検証の基準になる。
-    let nucleolus = nucleolus::nucleolus(&game)?.allocation;
+    let nucleolus = nucleolus::nucleolus(&game)?.into_allocation();
     assert!(close(&nucleolus, &[2.0, 4.0, 6.0], 1e-6));
 
     // 結果を確かめる (docs/examples.md の値)。
@@ -204,7 +204,7 @@ fn main() -> coopgame::Result<()> {
     let talmud = bankruptcy.nucleolus()?;
     let mut options = VerifyOptions::default();
     options.pairs = 1;
-    let check = verify::check(&bankruptcy, &talmud, Concept::Nucleolus, options)?;
+    let check = verify::check(&bankruptcy, &talmud, Domain::Imputation, options)?;
     println!("  事後検証 (1 組だけ確かめる): {}", describe(&check));
     assert!(matches!(check, Check::Undecided(_)));
     Ok(())

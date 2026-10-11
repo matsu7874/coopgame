@@ -84,8 +84,12 @@ fn main() {
                 let (game, exact) = generate(class, n, seed);
                 let is_convex = properties::is_convex(&game);
                 let scale = game.max_abs_value().max(1.0);
-                let reference = nucleolus::nucleolus(&game).ok().map(|r| r.allocation);
-                let pre = nucleolus::prenucleolus(&game).ok().map(|r| r.allocation);
+                let reference = nucleolus::nucleolus(&game)
+                    .ok()
+                    .map(|r| r.into_allocation());
+                let pre = nucleolus::prenucleolus(&game)
+                    .ok()
+                    .map(|r| r.into_allocation());
                 let started = Instant::now();
                 let assumed = Assume::convex(game.clone());
                 let result = convex::nucleolus_with(&assumed, options);

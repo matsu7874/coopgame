@@ -58,10 +58,14 @@ fn small() -> coopgame::Result<()> {
 
     // 表を受け取る手法は全て使える。仁は逐次 LP で求める。
     let result = nucleolus::nucleolus(&game)?;
-    println!("仁: {:.4?} (保証 {})", result.allocation, result.guarantee);
+    println!(
+        "仁: {:.4?} (保証 {})",
+        result.allocation(),
+        result.guarantee()
+    );
     // 右手袋が余っているので、仁は左手袋の 2 人に 1 ずつ、右手袋の 3 人に 0 を配る。
-    assert!(close(&result.allocation, &[1.0, 1.0, 0.0, 0.0, 0.0], 1e-6));
-    assert_eq!(result.guarantee, Guarantee::Exact);
+    assert!(close(result.allocation(), &[1.0, 1.0, 0.0, 0.0, 0.0], 1e-6));
+    assert_eq!(result.guarantee(), Guarantee::Exact);
 
     // Shapley 値は、右手袋の人にも正の値を配る。
     let shapley = values::shapley(&game);
@@ -91,17 +95,21 @@ fn large() -> coopgame::Result<()> {
     println!(
         "Shapley 値の推定 ({:.2?}、評価 {} 回): 左の平均 {:.4}、右の平均 {:.4}",
         started.elapsed(),
-        estimate.evaluations,
-        mean(&estimate.values[..left]),
-        mean(&estimate.values[left..])
+        estimate.evaluations(),
+        mean(&estimate.values()[..left]),
+        mean(&estimate.values()[left..])
     );
     println!(
         "標準誤差の最大: {:.4}",
-        estimate.standard_errors.iter().copied().fold(0.0, f64::max)
+        estimate
+            .standard_errors()
+            .iter()
+            .copied()
+            .fold(0.0, f64::max)
     );
     // どの参加順でも限界貢献の合計は v(N) = 14 なので、推定値の合計も 14 になる。
-    assert!((estimate.values.iter().sum::<f64>() - 14.0).abs() < 1e-6);
-    assert_eq!(estimate.guarantee, Guarantee::Approximate);
+    assert!((estimate.values().iter().sum::<f64>() - 14.0).abs() < 1e-6);
+    assert_eq!(estimate.guarantee(), Guarantee::Approximate);
 
     // 仁: 提携とその補集合を 50 組サンプルし、サンプルした提携の超過だけを辞書式に最小化する。
     // 人数 n の LP を段ごとに解くので、Shapley 値の推定より人数に弱い。
@@ -110,17 +118,17 @@ fn large() -> coopgame::Result<()> {
     println!(
         "仁の近似 ({:.2?}、評価 {} 回): 左の平均 {:.4}、右の平均 {:.4}",
         started.elapsed(),
-        approx.evaluations,
-        mean(&approx.allocation[..left]),
-        mean(&approx.allocation[left..])
+        approx.evaluations(),
+        mean(&approx.allocation()[..left]),
+        mean(&approx.allocation()[left..])
     );
-    println!("保証: {}", approx.guarantee);
+    println!("保証: {}", approx.guarantee());
     // この入力では、近似は左手袋に 1 ずつ、右手袋に 0 を配る。
     // 小さい人数の仁と同じ形だが、サンプルしていない提携は調べていないので、保証は approximate のままである。
-    assert!(close(&approx.allocation[..left], &vec![1.0; left], 1e-6));
-    assert!(close(&approx.allocation[left..], &vec![0.0; right], 1e-6));
-    assert_eq!(approx.guarantee, Guarantee::Approximate);
-    assert!(!approx.guarantee.is_reliable());
+    assert!(close(&approx.allocation()[..left], &vec![1.0; left], 1e-6));
+    assert!(close(&approx.allocation()[left..], &vec![0.0; right], 1e-6));
+    assert_eq!(approx.guarantee(), Guarantee::Approximate);
+    assert!(!approx.guarantee().is_reliable());
     Ok(())
 }
 

@@ -22,10 +22,11 @@
 
 use std::cell::Cell;
 
+use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::{PlayerSet, SetFunction, value_scale};
 use crate::properties::{ConvexGame, ProofKind};
-use crate::solution::{Concept, Property, Solution};
+use crate::solution::{Property, Solution};
 use crate::submodular;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -74,7 +75,7 @@ pub fn nucleolus_with<G: ConvexGame + ?Sized>(
 ) -> Result<(<G::Proof as ProofKind>::Output<Solution>, ConvexStats)> {
     let (allocation, stats) = prekernel_point(game, options)?;
     let solution = Solution {
-        concept: Concept::Nucleolus,
+        domain: Domain::Imputation,
         allocation,
         guarantee: G::Proof::guarantee(Property::Convex),
         method: "convex-transfer",

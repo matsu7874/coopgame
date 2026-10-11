@@ -120,6 +120,8 @@ crates.io で公開しているので、公開 API の変更は semver に従う
 - 内部でしか使わない関数やモジュールは `pub(crate)` にする。テストのためだけに公開しない (結合テストで足りなければ、単体テストに移す)。
 - 後から変種を足しうる enum (`Error`、`Guarantee` など) と、後からフィールドを足しうる設定と結果の構造体には `#[non_exhaustive]` を付ける。
   三択で状態が確定している `Verified` と `Check`、2 値の `Domain` には付けない。
+- 保証 (`Guarantee`) を持つ結果の構造体 (`Solution`、`NucleolusResult`、`LeastCore`、`KernelResult` など) は、フィールドを `pub(crate)` にし、同じ名前の読み出し関数 (`allocation()` など) と、配分を取り出す `into_allocation()` を公開する。
+  保証はライブラリが計算した事実からだけ付くので、クレートの外で作ったり、配分や保証を書き換えたりできないようにする。
 - 設定の構造体は、`Default` か `::new` で作ってからフィールドに代入する形で使う (`#[non_exhaustive]` の構造体は、クレートの外では構造体リテラルで作れない)。
 - 既定の feature は空にし、ライブラリの依存を増やす機能は feature の後ろに置く。
   今は `serde_json` を使う `io` と、CLI の `cli` がある。

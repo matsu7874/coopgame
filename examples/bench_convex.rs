@@ -19,7 +19,7 @@ use coopgame::games::graph::InducedSubgraphGame;
 use coopgame::generators::SplitMix64;
 use coopgame::nucleolus::convex::{self, ConvexOptions};
 use coopgame::verify::{self, Check, VerifyOptions};
-use coopgame::{Concept, nucleolus};
+use coopgame::{Domain, nucleolus};
 
 #[path = "../tests/common/mod.rs"]
 mod common;
@@ -86,7 +86,7 @@ fn main() {
                         (String::new(), "not_checked".to_string())
                     } else if n <= 16 {
                         let explicit = ExplicitGame::tabulate(&game).unwrap();
-                        let lp = nucleolus::nucleolus(&explicit).unwrap().allocation;
+                        let lp = nucleolus::nucleolus(&explicit).unwrap().into_allocation();
                         (
                             format!("{:.2e}", max_abs_difference(solution.allocation(), &lp)),
                             String::new(),
@@ -98,7 +98,7 @@ fn main() {
                         let check = verify::check(
                             &game,
                             solution.allocation(),
-                            Concept::Nucleolus,
+                            Domain::Imputation,
                             options,
                         )
                         .unwrap();

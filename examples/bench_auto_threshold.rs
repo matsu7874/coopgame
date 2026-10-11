@@ -43,7 +43,7 @@ fn main() {
             let game = ConvexChecked::new(generators::random_convex(n, seed).unwrap())
                 .expect("凸ゲームを生成する");
             let started = Instant::now();
-            let lp = nucleolus::nucleolus(game.game()).unwrap().allocation;
+            let lp = nucleolus::nucleolus(game.game()).unwrap().into_allocation();
             let lp_seconds = started.elapsed().as_secs_f64();
             let started = Instant::now();
             let solution = convex::nucleolus(&game).unwrap();

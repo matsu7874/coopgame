@@ -188,25 +188,28 @@ fn valuation(sizes: &[usize], budgets: &[usize], seeds: u64) {
                 };
                 let started = Instant::now();
                 let shapley = values::shapley_sampling(&game, budget / n, seed);
-                report("shapley", &shapley.values, shapley.evaluations, started);
+                report("shapley", shapley.values(), shapley.evaluations(), started);
 
                 let started = Instant::now();
                 let banzhaf = values::banzhaf_sampling(&game, budget / (n + 1), seed);
-                report("banzhaf", &banzhaf.values, banzhaf.evaluations, started);
+                report("banzhaf", banzhaf.values(), banzhaf.evaluations(), started);
 
                 let pairs = budget.saturating_sub(2 * n) / 2;
                 let started = Instant::now();
                 match sampled::least_core(&game, pairs, seed, Domain::Preimputation) {
                     Ok((least, evaluations)) => {
-                        report("least_core", &least.allocation, evaluations, started)
+                        report("least_core", least.allocation(), evaluations, started)
                     }
                     Err(err) => eprintln!("least_core n={n} seed={seed} budget={budget}: {err}"),
                 }
                 let started = Instant::now();
                 match sampled::nucleolus(&game, pairs, seed, Domain::Preimputation) {
-                    Ok(result) => {
-                        report("nucleolus", &result.allocation, result.evaluations, started)
-                    }
+                    Ok(result) => report(
+                        "nucleolus",
+                        result.allocation(),
+                        result.evaluations(),
+                        started,
+                    ),
                     Err(err) => eprintln!("nucleolus n={n} seed={seed} budget={budget}: {err}"),
                 }
             }
@@ -221,14 +224,14 @@ fn convergence() {
         for n in [10, 12] {
             for seed in 0..5 {
                 let game = generators::bnf(kind, n, seed).unwrap();
-                let exact = nucleolus::prenucleolus(&game).unwrap().allocation;
+                let exact = nucleolus::prenucleolus(&game).unwrap().into_allocation();
                 let scale = game.max_abs_value().max(1.0);
                 for pairs in [25, 50, 100, 200, 400, 800, 1600] {
                     let sampled = SampledGame::sample(&game, pairs, 100 + seed).unwrap();
                     let approx =
                         sampled::nucleolus(&game, pairs, 100 + seed, Domain::Preimputation)
                             .unwrap();
-                    let error = max_abs_difference(&approx.allocation, &exact) / scale;
+                    let error = max_abs_difference(approx.allocation(), &exact) / scale;
                     println!(
                         "{kind},{n},{seed},{pairs},{},{error:.6}",
                         sampled.evaluations()

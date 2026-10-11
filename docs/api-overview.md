@@ -58,7 +58,7 @@ LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を�
 | カーネル・プレカーネルの検証 | `kernel::is_in_kernel`, `kernel::kernel_violation` | 最大余剰の釣り合い条件 |
 | 交渉集合・プレ交渉集合への所属 | `bargaining::{check, is_in_bargaining_set}` | 組 `(i, j)` と提携 `S` ごとに、反論のない異議があるかを LP で判定。異議があればその支払いを返す |
 | ゲームの性質 | `properties::{is_superadditive, is_convex, is_zero_monotonic, is_in_core}`、`nucleolus::has_nonempty_core` | 定義どおりの判定、コアが空でないかは最小コアの LP |
-| 結果の事後検証 | `verify::{check, check_exact}`、`Unverified::verify` | 配分 `&[f64]` と解の種類 (`Concept`) を受け取る。20 人以下は有理数の厳密な検証、26 人以下は組ごとのカーネル条件で否定。保証を `certified` に上げるのは `Unverified::verify`・`verify_exact` だけ |
+| 結果の事後検証 | `verify::{check, check_exact}`、`Unverified::verify` | 配分 `&[f64]` と `Domain` (仁は `Imputation`、プレ仁は `Preimputation`) を受け取る。20 人以下は有理数の厳密な検証、26 人以下は組ごとのカーネル条件で否定。保証を `certified` に上げるのは `Unverified::verify`・`verify_exact` だけ |
 | 保証のある手法の自動選択 | `auto::AutoNucleolus` | ゲームの型から、保証のある手法のうち最も速いものを選ぶ |
 
 結果に付く保証の種類 (`exact`・`proven`・`assumed`・`certified`・`approximate`) は [保証の種類と、性質に基づく手法の使い分け](guarantees.md) を参照。

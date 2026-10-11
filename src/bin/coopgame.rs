@@ -260,10 +260,10 @@ fn run(raw: &[String]) -> CliResult<()> {
                         .and_then(|partial| partial.nucleolus(args.domain()))?;
                     eprintln!(
                         "guarantee={} (値が分かる {} 個の提携だけで解いた。真のゲームの仁とは限らない)",
-                        result.guarantee,
+                        result.guarantee(),
                         data.known.len()
                     );
-                    print_allocation(&result.allocation);
+                    print_allocation(result.allocation());
                     return Ok(());
                 }
                 Err(message) => return Err(message),
@@ -284,13 +284,13 @@ fn run(raw: &[String]) -> CliResult<()> {
             eprintln!(
                 "time={:.6}s lp_solves={} rows_added={} levels={:?}",
                 started.elapsed().as_secs_f64(),
-                result.lp_solves,
-                result.rows_added,
-                result.levels
+                result.lp_solves(),
+                result.rows_added(),
+                result.levels()
             );
             match &cost {
-                Some(cost) => print_allocation(&cost.to_costs(&result.allocation)),
-                None => print_allocation(&result.allocation),
+                Some(cost) => print_allocation(&cost.to_costs(result.allocation())),
+                None => print_allocation(result.allocation()),
             }
         }
         "plot" => {
@@ -332,7 +332,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             let nucleolus = partition::nucleolus(&game, &structure, args.domain())?;
             println!("player\taumann_dreze\tstructured_nucleolus\towen");
             for i in 0..game.players() {
-                println!("{i}\t{}\t{}\t{}", ad[i], nucleolus.allocation[i], owen[i]);
+                println!("{i}\t{}\t{}\t{}", ad[i], nucleolus.allocation()[i], owen[i]);
             }
         }
         "airport" => {
@@ -373,10 +373,10 @@ fn run(raw: &[String]) -> CliResult<()> {
                     eprintln!(
                         "time={:.6}s evaluations={} standard_errors={:?}",
                         started.elapsed().as_secs_f64(),
-                        estimate.evaluations,
-                        estimate.standard_errors
+                        estimate.evaluations(),
+                        estimate.standard_errors()
                     );
-                    estimate.values
+                    estimate.into_values()
                 }
             };
             if args.has("--normalize") {
@@ -389,15 +389,19 @@ fn run(raw: &[String]) -> CliResult<()> {
             args.check_known(&["--pre", "--lex"])?;
             let game = read_game(args.file(0)?, args.has("--lex"))?;
             let result = nucleolus::least_core(&game, args.domain())?;
-            eprintln!("epsilon={}", result.epsilon);
-            print_allocation(&result.allocation);
+            eprintln!("epsilon={}", result.epsilon());
+            print_allocation(result.allocation());
         }
         "disruption" => {
             args.check_known(&["--lex"])?;
             let game = read_game(args.file(0)?, args.has("--lex"))?;
             let result = variants::disruption_nucleolus(&game)?;
-            eprintln!("lp_solves={} levels={:?}", result.lp_solves, result.levels);
-            print_allocation(&result.allocation);
+            eprintln!(
+                "lp_solves={} levels={:?}",
+                result.lp_solves(),
+                result.levels()
+            );
+            print_allocation(result.allocation());
         }
         "anti-nucleolus" => {
             args.check_known(&["--pre", "--lex"])?;
@@ -407,7 +411,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             } else {
                 variants::anti_nucleolus(&game)?
             };
-            print_allocation(&result.allocation);
+            print_allocation(result.allocation());
         }
         "solidarity" | "tau" | "gately" => {
             args.check_known(&["--lex"])?;
@@ -500,10 +504,10 @@ fn run(raw: &[String]) -> CliResult<()> {
             eprintln!(
                 "time={:.6}s lp_solves={} levels={:?}",
                 started.elapsed().as_secs_f64(),
-                result.lp_solves,
-                result.levels
+                result.lp_solves(),
+                result.levels()
             );
-            print_allocation(&result.allocation);
+            print_allocation(result.allocation());
         }
         "convex-nucleolus" => {
             args.check_known(&["--lex", "--assume"])?;
@@ -563,11 +567,11 @@ fn run(raw: &[String]) -> CliResult<()> {
             eprintln!(
                 "time={:.6}s iterations={} violation={:e} converged={}",
                 started.elapsed().as_secs_f64(),
-                result.iterations,
-                result.violation,
-                result.converged
+                result.iterations(),
+                result.violation(),
+                result.converged()
             );
-            print_allocation(&result.allocation);
+            print_allocation(result.allocation());
         }
         "kernel-set" => {
             args.check_known(&["--pre", "--lex", "--max-nodes", "--merge"])?;
@@ -714,17 +718,17 @@ fn run(raw: &[String]) -> CliResult<()> {
             let mut candidates: Vec<(String, Vec<f64>)> = Vec::new();
             // 計算できない解 (配分集合が空など) は飛ばす。
             if let Ok(r) = nucleolus::nucleolus(&game) {
-                candidates.push(("仁".into(), r.allocation));
+                candidates.push(("仁".into(), r.into_allocation()));
             }
             if let Ok(r) = nucleolus::prenucleolus(&game) {
-                candidates.push(("プレ仁".into(), r.allocation));
+                candidates.push(("プレ仁".into(), r.into_allocation()));
             }
             candidates.push(("Shapley 値".into(), values::shapley(&game)));
             if let Ok(r) = variants::per_capita_nucleolus(&game, Domain::Imputation) {
-                candidates.push(("per capita 仁".into(), r.allocation));
+                candidates.push(("per capita 仁".into(), r.into_allocation()));
             }
             if let Ok(r) = variants::modiclus(&game) {
-                candidates.push(("modiclus".into(), r.allocation));
+                candidates.push(("modiclus".into(), r.into_allocation()));
             }
             let (labels, allocations): (Vec<String>, Vec<Vec<f64>>) =
                 candidates.into_iter().unzip();
@@ -947,21 +951,23 @@ fn bench_one(game: &ExplicitGame, method: &str) -> CliResult<String> {
             let seconds = started.elapsed().as_secs_f64();
             format!(
                 "{seconds:.6},0,0,{},{},{:e},",
-                r.iterations, r.converged, r.violation
+                r.iterations(),
+                r.converged(),
+                r.violation()
             )
         })
     } else {
         nucleolus::nucleolus_with(game, options).map(|r| {
             let seconds = started.elapsed().as_secs_f64();
-            let verified = verify::kohlberg(game, &r.allocation, domain)
+            let verified = verify::kohlberg(game, r.allocation(), domain)
                 .map(|report| report.satisfied)
                 .unwrap_or(false);
             format!(
                 "{seconds:.6},{},{},{},{verified},{:e},",
-                r.lp_solves,
-                r.rows_added,
-                r.levels.len(),
-                kernel::kernel_violation(game, &r.allocation, domain)
+                r.lp_solves(),
+                r.rows_added(),
+                r.levels().len(),
+                kernel::kernel_violation(game, r.allocation(), domain)
             )
         })
     };

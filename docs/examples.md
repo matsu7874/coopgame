@@ -36,10 +36,10 @@ use coopgame::{ExplicitGame, nucleolus};
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let result = nucleolus::nucleolus(&game)?;
-    println!("{:.4?}", result.allocation); // [2.0000, 4.0000, 6.0000]
+    println!("{:.4?}", result.allocation()); // [2.0000, 4.0000, 6.0000]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(close(&result.allocation, &[2.0, 4.0, 6.0]));
+    assert!(close(result.allocation(), &[2.0, 4.0, 6.0]));
     Ok(())
 }
 ```
@@ -66,12 +66,12 @@ use coopgame::{Domain, ExplicitGame, nucleolus};
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let least = nucleolus::least_core(&game, Domain::Imputation)?;
-    println!("{:.4}", least.epsilon); // -2.0000
-    println!("{:.4?}", least.allocation); // [2.0000, 4.0000, 6.0000]
+    println!("{:.4}", least.epsilon()); // -2.0000
+    println!("{:.4?}", least.allocation()); // [2.0000, 4.0000, 6.0000]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!((least.epsilon + 2.0).abs() < 1e-6);
-    assert!(close(&least.allocation, &[2.0, 4.0, 6.0]));
+    assert!((least.epsilon() + 2.0).abs() < 1e-6);
+    assert!(close(least.allocation(), &[2.0, 4.0, 6.0]));
     Ok(())
 }
 ```
@@ -287,10 +287,10 @@ use coopgame::nucleolus::variants;
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let result = variants::disruption_nucleolus(&game)?;
-    println!("{:.4?}", result.allocation); // [2.6667, 4.0000, 5.3333]
+    println!("{:.4?}", result.allocation()); // [2.6667, 4.0000, 5.3333]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(close(&result.allocation, &[8.0 / 3.0, 4.0, 16.0 / 3.0]));
+    assert!(close(result.allocation(), &[8.0 / 3.0, 4.0, 16.0 / 3.0]));
     Ok(())
 }
 ```
@@ -317,10 +317,10 @@ use coopgame::{Domain, ExplicitGame};
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let result = variants::per_capita_nucleolus(&game, Domain::Imputation)?;
-    println!("{:.4?}", result.allocation); // [2.0000, 4.0000, 6.0000]
+    println!("{:.4?}", result.allocation()); // [2.0000, 4.0000, 6.0000]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(close(&result.allocation, &[2.0, 4.0, 6.0]));
+    assert!(close(result.allocation(), &[2.0, 4.0, 6.0]));
     Ok(())
 }
 ```
@@ -348,10 +348,10 @@ use coopgame::{Domain, ExplicitGame};
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let result = variants::proportional_nucleolus(&game, Domain::Imputation)?;
-    println!("{:.4?}", result.allocation); // [1.3333, 4.0000, 6.6667]
+    println!("{:.4?}", result.allocation()); // [1.3333, 4.0000, 6.6667]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(close(&result.allocation, &[4.0 / 3.0, 4.0, 20.0 / 3.0]));
+    assert!(close(result.allocation(), &[4.0 / 3.0, 4.0, 20.0 / 3.0]));
     Ok(())
 }
 ```
@@ -379,10 +379,10 @@ use coopgame::nucleolus::variants;
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let result = variants::modiclus(&game)?;
-    println!("{:.4?}", result.allocation); // [2.6667, 4.6667, 4.6667]
+    println!("{:.4?}", result.allocation()); // [2.6667, 4.6667, 4.6667]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(close(&result.allocation, &[8.0 / 3.0, 14.0 / 3.0, 14.0 / 3.0]));
+    assert!(close(result.allocation(), &[8.0 / 3.0, 14.0 / 3.0, 14.0 / 3.0]));
     Ok(())
 }
 ```
@@ -414,17 +414,17 @@ fn main() -> coopgame::Result<()> {
     // 共通の 3 人ゲーム: anti-prenucleolus は定義されるが、anti-nucleolus はエラー
     let shared = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let pre = variants::anti_prenucleolus(&shared)?;
-    println!("{:.4?}", pre.allocation); // [4.0000, 4.0000, 4.0000]
-    assert!(close(&pre.allocation, &[4.0, 4.0, 4.0]));
+    println!("{:.4?}", pre.allocation()); // [4.0000, 4.0000, 4.0000]
+    assert!(close(pre.allocation(), &[4.0, 4.0, 4.0]));
     assert!(variants::anti_nucleolus(&shared).is_err());
 
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 6.0, 10.0, 10.0, 12.0])?;
     let pre = variants::anti_prenucleolus(&game)?;
     let anti = variants::anti_nucleolus(&game)?;
-    println!("{:.4?}", pre.allocation); // [4.0000, 4.0000, 4.0000]
-    println!("{:.4?}", anti.allocation); // [3.0000, 3.0000, 6.0000]
-    assert!(close(&pre.allocation, &[4.0, 4.0, 4.0]));
-    assert!(close(&anti.allocation, &[3.0, 3.0, 6.0]));
+    println!("{:.4?}", pre.allocation()); // [4.0000, 4.0000, 4.0000]
+    println!("{:.4?}", anti.allocation()); // [3.0000, 3.0000, 6.0000]
+    assert!(close(pre.allocation(), &[4.0, 4.0, 4.0]));
+    assert!(close(anti.allocation(), &[3.0, 3.0, 6.0]));
     Ok(())
 }
 ```
@@ -455,14 +455,14 @@ use coopgame::{Domain, ExplicitGame};
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let point = kernel::kernel_point(&game, Domain::Imputation, None, TransferOptions::for_game(&game))?;
-    println!("{:.4?}", point.allocation); // [2.0000, 4.0000, 6.0000]
+    println!("{:.4?}", point.allocation()); // [2.0000, 4.0000, 6.0000]
 
     let set = kernel::kernel_set(&game, Domain::Imputation, SetOptions::for_game(&game))?;
     println!("{} {}", set.pieces.len(), set.pieces[0].dimension); // 1 0
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(point.converged);
-    assert!(close(&point.allocation, &[2.0, 4.0, 6.0]));
+    assert!(point.converged());
+    assert!(close(point.allocation(), &[2.0, 4.0, 6.0]));
     assert_eq!(set.pieces.len(), 1);
     assert_eq!(set.pieces[0].dimension, 0);
     assert!(close(&set.pieces[0].point, &[2.0, 4.0, 6.0]));
@@ -749,12 +749,12 @@ fn main() -> coopgame::Result<()> {
     let nucleolus = partition::nucleolus(&game, &blocks, Domain::Imputation)?;
     println!("{aumann_dreze:.4?}"); // [2.0000, 2.0000, 0.0000]
     println!("{owen:.4?}"); // [3.5000, 4.5000, 4.0000]
-    println!("{:.4?}", nucleolus.allocation); // [1.0000, 3.0000, 0.0000]
+    println!("{:.4?}", nucleolus.allocation()); // [1.0000, 3.0000, 0.0000]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
     assert!(close(&aumann_dreze, &[2.0, 2.0, 0.0]));
     assert!(close(&owen, &[3.5, 4.5, 4.0]));
-    assert!(close(&nucleolus.allocation, &[1.0, 3.0, 0.0]));
+    assert!(close(nucleolus.allocation(), &[1.0, 3.0, 0.0]));
     Ok(())
 }
 ```
@@ -1141,7 +1141,7 @@ fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let interval = IntervalGame::around(&game, 0.1)?;
     let distribution = uncertainty::interval_monte_carlo(&interval, 50, 1, |g| {
-        Ok(nucleolus::nucleolus(g)?.allocation)
+        Ok(nucleolus::nucleolus(g)?.into_allocation())
     })?;
     println!("{:.1?}", distribution.mean); // [2.1, 4.0, 5.9]
     println!("{} {}", distribution.samples, distribution.failures); // 50 0
