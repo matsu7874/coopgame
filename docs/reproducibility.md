@@ -31,14 +31,14 @@ CoopGame の誤りと判定した 4 件について、超過を降順に並べ�
 | `data/bench/results-n4-12.csv` | フェーズ 2 の計測 (`docs/performance.md` の計測例) | コミット `3f85dc1` | `coopgame bench --n 4..12 --seeds 2 --methods nucleolus,nucleolus-full,prenucleolus,kernel,prekernel` |
 | `data/bench/results-n13-16.csv` | 同上 | コミット `3f85dc1` | `coopgame bench --n 13..16 --seeds 1 --methods nucleolus,nucleolus-full,kernel` |
 | `data/bench/results-n17-22.csv` | 同上 | コミット `3f85dc1` | `coopgame bench --n 17..22 --seeds 1 --methods nucleolus,kernel` |
-| `data/bench/oracle-scaling.csv` | オラクル版の仁の計測 (`docs/performance.md` のオラクルの計測) | Shapley/Banzhaf 値を追加したコミット | `oracle_scaling bankruptcy 10,20,40,70,100 3`、`majority 9,13,17,19,21 1`、`voting 10,15,20,25 2` (`cargo run --release --example oracle_scaling -- ...`) |
+| `data/bench/oracle-scaling.csv` | オラクル版の仁の計測 (`docs/performance.md` のオラクルの計測) | Shapley/Banzhaf 値を追加したコミット | `bench_oracle bankruptcy 10,20,40,70,100 3`、`majority 9,13,17,19,21 1`、`voting 10,15,20,25 2` (`cargo run --release --example bench_oracle -- ...`) |
 | `data/compare/certified.csv` | 比較の全配分の有理数による検証 | 有理数の検証を追加したコミット | `python3 scripts/compare/certify_results.py scripts/compare/work` |
-| `data/analysis/sampled-convergence.csv` | サンプリングした仁の収束 | サンプリングした仁を追加したコミット | `cargo run --release --example data_valuation -- convergence` |
-| `data/analysis/assumption-study.csv` | 凸と仮定した手法を一般のゲームに使う実験 ([guarantees.md](guarantees.md)) | 保証の種類を追加したコミット | `cargo run --release --example assumption_study -- 4,5,6,7,8,9,10 10` |
-| `data/bench/convex-graph.csv`、`data/bench/convex-bankruptcy.csv` | 凸ゲームの手法の計測 (同上) | 同上 | `convex_scaling graph 10,16,24,32,48,64 3`、`convex_scaling bankruptcy 10,20,30,40 3` (`cargo run --release --example ...`) |
-| `data/bench/auto-threshold.csv` | 自動選択の境目の計測 (同上) | 同上 | `cargo run --release --example auto_threshold -- 8,10,12,14,16,18,20 3` |
-| `data/bench/exact-scaling.csv` | 有理数だけの仁のソルバーの計測 | 厳密なソルバーを追加したコミット | `cargo run --release --example exact_scaling -- 3,4,5,6,7,8,9,10` |
-| `data/analysis/counterexamples.txt` | 反例の探索と縮小の実例 | 反例探索を追加したコミット | `cargo run --release --example counterexample_search` (約 1 分) |
+| `data/analysis/sampled-convergence.csv` | サンプリングした仁の収束 | サンプリングした仁を追加したコミット | `cargo run --release --example study_data_valuation -- convergence` |
+| `data/analysis/assumption-study.csv` | 凸と仮定した手法を一般のゲームに使う実験 ([guarantees.md](guarantees.md)) | 保証の種類を追加したコミット | `cargo run --release --example study_assumption -- 4,5,6,7,8,9,10 10` |
+| `data/bench/convex-graph.csv`、`data/bench/convex-bankruptcy.csv` | 凸ゲームの手法の計測 (同上) | 同上 | `bench_convex graph 10,16,24,32,48,64 3`、`bench_convex bankruptcy 10,20,30,40 3` (`cargo run --release --example ...`) |
+| `data/bench/auto-threshold.csv` | 自動選択の境目の計測 (同上) | 同上 | `cargo run --release --example bench_auto_threshold -- 8,10,12,14,16,18,20 3` |
+| `data/bench/exact-scaling.csv` | 有理数だけの仁のソルバーの計測 | 厳密なソルバーを追加したコミット | `cargo run --release --example bench_exact -- 3,4,5,6,7,8,9,10` |
+| `data/analysis/counterexamples.txt` | 反例の探索と縮小の実例 | 反例探索を追加したコミット | `cargo run --release --example study_counterexamples` (約 1 分) |
 | `data/compare/small.csv` | 既存実装との比較 (n = 4-12) | coopgame-rs はコミット `3f85dc1` の CLI | `python3 scripts/compare/run.py work/small` |
 | `data/compare/tuglab-retry-tol1e-8.csv` | TUGLab の再実行 | 同上 | `IMPLS=TUGLab python3 scripts/compare/run.py <失敗したインスタンス> 1e-8` |
 | `data/compare/large.csv` | 既存実装との比較 (n = 13-18) | 同上 | `python3 scripts/compare/run.py work/large 1e-8` |

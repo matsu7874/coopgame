@@ -86,8 +86,8 @@
 | 仁は逐次 LP で計算できる | Kop1967 | `src/nucleolus/mod.rs` | 全行と制約生成の一致 (`constraint_generation_matches_full_lp`) |
 | 仁 (プレ仁) であることと、超過の各段の提携族が平衡であることは同値 | Koh1971 | `src/verify/kohlberg.rs` | 仁を動かすと不成立になること (`kohlberg_rejects_perturbed_nucleolus`) |
 | transfer scheme はカーネルの点に収束する | Ste1968 | `src/kernel/mod.rs` | 全テストゲームで収束 (`transfer_scheme_reaches_kernel`) |
-| 凸ゲームのカーネルは仁の 1 点 | MPS1971 | `src/generators.rs`、`examples/prekernel_study.rs` | `kernel_equals_nucleolus_for_convex_games`、`convex_games_have_single_point_kernel`、分析の凸ゲーム 245 + 125 + 21 個 |
-| 仁はカーネルに属する。0-単調なゲームではカーネルとプレカーネルが一致する | MPS1979 | テストの前提、`examples/prekernel_study.rs` | `nucleoli_satisfy_kohlberg_and_lie_in_kernel`、`kernel_equals_prekernel_for_zero_monotonic_games`、分析の 0-単調なゲーム 805 個で形が一致 |
+| 凸ゲームのカーネルは仁の 1 点 | MPS1971 | `src/generators.rs`、`examples/study_prekernel.rs` | `kernel_equals_nucleolus_for_convex_games`、`convex_games_have_single_point_kernel`、分析の凸ゲーム 245 + 125 + 21 個 |
+| 仁はカーネルに属する。0-単調なゲームではカーネルとプレカーネルが一致する | MPS1979 | テストの前提、`examples/study_prekernel.rs` | `nucleoli_satisfy_kohlberg_and_lie_in_kernel`、`kernel_equals_prekernel_for_zero_monotonic_games`、分析の 0-単調なゲーム 805 個で形が一致 |
 | 1954 年の国連安全保障理事会で、Shapley–Shubik 指数の合計は常任 5 か国が 76/77、非常任 6 か国が 1/77 | SS1954 (p. 791) | `docs/tutorial/02-voting-power.md` | チュートリアルの doctest (1 か国あたり 76/385、1/462) |
 | Nassau 郡の議会 (1964 年、重み 31, 31, 21, 28, 2, 2、基準 58) で、North Hempstead、Glen Cove、Long Beach の Banzhaf 値は 0 | Ban1965 (数値は Colorado State University の講義資料 M130 notes 2.2.10。原論文 pp. 338–340 は未確認) | `docs/tutorial/02-voting-power.md` | チュートリアルの doctest |
 | 凸ゲームではコアが空でなく、Shapley 値がコアに属する | Sha1971 | `docs/tutorial/04-stability-and-verification.md` | チュートリアルの doctest (ランダムな凸ゲーム 20 個) |
@@ -97,7 +97,7 @@
 | 空港ゲーム (費用が提携内の最大値) の Shapley 値は、費用の増分を必要とする人数で等分した和 | LO1973 | テスト | `airport_game_shapley_matches_littlechild_owen` (ランダムな 100 問)、`ibn_ezra_inheritance_shapley_value` |
 | Ibn Ezra の相続問題の解は Shapley 値に一致する | Aum2010 (CoopGame の `shapleyValue` のヘルプが引用) | テスト | `ibn_ezra_inheritance_shapley_value` |
 | 重み付き投票ゲームの仁は擬多項式時間で計算できる | Pas2022 (EP2009 も同じ主張をしたが、アルゴリズムは仁を計算する保証がないと後続研究で指摘されている) | `src/games/voting.rs` の位置づけ | なし (本実装は制約生成で、計算量の保証はない) |
-| データ評価に最小コアを使い、提携をサンプリングして近似する | YP2021 (題名と要旨の範囲) | `src/nucleolus/sampled.rs`、`examples/data_valuation.rs` | 文献の実験は再現していない。本リポジトリの合成データでの比較のみ |
+| データ評価に最小コアを使い、提携をサンプリングして近似する | YP2021 (題名と要旨の範囲) | `src/nucleolus/sampled.rs`、`examples/study_data_valuation.rs` | 文献の実験は再現していない。本リポジトリの合成データでの比較のみ |
 | 交渉集合 (異議と反論) の定義 | AM1964, PS2007 | `src/bargaining.rs` | 3 人多数決ゲームの手計算 (`bargaining::tests`) |
 | カーネルは交渉集合に含まれる | DM1965 (原典の該当箇所は未確認) | `tests/variants.rs` | `kernel_points_lie_in_bargaining_set` (BNF タイプ 1-4、n = 3-6 の仁とカーネルの点) |
 | 凸ゲームの交渉集合はコアに一致する | MPS1971 (題名と、文献での引用) | `tests/variants.rs` | `bargaining_set_equals_core_for_convex_games` (15 ゲーム、300 配分) |
@@ -119,7 +119,7 @@
 | 仁は一意である (誤りの判定の論拠: 厳密に合格した x* と異なる配分は仁ではない) | Sch1969 | `docs/comparison.md` | なし (定理として使う) |
 | 文献の数値例 (仁・プレ仁) | PS2007 Example 5.5.12、Fer | `tests/literature.rs`、[literature-cases.md](literature-cases.md) | 文献の値との一致と手計算 |
 | TUGLab の仁の計算方法 | PRA1996 | `docs/comparison.md` | なし (比較対象の説明) |
-| プレカーネルが 1 点のとき、プレ仁を O(n^3) で計算できる (著者の主張) | Mei2025 (要旨) | `examples/prekernel_study.rs` の動機 | なし。本リポジトリでは前提 (プレカーネルが 1 点) の成立頻度を測った |
+| プレカーネルが 1 点のとき、プレ仁を O(n^3) で計算できる (著者の主張) | Mei2025 (要旨) | `examples/study_prekernel.rs` の動機 | なし。本リポジトリでは前提 (プレカーネルが 1 点) の成立頻度を測った |
 | tau 値は最小の権利と理想の支払いを結ぶ線分上の効率的な点で、準平衡なゲームで定義される | Tij1981 (定義は SA2019 で確認) | `src/compromise.rs` | 手計算の例、CoopGame の `tauValue` のヘルプの例 (Stach 2011)、tucoopy 0.1.0 と 84 ゲームで一致 (準平衡でない 95 ゲームは本実装がエラー、tucoopy は値を返す) |
 | Gately 点は抜ける傾向を全員で等しくする配分で、`v(N) > sum v({i})` かつ `M_i - v({i})` の符号がそろう場合に配分として一意に定まる | Gat1974、SA2019 | `src/compromise.rs` | 抜ける傾向が等しいこと、CoopGame の `gatelyValue` のヘルプの 2 例。tucoopy 0.1.0 は分子から `v(N \ {i})` を落としており一致しない |
 | solidarity 値の定義 | NR1994 | `src/values.rs` | 手計算の例、全員一致ゲーム u_{1,2} で (7/18, 7/18, 4/18)。tucoopy 0.1.0 の `solidarity_value` は Harsanyi 配当を等分する式 (Shapley 値と同じ) で一致しない |

@@ -55,7 +55,7 @@ n = 6 (タイプ 1, 2, 4 の各 1 ゲーム) で 0.6-19 秒だった。
 
 ### オラクル
 
-`cargo run --release --example oracle_scaling -- <bankruptcy|majority|voting> <人数,...> [seed 数]` で計測した最大時間 (秒):
+`cargo run --release --example bench_oracle -- <bankruptcy|majority|voting> <人数,...> [seed 数]` で計測した最大時間 (秒):
 
 | ゲーム | n | 時間 | 制約生成で追加した行 | 検証 |
 |---|---|---|---|---|

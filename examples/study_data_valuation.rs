@@ -2,9 +2,9 @@
 //!
 //! ```bash
 //! # 近似の収束: 明示ゲームで、サンプル数を増やしたときの真のプレ仁との差
-//! cargo run --release --example data_valuation -- convergence > convergence.csv
+//! cargo run --release --example study_data_valuation -- convergence > convergence.csv
 //! # データ評価: ラベルを反転したノイズ点を、各手法の価値で見つけられるか
-//! cargo run --release --example data_valuation -- valuation 50,100 2000,10000 10 > valuation.csv
+//! cargo run --release --example study_data_valuation -- valuation 50,100 2000,10000 10 > valuation.csv
 //! ```
 //!
 //! データ評価の設定:
@@ -279,7 +279,9 @@ fn main() {
             seeds,
         }) => valuation(&sizes, &budgets, seeds),
         None => {
-            eprintln!("使い方: data_valuation convergence | valuation <n,...> <予算,...> <seed 数>")
+            eprintln!(
+                "使い方: study_data_valuation convergence | valuation <n,...> <予算,...> <seed 数>"
+            )
         }
     }
 }

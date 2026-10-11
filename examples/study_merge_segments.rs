@@ -1,11 +1,11 @@
-//! プレカーネルの分析 (`prekernel_study` の出力) で多面体が 2 つ以上だったゲームについて、
+//! プレカーネルの分析 (`study_prekernel` の出力) で多面体が 2 つ以上だったゲームについて、
 //! 同じ直線上でつながる線分をまとめた後の多面体の数を調べ、CSV を標準出力に出す。
 //!
 //! ```bash
-//! cargo run --release --example merge_segments -- study-n3-4.csv study-n5.csv
+//! cargo run --release --example study_merge_segments -- study-n3-4.csv study-n5.csv
 //! ```
 //!
-//! ゲームは `prekernel_study` と同じ生成器と seed で作り直す。
+//! ゲームは `study_prekernel` と同じ生成器と seed で作り直す。
 //! あわせて、頂点を共有する多面体どうしをつないだときの連結成分の数 (`components`) も出す。
 
 use std::fs;
@@ -48,7 +48,7 @@ fn components(set: &KernelSet, tolerance: f64) -> usize {
     (0..count).filter(|&k| root(&mut parent, k) == k).count()
 }
 
-/// コマンドライン引数: `prekernel_study` が出力した CSV のパス (複数)。
+/// コマンドライン引数: `study_prekernel` が出力した CSV のパス (複数)。
 fn input_paths() -> Vec<String> {
     std::env::args().skip(1).collect()
 }
