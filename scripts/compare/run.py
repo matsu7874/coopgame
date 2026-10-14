@@ -1,7 +1,11 @@
-"""同じインスタンスを coopgame-rs・CoopGame・TUGLab で解き、時間と配分を CSV で標準出力に出す。
+"""同じインスタンスを coopgame-rs・CoopGame・TUGLab・MatTuGames・pyCoopGame で解き、時間と配分を CSV で標準出力に出す。
 
 使い方:
   R_LIBS=... TUGLAB_DIR=... python3 run.py <インスタンスのディレクトリ> [TUGLab の tol]
+  IMPLS=coopgame-rs,MatTuGames,pyCoopGame MATTUGAMES_DIR=... PYCOOPGAME_DIR=... PYCOOPGAME_PYTHON=... \
+    python3 run.py <インスタンスのディレクトリ>
+
+MatTuGames は Octave で動かす (bench_mattugames.m)。pyCoopGame はプレ仁を持たないので、プレ仁は解かない。
 
 インスタンスは `coopgame generate` の出力 (ビット順) で、名前は t{タイプ}_n{人数}_s{seed}.txt。
 1 回の計算の上限は TIMEOUT 秒で、時間切れになった (実装, 手法, タイプ) はそれより大きい n を省く。
@@ -30,10 +34,15 @@ def run(impl, method, path):
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, check=True)
         seconds = float(re.search(r"time=([0-9.]+)s", r.stderr).group(1))
         return seconds, " ".join(r.stdout.split())
-    cmd = ["Rscript", os.path.join(here, "bench.R"), impl, method, path] + ([tol] if tol else [])
+    if impl == "MatTuGames":
+        cmd = ["octave", "--no-gui", "--quiet", os.path.join(here, "bench_mattugames.m"), method, path]
+    elif impl == "pyCoopGame":
+        cmd = [os.environ["PYCOOPGAME_PYTHON"], os.path.join(here, "bench_pycoopgame.py"), method, path]
+    else:
+        cmd = ["Rscript", os.path.join(here, "bench.R"), impl, method, path] + ([tol] if tol else [])
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT)
     if r.returncode != 0:
-        lines = [l for l in r.stderr.strip().splitlines() if l.startswith("Error")]
+        lines = [l for l in r.stderr.strip().splitlines() if l.lower().startswith("error")]
         raise RuntimeError((lines or ["unknown"])[-1])
     _, _, seconds, allocation = r.stdout.strip().splitlines()[-1].split(",", 3)
     return float(seconds), " ".join(allocation.split())
@@ -46,6 +55,8 @@ for name in sorted(os.listdir(inst), key=key):
     t, n, s = key(name)
     for method in ["nucleolus", "prenucleolus"]:
         for impl in impls:
+            if impl == "pyCoopGame" and method == "prenucleolus":
+                continue
             if (impl, method, t) in timed_out:
                 out.writerow([impl, method, t, n, s, "skipped", "", ""])
                 continue
