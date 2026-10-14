@@ -6,7 +6,11 @@
   TUGLab (R) は 18-119 秒か時間切れだった。coopgame-rs は CoopGame より 13-50 倍速い。
 - 正しさ: coopgame-rs の結果は全 288 件で Kohlberg 基準を満たし、有理数による厳密な検証にも全て合格した。
   CoopGame は n = 17, 18 の 4 件で、TUGLab は小さい n から誤った配分やエラーを返した。
-- BNF 実装 (Benedek ら) は CPLEX 12.7 を必要とするため、この環境では比較できなかった。
+- 無料の OSS で動かせる MatTuGames (Octave + GLPK) と pyCoopGame も別のマシンで比べた
+  ([無料の OSS で動かした MatTuGames と pyCoopGame](#無料の-oss-で動かした-mattugames-と-pycoopgame))。
+  MatTuGames は計算を終えた 270 件が全て正しかったが、n >= 14 の一部で数十秒以上かかるか時間切れになった。
+  pyCoopGame は計算を終えた 92 件のうち 51 件で仁でない配分を返した。
+- BNF 実装 (Benedek ら) は CPLEX 12.7 を必要とするため、比較できなかった。
 
 ## 比較対象
 
@@ -20,9 +24,7 @@
 比較しなかった実装は次のとおり。
 
 - BNF 実装 (blrzsvrzs/nucleolus): 全アルゴリズムが CPLEX 12.7 を必要とし、ライセンスがないため動かせない。
-- pyCoopGame: 変数が「提携 x 順位」で 4^n 個になり、辞書式最小化を重み `delta^(k-1)` の単一 LP で近似する。
-  厳密な仁と比べる対象として適さない。
-- MatTuGames: MATLAB が必要なため動かせない。
+- MatTuGames を MATLAB で動かす比較: MATLAB のライセンスがないため、Octave で動かした (後述)。
 
 ## 方法
 
@@ -93,6 +95,56 @@ x* は、同じインスタンスで coopgame-rs の配分から復元し、合�
 仁は一意なので、x* が仁そのものである。不合格の 12 配分は x* から 0.025 以上離れており、仁ではない。
 浮動小数点で「誤り」と判定した 12 件と、有理数で不合格になった 12 件は一致した。
 
+## 無料の OSS で動かした MatTuGames と pyCoopGame
+
+上の比較とは別のマシンで、同じ small・large のインスタンスを次の 2 実装と coopgame-rs (制約生成) で解いた。
+
+| 実装 | 版 | 仁の計算方法 | 備考 |
+|---|---|---|---|
+| MatTuGames | 1.9.2.1 (commit 74b8ec7) | 逐次 LP (`nucl.m`、`PreNucl.m`)。2^n 行を全て入れる | MATLAB 用。Octave 11.3.0 で動かし、`linprog` は GLPK 5.0 で解く互換関数 (`scripts/compare/octave/linprog.m`) に替えた |
+| pyCoopGame | 0.0.6 以降 (commit 72153c7) | 辞書式最小化を重み `0.5^(k-1)` の単一 LP で近似 (Pyomo + GLPK)。変数は約 4^n 個 | プレ仁の関数はない |
+
+- MatTuGames のコードは書き換えていない。作者が想定する環境は MATLAB で、R2024a 以降は HiGHS の双対単体法を使う。
+  時間は Octave + GLPK でのもので、MATLAB での時間ではない。
+- Octave の `glpk` は 3 番目の戻り値がエラー番号で、解の状態は `extra.status` にある。互換関数はこれを MATLAB の
+  `exitflag` に直す。作者の GLPK 版 (`glpk_cs_nucl.m`) は制約の種類を空で渡し、Octave の `glpk` では全て等式と
+  解釈されて解けないため使わなかった。
+- 環境: Apple M4 Pro、macOS 26、単一スレッド。時間は MatTuGames が Octave の `tic`/`toc`、pyCoopGame が
+  `nucleolus()` の呼び出し全体 (Pyomo のモデル構築を含む)。上限と省略の規則は上と同じ。
+
+### 実行時間 (仁、各 n の最大、秒)
+
+| n | coopgame-rs 制約生成 | MatTuGames | pyCoopGame |
+|---|---|---|---|
+| 8 | 0.002 | 0.025 | 6.1 |
+| 10 | 0.008 | 0.040 | 250 |
+| 12 | 0.012 | 9.5 | 時間切れ後に省略 |
+| 14 | 0.020 | 63 | - |
+| 16 | 0.063 | 0.35 (タイプ 1 は時間切れ、タイプ 2 は省略) | - |
+| 18 | 0.15 | 全タイプで時間切れ後に省略 | - |
+
+MatTuGames の時間は、同じ n でもタイプで大きく違った (n = 15 でタイプ 1 は 0.15 秒、タイプ 4 は 100 秒、
+タイプ 2 は時間切れ)。プレ仁もほぼ同じだった。
+
+### 正しさ
+
+coopgame-rs の配分と相対 1e-6 で比べ、食い違ったものは Kohlberg 基準で判定した。
+
+| 実装 | 結果 |
+|---|---|
+| MatTuGames | 仁・プレ仁とも、計算を終えた 135 件ずつ (計 270 件) が全て一致 (差は相対 2.0e-12 以下)。各 3 件が時間切れ、6 件が省略 |
+| pyCoopGame (仁) | 計算を終えた 92 件のうち 41 件が一致、51 件が仁でない。small で 5 件、large で 3 件が時間切れ、残りは省略 |
+
+pyCoopGame の 51 件の内訳は次のとおり。
+
+- 42 件: v(N) が提携の値の最大値より小さいゲーム。どの配分も x(N) ≠ v(N) で効率性を満たさない。
+  pyCoopGame は全体の和を v(N) ではなく `max(game['value'])` に合わせている。
+- 9 件: v(N) が最大のゲームで、効率性は満たすが仁と食い違った。原因は確かめていない。
+
+`coopgame certify` は渡された配分から厳密な配分を復元して検証するので、効率性を満たさない pyCoopGame の配分でも
+`certified=true` になることがある (例: タイプ 1、n = 4 で `max_difference=29`)。他の実装の配分の判定には、
+`max_difference` か、上のように x* からの距離を合わせて見る必要がある。
+
 ## 仁の変種 (per capita 仁・比例仁・modiclus)
 
 `nucleolus::variants::{per_capita_nucleolus, proportional_nucleolus, modiclus}` を CoopGame 0.2.2 の
@@ -116,6 +168,12 @@ python3 scripts/compare/run.py scripts/compare/work/small > small.csv
 python3 scripts/compare/run.py scripts/compare/work/large 1e-8 > large.csv
 python3 scripts/compare/summarize.py small.csv scripts/compare/work/small
 python3 scripts/compare/check_variants.py     # 仁の変種
+
+scripts/compare/setup_oss.sh                  # Octave・MatTuGames・pyCoopGame を用意 (macOS)
+export MATTUGAMES_DIR=scripts/compare/work/MatTuGames/mat_tugames PYCOOPGAME_DIR=scripts/compare/work/pyCoopGame \
+  PYCOOPGAME_PYTHON=scripts/compare/work/pyenv/bin/python IMPLS=coopgame-rs,MatTuGames,pyCoopGame
+python3 scripts/compare/run.py scripts/compare/work/small > small-oss.csv
+python3 scripts/compare/run.py scripts/compare/work/large > large-oss.csv
 ```
 
 生データは `data/compare/` にある。
@@ -124,3 +182,4 @@ python3 scripts/compare/check_variants.py     # 仁の変種
 - `tuglab-retry-tol1e-8.csv`: small で TUGLab が失敗・誤ったインスタンスの許容誤差 1e-8 での再実行
 - `large.csv`: large の全実装の結果 (TUGLab は許容誤差 1e-8)
 - `certified.csv`: small・large で計算に成功した全配分の有理数による検証結果
+- `small-oss.csv`、`large-oss.csv`: coopgame-rs・MatTuGames・pyCoopGame の結果 (Apple M4 Pro)
