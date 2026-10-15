@@ -62,41 +62,63 @@ pub(crate) fn feasibility_violation<G: SetFunction + ?Sized>(
     None
 }
 
-/// 配分の領域が空でないかを確かめる (`Domain::Imputation` で `sum v({i}) <= v(N)`)。
+/// 配分の領域が空でないかを確かめる (`Domain::Imputation` で `sum v({i}) <= v(N) + tolerance`)。
 pub(crate) fn check_imputation_set<G: SetFunction + ?Sized>(
     game: &G,
     domain: Domain,
     tolerance: f64,
 ) -> Result<()> {
-    let n = game.players();
-    if domain == Domain::Imputation {
-        let lower: f64 = (0..n)
-            .map(|i| game.value(&PlayerSet::singleton(n, i)))
-            .sum();
-        if lower > game.value(&PlayerSet::grand(n)) + tolerance {
-            return Err(Error::EmptyImputationSet);
-        }
-    }
-    Ok(())
+    let grand = PlayerSet::grand(game.players());
+    lower_bounds(game, &[grand], domain, tolerance).map(|_| ())
 }
 
-/// 配分の領域で、各ブロック `B` に `sum_{i in B} v({i}) <= v(B)` を確かめる (満たさなければ配分がない)。
-pub(crate) fn check_blocks(
+/// 配分の領域の各プレイヤーの下限。`Domain::Preimputation` では下限がないので `None`。
+///
+/// `blocks` は N の分割 (提携構造。全体提携だけなら配分集合)。各ブロック `B` で
+/// `sum_{i in B} v({i}) <= v(B) + tolerance` を確かめ、満たさなければ [`Error::EmptyImputationSet`] を返す。
+/// 和が `v(B)` を許容誤差以内で超えるブロックは、空とみなさなかった判定と LP の実行可能性を一致させるため、
+/// 超えた分を `B` の人数で等分して下限を下げる。このとき `B` の上の配分は 1 点
+/// `x_i = v({i}) - (超えた分) / |B|` になる (`crate::kernel::equal_surplus_division` と同じ点)。
+pub(crate) fn lower_bounds<G: SetFunction + ?Sized>(
+    game: &G,
+    blocks: &[PlayerSet],
+    domain: Domain,
+    tolerance: f64,
+) -> Result<Option<Vec<f64>>> {
+    if domain == Domain::Preimputation {
+        return Ok(None);
+    }
+    let n = game.players();
+    let mut lower: Vec<f64> = (0..n)
+        .map(|i| game.value(&PlayerSet::singleton(n, i)))
+        .collect();
+    for block in blocks {
+        let sum: f64 = block.members().map(|i| lower[i]).sum();
+        let gap = sum - game.value(block);
+        if gap > tolerance {
+            return Err(Error::EmptyImputationSet);
+        }
+        if gap > 0.0 {
+            let share = gap / block.len() as f64;
+            for i in block.members() {
+                lower[i] -= share;
+            }
+        }
+    }
+    Ok(Some(lower))
+}
+
+/// [`lower_bounds`] の 64 人以下の提携構造版。
+pub(crate) fn block_lower_bounds(
     game: &ExplicitGame,
     blocks: &[Coalition],
     domain: Domain,
     tolerance: f64,
-) -> Result<()> {
-    if domain == Domain::Imputation {
-        for &block in blocks {
-            let lower: f64 = block
-                .members()
-                .map(|i| game.value(Coalition::singleton(i)))
-                .sum();
-            if lower > game.value(block) + tolerance {
-                return Err(Error::EmptyImputationSet);
-            }
-        }
-    }
-    Ok(())
+) -> Result<Option<Vec<f64>>> {
+    let n = game.players();
+    let blocks: Vec<PlayerSet> = blocks
+        .iter()
+        .map(|&block| PlayerSet::from_coalition(n, block))
+        .collect();
+    lower_bounds(game, &blocks, domain, tolerance)
 }
