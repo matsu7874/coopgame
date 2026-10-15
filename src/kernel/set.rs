@@ -4,8 +4,8 @@ use microlp::Variable;
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::allocation::check_imputation_set;
-use crate::game::{Coalition, ExplicitGame, default_tolerance};
+use crate::game::allocation::lower_bounds;
+use crate::game::{Coalition, ExplicitGame, PlayerSet, default_tolerance};
 use crate::linalg::{Span, for_each_combination, solve_square};
 use crate::lp::{self, Cmp, Counter};
 
@@ -43,6 +43,17 @@ pub struct KernelPiece {
 }
 
 impl KernelPiece {
+    /// 多面体を `factor` 倍する (正規化したゲームで求めた多面体を元の大きさに戻す)。
+    fn scale(&mut self, factor: f64) {
+        let points = std::iter::once(&mut self.point).chain(self.vertices.iter_mut().flatten());
+        for value in points.flatten() {
+            *value *= factor;
+        }
+        for row in self.equalities.iter_mut().chain(&mut self.inequalities) {
+            row.rhs *= factor;
+        }
+    }
+
     pub fn contains(&self, x: &[f64], tolerance: f64) -> bool {
         self.equalities
             .iter()
@@ -231,6 +242,10 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct SetOptions {
+    /// 等号・不等号の判定に使う許容誤差 (ゲームの値と同じ単位)。既定は [`default_tolerance`]。
+    ///
+    /// 配分集合の扱いは [`crate::nucleolus::Options::tolerance`] と同じで、[`crate::kernel::kernel_point`] とも
+    /// 同じ基準 (`sum v({i}) <= v(N) + tolerance`) で空かどうかを判定する。
     pub tolerance: f64,
     /// 探索する節点の数の上限。超えたらエラーを返す。
     pub max_nodes: usize,
@@ -265,6 +280,9 @@ impl SetOptions {
 /// 等しくなる提携は同じ候補として 1 つだけ展開する。
 ///
 /// 計算量は組の数と提携の数に対して指数的なので、プレイヤー数は [`MAX_KERNEL_SET_PLAYERS`] 以下に限る。
+///
+/// LP は絶対誤差で判定するので、ゲームの値を 2 のべき乗で割って最大絶対値を `[1, 2)` にそろえてから求め、
+/// 多面体を元の大きさに戻す (値を `c` 倍すると、多面体も `c` 倍になる)。
 pub fn kernel_set(game: &ExplicitGame, domain: Domain, options: SetOptions) -> Result<KernelSet> {
     let n = game.players();
     if n > MAX_KERNEL_SET_PLAYERS {
@@ -273,10 +291,31 @@ pub fn kernel_set(game: &ExplicitGame, domain: Domain, options: SetOptions) -> R
             max: MAX_KERNEL_SET_PLAYERS,
         });
     }
-    check_imputation_set(game, domain, options.tolerance)?;
+    let (normalized, divisor) = game.normalized();
+    let options = SetOptions {
+        tolerance: options.tolerance / divisor,
+        ..options
+    };
+    let mut set = normalized_kernel_set(&normalized, domain, options)?;
+    for piece in &mut set.pieces {
+        piece.scale(divisor);
+    }
+    Ok(set)
+}
+
+fn normalized_kernel_set(
+    game: &ExplicitGame,
+    domain: Domain,
+    options: SetOptions,
+) -> Result<KernelSet> {
+    let n = game.players();
+    let grand = PlayerSet::grand(n);
+    let lower = lower_bounds(game, &[grand], domain, options.tolerance)?;
     let mut search = Search {
         game,
         domain,
+        // 準配分では場合分けに使わない。
+        lower: lower.clone().unwrap_or_else(|| game.singleton_values()),
         tolerance: options.tolerance,
         max_nodes: options.max_nodes,
         n,
@@ -291,19 +330,23 @@ pub fn kernel_set(game: &ExplicitGame, domain: Domain, options: SetOptions) -> R
     let mut root = Polyhedron::new(n);
     let grand = game.grand();
     root.add_equality(indicator(grand, n), game.value(grand));
-    if domain == Domain::Imputation {
-        for i in 0..n {
-            let mut coefficients = vec![0.0; n];
-            coefficients[i] = -1.0;
-            root.inequalities.push(Row {
-                coefficients,
-                rhs: -game.value(Coalition::singleton(i)),
-            });
-        }
+    for (i, bound) in lower.iter().flatten().enumerate() {
+        let mut coefficients = vec![0.0; n];
+        coefficients[i] = -1.0;
+        root.inequalities.push(Row {
+            coefficients,
+            rhs: -bound,
+        });
     }
-    if let Some(point) = search.feasible(&root)? {
-        search.explore(0, root, point)?;
-    }
+    // 根は配分集合 (準配分集合)。空でないことは確かめてあるので、LP が実行不可能なら
+    // 許容誤差の範囲を超える丸めが起きたとして、空の結果ではなくエラーを返す。
+    let Some(point) = search.feasible(&root)? else {
+        return Err(match domain {
+            Domain::Imputation => Error::EmptyImputationSet,
+            Domain::Preimputation => Error::Numerical("準配分集合の LP が実行不可能".into()),
+        });
+    };
+    search.explore(0, root, point)?;
 
     let mut pieces = Vec::with_capacity(search.leaves.len());
     for (polyhedron, point) in std::mem::take(&mut search.leaves) {
@@ -361,6 +404,8 @@ enum Case {
 struct Search<'a> {
     game: &'a ExplicitGame,
     domain: Domain,
+    /// 各プレイヤーの下限 (`Domain::Imputation` で使う)。
+    lower: Vec<f64>,
     tolerance: f64,
     max_nodes: usize,
     n: usize,
@@ -388,7 +433,7 @@ impl Search<'_> {
         // x_k = v({k}) が多面体上で恒等的に成り立つか。
         let at_lower_bound = |k: usize| {
             polyhedron.span.contains(&unit(k, self.n))
-                && (point[k] - self.game.value(Coalition::singleton(k))).abs() <= self.tolerance
+                && (point[k] - self.lower[k]).abs() <= self.tolerance
         };
         // 重なる場合分けは、他方に含まれるものを省く。
         let cases: &[Case] = match (self.domain, at_lower_bound(i), at_lower_bound(j)) {
@@ -416,20 +461,14 @@ impl Search<'_> {
                                 coefficients: difference,
                                 rhs: gap,
                             });
-                            next.add_equality(
-                                unit(j, self.n),
-                                self.game.value(Coalition::singleton(j)),
-                            );
+                            next.add_equality(unit(j, self.n), self.lower[j]);
                         }
                         Case::SecondGreater => {
                             next.inequalities.push(Row {
                                 coefficients: difference.iter().map(|a| -a).collect(),
                                 rhs: -gap,
                             });
-                            next.add_equality(
-                                unit(i, self.n),
-                                self.game.value(Coalition::singleton(i)),
-                            );
+                            next.add_equality(unit(i, self.n), self.lower[i]);
                         }
                     }
                     if let Some(point) = self.feasible(&next)? {
@@ -833,6 +872,7 @@ mod tests {
         let mut search = Search {
             game: &game,
             domain: Domain::Imputation,
+            lower: vec![0.0; 5],
             tolerance: 1e-9,
             max_nodes: 1,
             n: 5,
