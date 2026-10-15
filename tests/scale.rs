@@ -448,3 +448,68 @@ fn certification_rejects_points_beyond_tolerance() {
     let check = verify::check(&game, &near, Domain::Imputation, VerifyOptions::default()).unwrap();
     assert!(matches!(check, Check::Certified { .. }), "{check:?}");
 }
+
+#[test]
+fn tau_value_and_gately_point_are_scale_invariant() {
+    use coopgame::compromise::{gately_point, tau_value};
+    // 2 のべき乗の倍率なら丸めが起きないので、許容誤差が値に比例していれば同じ判定になる。
+    let factor = 2f64.powi(-40);
+    for seed in 0..20 {
+        let base = generators::random_convex(4, seed).unwrap();
+        let game = scaled(&base, factor);
+        let expected: Vec<f64> = tau_value(&base)
+            .unwrap()
+            .iter()
+            .map(|v| v * factor)
+            .collect();
+        assert_close(
+            &tau_value(&game).unwrap(),
+            &expected,
+            1e-9 * game.max_abs_value(),
+            "tau",
+        );
+        let expected: Vec<f64> = gately_point(&base)
+            .unwrap()
+            .iter()
+            .map(|v| v * factor)
+            .collect();
+        assert_close(
+            &gately_point(&game).unwrap(),
+            &expected,
+            1e-9 * game.max_abs_value(),
+            "gately",
+        );
+    }
+}
+
+#[cfg(feature = "io")]
+#[test]
+fn partial_game_nucleolus_of_tiny_game_is_exact() {
+    use coopgame::io::parse_json;
+    let values = [
+        0.0, 1.0, -1.0, 0.0, -1.0, 0.0, 2.0, 0.0, 2.0, 1.0, 1.0, 2.0, -1.0, 1.0, 3.0, 0.0, 2.0,
+        -1.0, 0.0, 0.0, 0.0, 1.0, -1.0, 1.0, 1.0, 3.0, -1.0, 0.0, 2.0, 0.0, 2.0,
+    ];
+    let game = scaled(&ExplicitGame::from_binary(&values).unwrap(), 1e-7);
+    let entries: Vec<String> = (1..32u32)
+        .map(|mask| {
+            let members: Vec<String> = (0..5)
+                .filter(|i| mask >> i & 1 == 1)
+                .map(|i| i.to_string())
+                .collect();
+            format!(
+                "\"{}\": {:e}",
+                members.join(","),
+                values[mask as usize - 1] * 1e-7
+            )
+        })
+        .collect();
+    let json = format!("{{\"players\": 5, \"values\": {{{}}}}}", entries.join(", "));
+    let partial = parse_json(&json).unwrap().partial().unwrap();
+    let x = partial
+        .nucleolus(Domain::Imputation)
+        .unwrap()
+        .into_allocation();
+    let expected = exact_nucleolus(&game, Domain::Imputation);
+    assert_close(&x, &expected, 1e-9 * game.max_abs_value(), "partial");
+}

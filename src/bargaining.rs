@@ -115,7 +115,7 @@ pub fn check(
     })
 }
 
-/// 既定の許容誤差 (`1e-7 * max(1, max |v|)` の 10 倍) で判定する。
+/// 既定の許容誤差 (`1e-7 * max |v|` の 10 倍。全ての値が 0 なら `1e-6`) で判定する。
 pub fn is_in_bargaining_set(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<bool> {
     Ok(check(game, x, domain, 10.0 * default_tolerance(game))?.is_member())
 }
