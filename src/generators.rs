@@ -84,7 +84,12 @@ pub fn bnf(kind: u8, n: usize, seed: u64) -> Result<ExplicitGame> {
 }
 
 /// 重み付き投票ゲーム: 重みの和が `quota` 以上なら 1、そうでなければ 0。
+///
+/// 重みと基準は有限の値 (NaN は比較が常に偽になり、勝利提携のないゲームを黙って作るため拒否する)。
 pub fn weighted_voting(weights: &[f64], quota: f64) -> Result<ExplicitGame> {
+    if !quota.is_finite() || !weights.iter().all(|w| w.is_finite()) {
+        return Err(Error::InvalidArgument("重みと基準は有限の値".into()));
+    }
     ExplicitGame::from_fn(weights.len(), |coalition| {
         let weight: f64 = coalition.members().map(|i| weights[i]).sum();
         if weight >= quota { 1.0 } else { 0.0 }
@@ -92,10 +97,11 @@ pub fn weighted_voting(weights: &[f64], quota: f64) -> Result<ExplicitGame> {
 }
 
 /// 破産ゲーム: `v(S) = max(0, E - sum_{j not in S} d_j)`。仁はタルムード則と一致する。
+///
+/// 入力の前提は [`crate::games::bankruptcy::BankruptcyGame::new`] と同じ
+/// (遺産と請求は有限かつ非負、遺産は請求の総和以下)。
 pub fn bankruptcy(estate: f64, claims: &[f64]) -> Result<ExplicitGame> {
-    if claims.iter().any(|d| *d < 0.0) || estate < 0.0 {
-        return Err(Error::InvalidArgument("請求額と遺産は非負".into()));
-    }
+    crate::games::bankruptcy::validate(&estate, claims)?;
     ExplicitGame::from_fn(claims.len(), |coalition| {
         let outside: f64 = (0..claims.len())
             .filter(|&j| !coalition.contains(j))

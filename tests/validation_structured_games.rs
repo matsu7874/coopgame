@@ -61,3 +61,32 @@ fn weighted_voting_rejects_zero_quota() {
     let game = WeightedVotingGame::new(vec![1, 2], 1).unwrap();
     assert_eq!(game.value(&PlayerSet::empty(2)), 0.0);
 }
+
+#[test]
+fn bankruptcy_rules_accept_negative_zero() {
+    // `-0.0` は 0 と同じ (JSON の `-0` や `0.0 * -1.0` で現れる)。
+    assert_eq!(talmud_rule(-0.0, &[1.0, 2.0]).unwrap(), vec![0.0, 0.0]);
+    assert!(constrained_equal_awards(1.0, &[-0.0, 2.0]).is_ok());
+    assert!(constrained_equal_losses(-0.0, &[-0.0, 1.0]).is_ok());
+}
+
+#[test]
+fn bankruptcy_generator_validates_like_bankruptcy_game() {
+    use coopgame::generators;
+    assert!(generators::bankruptcy(f64::NAN, &[1.0, 2.0]).is_err());
+    assert!(generators::bankruptcy(1.0, &[f64::NAN, 2.0]).is_err());
+    assert!(generators::bankruptcy(1.0, &[f64::INFINITY, 2.0]).is_err());
+    assert!(generators::bankruptcy(10.0, &[1.0, 2.0]).is_err());
+    assert!(BankruptcyGame::new(10.0, vec![1.0, 2.0]).is_err());
+    assert!(generators::bankruptcy(3.0, &[1.0, 2.0]).is_ok());
+    assert!(generators::bankruptcy(-0.0, &[1.0, 2.0]).is_ok());
+}
+
+#[test]
+fn weighted_voting_generator_rejects_non_finite_inputs() {
+    use coopgame::generators;
+    assert!(generators::weighted_voting(&[1.0, f64::NAN], 1.0).is_err());
+    assert!(generators::weighted_voting(&[1.0, 1.0], f64::NAN).is_err());
+    assert!(generators::weighted_voting(&[1.0, f64::INFINITY], 1.0).is_err());
+    assert!(generators::weighted_voting(&[1.0, 1.0], 2.0).is_ok());
+}

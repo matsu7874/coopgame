@@ -31,15 +31,18 @@ fn is_finite_amount<T: Amount>(value: &T) -> bool {
     value.clone() - value.clone() == T::zero()
 }
 
-fn validate<T: Amount>(estate: &T, claims: &[T]) -> Result<T> {
+/// 破産問題の前提 (遺産と請求は有限かつ非負、遺産は請求の総和以下) を確かめ、請求の総和を返す。
+///
+/// `-0.0` は 0 として受け付ける (`Signed::is_negative` は `-0.0` も負とみなすので使わない)。
+pub(crate) fn validate<T: Amount>(estate: &T, claims: &[T]) -> Result<T> {
     if !is_finite_amount(estate) || !claims.iter().all(is_finite_amount) {
         return Err(Error::InvalidArgument("遺産と請求は有限の値".into()));
     }
-    if claims.iter().any(Signed::is_negative) {
+    if claims.iter().any(|d| *d < T::zero()) {
         return Err(Error::InvalidArgument("請求は非負".into()));
     }
     let total = claims.iter().cloned().fold(T::zero(), |acc, d| acc + d);
-    if estate.is_negative() || *estate > total {
+    if *estate < T::zero() || *estate > total {
         return Err(Error::InvalidArgument(
             "遺産は 0 以上、請求の総和以下 (破産問題の前提)".into(),
         ));
