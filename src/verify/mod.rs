@@ -25,6 +25,7 @@
 mod exact;
 mod kohlberg;
 
+use exact::certify_tolerance;
 pub use exact::{
     ExactReport, certify, certify_exact, kohlberg_exact, max_difference, recover_allocation,
 };
@@ -126,6 +127,10 @@ impl Unverified<Solution> {
 
 /// 配分 `x` がゲーム `game` の仁 (`domain` が [`Domain::Imputation`]) か
 /// プレ仁 ([`Domain::Preimputation`]) かを確かめる。
+///
+/// 許容誤差は、[`MAX_CERTIFY_PLAYERS`] 人以下では全提携の値の最大絶対値の `1e-6` 倍 ([`certify`] と同じ)、
+/// それより多い人数では [`value_scale`] の `1e-6` 倍。`Certified` になるのは、厳密な仁との差が
+/// 許容誤差以下の配分だけ。
 pub fn check<G: SetFunction + ?Sized>(
     game: &G,
     x: &[f64],
@@ -133,15 +138,20 @@ pub fn check<G: SetFunction + ?Sized>(
     options: VerifyOptions,
 ) -> Result<Check> {
     let n = game.players();
-    let tolerance = 1e-6 * value_scale(game);
-    if let Some(refuted) = check_feasibility(game, x, domain)? {
-        return Ok(refuted);
-    }
+    check_length(n, x)?;
     if n <= MAX_CERTIFY_PLAYERS {
         let explicit = ExplicitGame::tabulate(game)?;
         let exact = ExactGame::from_explicit(&explicit)?;
+        let tolerance = certify_tolerance(&explicit);
+        if let Some(refuted) = check_feasibility(&explicit, x, domain, tolerance) {
+            return Ok(refuted);
+        }
         certify_small(&explicit, &exact, x, domain, tolerance)
     } else if n <= MAX_PAIR_CHECK_PLAYERS {
+        let tolerance = 1e-6 * value_scale(game);
+        if let Some(refuted) = check_feasibility(game, x, domain, tolerance) {
+            return Ok(refuted);
+        }
         Ok(check_pairs(game, x, domain, tolerance, options))
     } else {
         Ok(Check::Undecided(format!(
@@ -158,13 +168,12 @@ pub fn check_exact(
     _options: VerifyOptions,
 ) -> Result<Check> {
     let explicit = exact.to_explicit()?;
+    check_length(explicit.players(), x)?;
+    let tolerance = certify_tolerance(&explicit);
     // 実行可能性 (和・個人合理性) は浮動小数点数の値で確かめ、残りは厳密な値で確かめる。
-    match check_feasibility(&explicit, x, domain)? {
+    match check_feasibility(&explicit, x, domain, tolerance) {
         Some(refuted) => Ok(refuted),
-        None => {
-            let tolerance = 1e-6 * value_scale(&explicit);
-            certify_small(&explicit, exact, x, domain, tolerance)
-        }
+        None => certify_small(&explicit, exact, x, domain, tolerance),
     }
 }
 
@@ -211,21 +220,24 @@ fn certify_small(
     })
 }
 
-/// 和が `v(N)` か、仁なら個人合理性を満たすかを確かめる。満たさなければ否定の結論を返す。
-fn check_feasibility<G: SetFunction + ?Sized>(
-    game: &G,
-    x: &[f64],
-    domain: Domain,
-) -> Result<Option<Check>> {
-    let n = game.players();
+fn check_length(n: usize, x: &[f64]) -> Result<()> {
     if x.len() != n {
         return Err(Error::InvalidArgument(format!(
             "配分の長さ {} がプレイヤー数 {n} と異なる",
             x.len()
         )));
     }
-    let tolerance = 1e-6 * value_scale(game);
-    Ok(feasibility_violation(game, x, domain, tolerance).map(Check::Refuted))
+    Ok(())
+}
+
+/// 和が `v(N)` か、仁なら個人合理性を満たすかを確かめる。満たさなければ否定の結論を返す。
+fn check_feasibility<G: SetFunction + ?Sized>(
+    game: &G,
+    x: &[f64],
+    domain: Domain,
+    tolerance: f64,
+) -> Option<Check> {
+    feasibility_violation(game, x, domain, tolerance).map(Check::Refuted)
 }
 
 /// 最大余剰 `s_ij = max { e(S, x) : i in S, j not in S }` を総当たりで求める。

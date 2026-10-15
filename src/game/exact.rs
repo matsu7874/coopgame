@@ -17,7 +17,15 @@ pub(crate) fn to_rational(value: f64) -> Result<Rational> {
         .ok_or_else(|| Error::InvalidArgument(format!("{value} は有限の数ではない")))
 }
 
+/// [`parse_rational`] が受け付ける指数表記の指数 (`1.5e3` の `3`) の絶対値の上限。
+///
+/// `1e2000000000` のような入力で `10^k` の計算が終わらなくなるのを防ぐ。
+/// `f64` で表せる値の指数 (およそ `-324..=308`) を十分に含む。
+pub const MAX_DECIMAL_EXPONENT: i32 = 4096;
+
 /// `8/3`、`-4`、`2.5` の形の文字列を有理数にする (小数は 10 進数の値どおり)。
+///
+/// 指数表記 (`1.5e3`) も読む。指数の絶対値が [`MAX_DECIMAL_EXPONENT`] を超えるとエラー。
 pub fn parse_rational(text: &str) -> Result<Rational> {
     let text = text.trim();
     let bad = || Error::InvalidArgument(format!("有理数として読めない: {text:?}"));
@@ -35,12 +43,19 @@ pub fn parse_rational(text: &str) -> Result<Rational> {
     };
     let (integer, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
     let digits: BigInt = format!("{integer}{fraction}").parse().map_err(|_| bad())?;
-    let shift = exponent - fraction.len() as i32;
-    let ten = BigInt::from(10);
+    if exponent.unsigned_abs() > MAX_DECIMAL_EXPONENT.unsigned_abs() {
+        return Err(Error::InvalidArgument(format!(
+            "有理数として読めない: {text:?} (指数の絶対値が上限 {MAX_DECIMAL_EXPONENT} を超える)"
+        )));
+    }
+    // 指数が上限内なので、桁の移動の大きさは入力の長さ程度に収まる。
+    let shift = i64::from(exponent) - i64::try_from(fraction.len()).map_err(|_| bad())?;
+    let magnitude = usize::try_from(shift.unsigned_abs()).map_err(|_| bad())?;
+    let power = num_traits::pow(BigInt::from(10), magnitude);
     Ok(if shift >= 0 {
-        Rational::from_integer(digits * num_traits::pow(ten, shift as usize))
+        Rational::from_integer(digits * power)
     } else {
-        Rational::new(digits, num_traits::pow(ten, (-shift) as usize))
+        Rational::new(digits, power)
     })
 }
 

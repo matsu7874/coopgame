@@ -8,6 +8,9 @@
 //! - 段ごとに確定させる提携は、LP に入っている行の中から探す。行を制限した LP の最適面は
 //!   真の最適面を含み、制限した LP にも最適面全体で等号が成り立つ行がある (LP の双対性)。
 //!   その行は真の最適面でも超過が一定なので、確定させてよい。これにより各段で次元が 1 以上増える。
+//!
+//! 値の大きさによらず同じ精度で解けるよう、[`Separation::value_scale`] 以下で最大の 2 のべき乗で
+//! 値を割ったゲームを解き、結果を元の大きさに戻す ([`crate::nucleolus`] と同じ正規化)。
 
 use std::collections::HashSet;
 
@@ -16,16 +19,18 @@ use microlp::{Problem, Solution, Variable};
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::PlayerSet;
-use crate::game::allocation::check_imputation_set;
+use crate::game::allocation::lower_bounds;
 use crate::game::oracle::Separation;
+use crate::game::scale::{Scaled, normalizer, positive_scale};
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
 use crate::nucleolus::{LeastCore, NucleolusResult};
 use crate::solution::Guarantee;
 
-/// ゲームの値の大きさに合わせた既定の許容誤差。
+/// ゲームの値の大きさに合わせた既定の許容誤差: [`Separation::value_scale`] の `1e-7` 倍
+/// (値の大きさが 0 なら `1e-7`)。
 pub fn default_tolerance<G: Separation + ?Sized>(game: &G) -> f64 {
-    1e-7 * game.value_scale().max(1.0)
+    1e-7 * positive_scale(game.value_scale())
 }
 
 pub fn nucleolus<G: Separation + ?Sized>(game: &G) -> Result<NucleolusResult> {
@@ -36,20 +41,35 @@ pub fn prenucleolus<G: Separation + ?Sized>(game: &G) -> Result<NucleolusResult>
     nucleolus_with(game, Domain::Preimputation, default_tolerance(game))
 }
 
+/// `tolerance` はゲームの値と同じ単位。配分集合の扱いは [`crate::nucleolus::Options::tolerance`] と同じ。
 pub fn nucleolus_with<G: Separation + ?Sized>(
     game: &G,
     domain: Domain,
     tolerance: f64,
 ) -> Result<NucleolusResult> {
-    Sequential::new(game, domain, tolerance)?.run()
+    let divisor = normalizer(game.value_scale());
+    let normalized = Scaled::new(game, divisor);
+    let result = Sequential::new(&normalized, domain, tolerance / divisor)?.run()?;
+    Ok(result.scaled_by(divisor))
 }
 
+/// 最小コア。1 人ゲームの `epsilon` は `f64::NEG_INFINITY` ([`LeastCore::epsilon`])。
 pub fn least_core<G: Separation + ?Sized>(game: &G, domain: Domain) -> Result<LeastCore> {
-    let mut solver = Sequential::new(game, domain, default_tolerance(game))?;
+    let divisor = normalizer(game.value_scale());
+    let normalized = Scaled::new(game, divisor);
+    let tolerance = default_tolerance(game) / divisor;
+    let mut solver = Sequential::new(&normalized, domain, tolerance)?;
+    if solver.n == 1 {
+        return Ok(LeastCore {
+            epsilon: f64::NEG_INFINITY,
+            allocation: vec![game.value(&PlayerSet::grand(1))],
+            guarantee: Guarantee::Exact,
+        });
+    }
     let (epsilon, allocation) = solver.minimize_max_excess()?;
     Ok(LeastCore {
-        epsilon,
-        allocation,
+        epsilon: epsilon * divisor,
+        allocation: allocation.iter().map(|v| v * divisor).collect(),
         guarantee: Guarantee::Exact,
     })
 }
@@ -64,10 +84,10 @@ enum RowForm {
 
 struct Sequential<'a, G: Separation + ?Sized> {
     game: &'a G,
-    domain: Domain,
     tolerance: f64,
     n: usize,
-    lower: Vec<f64>,
+    /// 各プレイヤーの下限 (`Domain::Imputation` のみ)。
+    lower: Option<Vec<f64>>,
     fixed: Vec<(PlayerSet, f64)>,
     span: Span,
     counter: Counter,
@@ -83,15 +103,11 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
             return Err(Error::InvalidArgument("プレイヤーがいない".into()));
         }
         let grand = PlayerSet::grand(n);
-        let lower: Vec<f64> = (0..n)
-            .map(|i| game.value(&PlayerSet::singleton(n, i)))
-            .collect();
-        check_imputation_set(game, domain, tolerance)?;
+        let lower = lower_bounds(game, std::slice::from_ref(&grand), domain, tolerance)?;
         let mut span = Span::new(n);
         span.insert(&grand.indicator());
         let mut solver = Sequential {
             game,
-            domain,
             tolerance,
             n,
             lower,
@@ -121,6 +137,15 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
                 guarantee: Guarantee::Exact,
             });
         }
+        if let Some(point) = self.single_point() {
+            return Ok(NucleolusResult {
+                allocation: point,
+                levels: Vec::new(),
+                lp_solves: 0,
+                rows_added: 0,
+                guarantee: Guarantee::Exact,
+            });
+        }
         let mut levels = Vec::new();
         let mut allocation = Vec::new();
         while !self.span.is_full() {
@@ -136,6 +161,16 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
             rows_added: self.rows_added,
             guarantee: Guarantee::Exact,
         })
+    }
+
+    /// 下限の和が `v(N)` 以上 (許容誤差以内で空の配分集合を含む) なら、配分集合は 1 点
+    /// `x_i = lower_i` で、それが仁 ([`crate::nucleolus`] と同じ扱い)。
+    fn single_point(&self) -> Option<Vec<f64>> {
+        let lower = self.lower.as_ref()?;
+        let singles: f64 = (0..self.n)
+            .map(|i| self.game.value(&PlayerSet::singleton(self.n, i)))
+            .sum();
+        (singles >= self.game.value(&PlayerSet::grand(self.n))).then(|| lower.clone())
     }
 
     fn remember(&mut self, coalition: PlayerSet) {
@@ -156,10 +191,10 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
     fn add_players(&self, problem: &mut Problem, objective: Option<&PlayerSet>) -> Vec<Variable> {
         (0..self.n)
             .map(|i| {
-                let lower = match self.domain {
-                    Domain::Imputation => self.lower[i],
-                    Domain::Preimputation => f64::NEG_INFINITY,
-                };
+                let lower = self
+                    .lower
+                    .as_ref()
+                    .map_or(f64::NEG_INFINITY, |lower| lower[i]);
                 let coefficient = match objective {
                     Some(s) if s.contains(i) => 1.0,
                     _ => 0.0,

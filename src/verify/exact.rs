@@ -8,6 +8,7 @@ use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::exact::{ExactGame, Rational, format_rational, to_f64, to_rational};
 use crate::game::excess_table;
+use crate::game::scale::positive_scale;
 use crate::game::{Coalition, ExplicitGame};
 use crate::linalg::Span;
 use crate::rational::{ExactEchelon, Inserted, indicator, simplex};
@@ -49,6 +50,9 @@ impl ExactReport {
 /// 判定は復元に使った段の読み取りに依存しない。読み取りを誤っても、誤った `x*` は判定で不合格になる。
 /// 仁は一意なので、判定に合格した `x*` が仁であり、`x*` と異なる配分は仁ではない。
 ///
+/// 復元と合格の判定には同じ許容誤差 `1e-6 * max|v(S)|` (全ての値が 0 なら `1e-6`) を使う。`x*` が仁でも、
+/// 入力の `x` が `x*` から許容誤差より離れていれば (各成分の差の最大で測る) 不合格にする。
+///
 /// ゲームの値は浮動小数点数の 2 進数の値どおりの有理数として扱う。
 pub fn certify(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<ExactReport> {
     certify_exact(&ExactGame::from_explicit(game)?, x, domain)
@@ -59,15 +63,34 @@ pub fn certify(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<ExactRe
 /// 段の読み取り (復元) には `exact` の値を浮動小数点数にしたゲームを使い、判定は `exact` の値で行う。
 pub fn certify_exact(exact: &ExactGame, x: &[f64], domain: Domain) -> Result<ExactReport> {
     let game = exact.to_explicit()?;
-    let tolerance = 1e-6 * game.max_abs_value().max(1.0);
-    match recover_allocation(&game, exact, x, domain, tolerance)? {
-        Some(allocation) => Ok(kohlberg_exact(exact, &allocation, domain)),
-        None => Ok(ExactReport::fail(
+    let tolerance = certify_tolerance(&game);
+    let Some(allocation) = recover_allocation(&game, exact, x, domain, tolerance)? else {
+        return Ok(ExactReport::fail(
             Vec::new(),
             "超過の段から厳密な配分を一意に復元できない".into(),
             0,
-        )),
+        ));
+    };
+    let report = kohlberg_exact(exact, &allocation, domain);
+    if !report.satisfied {
+        return Ok(report);
     }
+    let distance = max_difference(&report.allocation, x)?;
+    if distance > tolerance {
+        return Ok(ExactReport::fail(
+            report.allocation,
+            format!(
+                "復元した厳密な仁と入力の配分の差 {distance:e} が許容誤差 {tolerance:e} を超える"
+            ),
+            report.levels_checked,
+        ));
+    }
+    Ok(report)
+}
+
+/// 厳密な検証 ([`certify`]・[`crate::verify::check`]) の許容誤差: 値の最大絶対値の `1e-6` 倍 (全て 0 なら `1e-6`)。
+pub(crate) fn certify_tolerance(game: &ExplicitGame) -> f64 {
+    1e-6 * positive_scale(game.max_abs_value())
 }
 
 /// 浮動小数点の配分 `x` の超過の段から、厳密な配分を復元する。一意に定まらなければ `None`。
@@ -165,8 +188,17 @@ pub fn recover_allocation(
 }
 
 /// 有理数の配分 `x` が仁 (プレ仁) であるかを Kohlberg 基準で厳密に判定する。
+///
+/// `x` の長さがプレイヤー数と異なれば、不成立 (`satisfied = false`) とその理由を返す。
 pub fn kohlberg_exact(game: &ExactGame, x: &[Rational], domain: Domain) -> ExactReport {
     let n = game.players();
+    if x.len() != n {
+        return ExactReport::fail(
+            x.to_vec(),
+            format!("配分の長さ {} がプレイヤー数 {n} と異なる", x.len()),
+            0,
+        );
+    }
     let grand = Coalition::grand(n);
     let total = x.iter().fold(Rational::zero(), |acc, v| acc + v);
     if &total != game.value(grand) {

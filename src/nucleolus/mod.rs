@@ -13,6 +13,10 @@
 //! 確定した提携の特性ベクトルが張る空間が `R^n` 全体になった時点で配分は一意に決まる。
 //! 各段で次元が 1 以上増えるため、段数は高々 `n - 1`。
 //!
+//! LP は絶対誤差で判定するので、値の大きさによらず同じ精度で解けるよう、ゲームの値を 2 のべき乗で割って
+//! 最大絶対値を `[1, 2)` にそろえてから解き、結果を元の大きさに戻す (許容誤差も同じ倍率で割る)。
+//! 倍率が 2 のべき乗なら、`c` 倍したゲームの結果はちょうど `c` 倍になる。
+//!
 //! [`Method::ConstraintGeneration`] (既定) では、`2^n` 個の不等式を最初から全て入れず、
 //! 解が違反する提携だけを行として追加し、前回の解から解き直す(制約生成)。
 //! 一度追加した提携は以降の LP でも初期の行として使う。
@@ -40,7 +44,7 @@ use microlp::{Problem, Solution, Variable};
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::allocation::{check_blocks, check_imputation_set, coalition_sums};
+use crate::game::allocation::{block_lower_bounds, coalition_sums};
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
@@ -61,6 +65,10 @@ pub enum Method {
 #[non_exhaustive]
 pub struct Options {
     pub domain: Domain,
+    /// 超過の比較に使う許容誤差 (ゲームの値と同じ単位)。既定は [`default_tolerance`]。
+    ///
+    /// 配分集合は `sum v({i}) <= v(N) + tolerance` なら空とみなさない。和が `v(N)` を許容誤差以内で
+    /// 超えるときは、超えた分を人数で等分して下限 `v({i})` を下げた 1 点を配分集合とする。
     pub tolerance: f64,
     pub method: Method,
 }
@@ -71,6 +79,14 @@ impl Options {
             domain,
             tolerance: default_tolerance(game),
             method: Method::default(),
+        }
+    }
+
+    /// 値を `divisor` で割ったゲームに合わせた設定 (許容誤差も割る)。
+    fn divided_by(self, divisor: f64) -> Options {
+        Options {
+            tolerance: self.tolerance / divisor,
+            ..self
         }
     }
 }
@@ -95,6 +111,8 @@ impl NucleolusResult {
     }
 
     /// 各段の最適な最大超過 `t*`(非増加列)。
+    ///
+    /// LP を解かずに配分が決まった場合 (1 人ゲーム、配分集合が 1 点) は空。
     pub fn levels(&self) -> &[f64] {
         &self.levels
     }
@@ -112,6 +130,14 @@ impl NucleolusResult {
     /// 逐次 LP では [`Guarantee::Exact`]。
     pub fn guarantee(&self) -> Guarantee {
         self.guarantee
+    }
+
+    /// 正規化したゲームで求めた結果を、元の大きさ (`factor` 倍) に戻す。
+    pub(crate) fn scaled_by(mut self, factor: f64) -> NucleolusResult {
+        for value in self.allocation.iter_mut().chain(self.levels.iter_mut()) {
+            *value *= factor;
+        }
+        self
     }
 
     /// 手法によらない共通の結果にする (保証はこの結果のものを引き継ぐ)。
@@ -138,7 +164,10 @@ pub struct LeastCore {
 }
 
 impl LeastCore {
-    /// 最小コアの `epsilon`(最大超過の最小値)。負ならコアは内部を持つ。
+    /// 最小コアの `epsilon`(空でない真部分提携の最大超過の最小値)。負ならコアは内部を持つ。
+    ///
+    /// 1 人ゲームには真部分提携がないので、最大超過は空集合の最大値として `f64::NEG_INFINITY` とする
+    /// (どの `epsilon` でも `epsilon`-コアは `{v(N)}` で、コアは空でない)。
     pub fn epsilon(&self) -> f64 {
         self.epsilon
     }
@@ -168,8 +197,10 @@ pub fn prenucleolus(game: &ExplicitGame) -> Result<NucleolusResult> {
 }
 
 pub fn nucleolus_with(game: &ExplicitGame, options: Options) -> Result<NucleolusResult> {
-    let mut solver = Sequential::new(game, options)?;
-    solver.run()
+    let (normalized, divisor) = game.normalized();
+    let options = options.divided_by(divisor);
+    let result = Sequential::new(&normalized, options)?.run()?;
+    Ok(result.scaled_by(divisor))
 }
 
 /// 提携構造 `blocks` (N の分割) のもとでの仁 (`Domain::Imputation`) またはプレ仁。
@@ -182,7 +213,9 @@ pub(crate) fn nucleolus_with_structure(
     blocks: &[Coalition],
     options: Options,
 ) -> Result<NucleolusResult> {
-    check_blocks(game, blocks, options.domain, options.tolerance)?;
+    let (normalized, divisor) = game.normalized();
+    let options = options.divided_by(divisor);
+    let lower = block_lower_bounds(&normalized, blocks, options.domain, options.tolerance)?;
     if blocks.iter().all(|block| block.len() == 1) {
         // 全員が単独なら x_i = v({i}) に決まる (逐次 LP は 1 段も解かない)。
         return Ok(NucleolusResult {
@@ -193,16 +226,28 @@ pub(crate) fn nucleolus_with_structure(
             guarantee: Guarantee::Exact,
         });
     }
-    Sequential::with_blocks(game, options, blocks)?.run()
+    let result = Sequential::with_blocks(&normalized, options, blocks, lower).run()?;
+    Ok(result.scaled_by(divisor))
 }
 
 /// 最小コア: 最大超過を最小化する LP を 1 回解く。
+///
+/// 1 人ゲームでは配分は `v(N)` だけで、`epsilon` は `f64::NEG_INFINITY` ([`LeastCore::epsilon`])。
 pub fn least_core(game: &ExplicitGame, domain: Domain) -> Result<LeastCore> {
-    let mut solver = Sequential::new(game, Options::new(game, domain))?;
+    let (normalized, divisor) = game.normalized();
+    let options = Options::new(game, domain).divided_by(divisor);
+    let mut solver = Sequential::new(&normalized, options)?;
+    if solver.n == 1 {
+        return Ok(LeastCore {
+            epsilon: f64::NEG_INFINITY,
+            allocation: vec![game.value(game.grand())],
+            guarantee: Guarantee::Exact,
+        });
+    }
     let (epsilon, allocation) = solver.minimize_max_excess()?;
     Ok(LeastCore {
-        epsilon,
-        allocation,
+        epsilon: epsilon * divisor,
+        allocation: allocation.iter().map(|v| v * divisor).collect(),
         guarantee: Guarantee::Exact,
     })
 }
@@ -226,6 +271,10 @@ struct Sequential<'a> {
     game: &'a ExplicitGame,
     options: Options,
     n: usize,
+    /// 各プレイヤーの下限 (`Domain::Imputation` のみ。[`block_lower_bounds`])。
+    lower: Option<Vec<f64>>,
+    /// 提携構造のブロック (提携構造がなければ全体提携だけ)。
+    blocks: Vec<Coalition>,
     /// 超過が確定し、LP の不等式から外した提携(ビット順、長さ `2^n`)。
     determined: Vec<bool>,
     /// 確定した提携と `x(S)` の値。
@@ -240,8 +289,9 @@ struct Sequential<'a> {
 
 impl<'a> Sequential<'a> {
     fn new(game: &'a ExplicitGame, options: Options) -> Result<Sequential<'a>> {
-        check_imputation_set(game, options.domain, options.tolerance)?;
-        Sequential::with_blocks(game, options, &[game.grand()])
+        let blocks = [game.grand()];
+        let lower = block_lower_bounds(game, &blocks, options.domain, options.tolerance)?;
+        Ok(Sequential::with_blocks(game, options, &blocks, lower))
     }
 
     /// 提携構造 `blocks` (N の分割) の各ブロック `B` で `x(B) = v(B)` を課す。
@@ -249,7 +299,8 @@ impl<'a> Sequential<'a> {
         game: &'a ExplicitGame,
         options: Options,
         blocks: &[Coalition],
-    ) -> Result<Sequential<'a>> {
+        lower: Option<Vec<f64>>,
+    ) -> Sequential<'a> {
         let n = game.players();
         let grand = game.grand();
         let mut determined = vec![false; 1 << n];
@@ -265,6 +316,8 @@ impl<'a> Sequential<'a> {
             game,
             options,
             n,
+            lower,
+            blocks: blocks.to_vec(),
             determined,
             fixed,
             span,
@@ -280,13 +333,27 @@ impl<'a> Sequential<'a> {
             solver.remember(Coalition(grand.0 & !single.0));
         }
         solver.mark_span_determined();
-        Ok(solver)
+        solver
     }
 
     fn run(&mut self) -> Result<NucleolusResult> {
         if self.n == 1 {
             return Ok(NucleolusResult {
                 allocation: vec![self.game.value(self.game.grand())],
+                levels: Vec::new(),
+                lp_solves: 0,
+                rows_added: 0,
+                guarantee: Guarantee::Exact,
+            });
+        }
+        self.pin_single_point_blocks();
+        if self.span.is_full() {
+            // 全てのブロックで配分が 1 点に決まった。LP は解かない。
+            return Ok(NucleolusResult {
+                allocation: self
+                    .lower
+                    .clone()
+                    .expect("1 点に決まるのは配分集合の場合だけ"),
                 levels: Vec::new(),
                 lp_solves: 0,
                 rows_added: 0,
@@ -309,6 +376,32 @@ impl<'a> Sequential<'a> {
             rows_added: self.rows_added,
             guarantee: Guarantee::Exact,
         })
+    }
+
+    /// 下限の和が `v(B)` 以上のブロック `B` (許容誤差以内で空の配分集合を含む) では、配分は 1 点
+    /// `x_i = lower_i` に決まる。その 1 人提携を確定させる。
+    ///
+    /// 超過の差が許容誤差より小さくなるので、LP の段で確定させると誤った値で確定しうるため、先に確定させる。
+    /// 和の等式と矛盾しないよう、ブロックの最後の 1 人は和の等式に任せる。
+    fn pin_single_point_blocks(&mut self) {
+        let Some(lower) = self.lower.clone() else {
+            return;
+        };
+        for block in self.blocks.clone() {
+            let singles: f64 = block
+                .members()
+                .map(|i| self.game.value(Coalition::singleton(i)))
+                .sum();
+            if block.len() < 2 || singles < self.game.value(block) {
+                continue;
+            }
+            for i in block.members().take(block.len() - 1) {
+                let single = Coalition::singleton(i);
+                self.fixed.push((single, lower[i]));
+                self.span.insert_coalition(single);
+            }
+        }
+        self.mark_span_determined();
     }
 
     fn tolerance(&self) -> f64 {
@@ -345,10 +438,10 @@ impl<'a> Sequential<'a> {
     fn add_players(&self, problem: &mut Problem, objective: Option<Coalition>) -> Vec<Variable> {
         (0..self.n)
             .map(|i| {
-                let lower = match self.options.domain {
-                    Domain::Imputation => self.game.value(Coalition::singleton(i)),
-                    Domain::Preimputation => f64::NEG_INFINITY,
-                };
+                let lower = self
+                    .lower
+                    .as_ref()
+                    .map_or(f64::NEG_INFINITY, |lower| lower[i]);
                 let coefficient = match objective {
                     Some(s) if s.contains(i) => 1.0,
                     _ => 0.0,

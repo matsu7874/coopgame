@@ -196,9 +196,11 @@ impl Game {
         nucleolus_core::has_nonempty_core(&self.inner).map_err(to_py_err)
     }
 
+    /// 配分 `x` がコアに属するか。長さがプレイヤー数と異なれば ValueError。
     #[pyo3(signature = (x, tolerance = 1e-9))]
-    fn is_in_core(&self, x: Vec<f64>, tolerance: f64) -> bool {
-        properties::is_in_core(&self.inner, &x, tolerance)
+    fn is_in_core(&self, x: Vec<f64>, tolerance: f64) -> PyResult<bool> {
+        check_length(self, &x)?;
+        Ok(properties::is_in_core(&self.inner, &x, tolerance))
     }
 
     fn __repr__(&self) -> String {
@@ -237,6 +239,7 @@ impl FunctionGame {
 }
 
 /// Python の関数を [`SetFunction`] として呼ぶアダプタ。最初の例外を保存し、以降は NaN を返す。
+/// 関数が有限でない値 (nan・inf) を返した場合も ValueError として保存する。
 struct Callback<'a, 'py> {
     py: Python<'py>,
     players: usize,
@@ -247,10 +250,17 @@ struct Callback<'a, 'py> {
 impl Callback<'_, '_> {
     fn call(&self, coalition: &PlayerSet) -> PyResult<f64> {
         let members: Vec<usize> = coalition.members().collect();
-        self.function
+        let value = self
+            .function
             .bind(self.py)
-            .call1((PyTuple::new(self.py, members)?,))?
-            .extract::<f64>()
+            .call1((PyTuple::new(self.py, members.clone())?,))?
+            .extract::<f64>()?;
+        if !value.is_finite() {
+            return Err(PyValueError::new_err(format!(
+                "提携 {members:?} の値 {value} が有限でない"
+            )));
+        }
+        Ok(value)
     }
 
     /// 呼び出し中に起きた例外があれば返す。

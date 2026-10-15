@@ -13,6 +13,7 @@
 //!   (0 を含んでよいが全員 0 ではない) 場合である (Staudacher & Anwander 2019)。それ以外はエラーを返す。
 
 use crate::error::{Error, Result};
+use crate::game::scale::positive_scale;
 use crate::game::{Coalition, ExplicitGame};
 
 /// 理想の支払い `M_i = v(N) - v(N \ {i})`。
@@ -44,7 +45,7 @@ pub fn minimal_rights(game: &ExplicitGame) -> Vec<f64> {
 }
 
 fn tolerance(game: &ExplicitGame) -> f64 {
-    1e-9 * game.max_abs_value().max(1.0)
+    1e-9 * positive_scale(game.max_abs_value())
 }
 
 /// tau 値 (Tijs 1981)。準平衡でないゲームでは定義されないのでエラーを返す。
