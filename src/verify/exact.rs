@@ -165,8 +165,17 @@ pub fn recover_allocation(
 }
 
 /// 有理数の配分 `x` が仁 (プレ仁) であるかを Kohlberg 基準で厳密に判定する。
+///
+/// `x` の長さがプレイヤー数と異なれば、不成立 (`satisfied = false`) とその理由を返す。
 pub fn kohlberg_exact(game: &ExactGame, x: &[Rational], domain: Domain) -> ExactReport {
     let n = game.players();
+    if x.len() != n {
+        return ExactReport::fail(
+            x.to_vec(),
+            format!("配分の長さ {} がプレイヤー数 {n} と異なる", x.len()),
+            0,
+        );
+    }
     let grand = Coalition::grand(n);
     let total = x.iter().fold(Rational::zero(), |acc, v| acc + v);
     if &total != game.value(grand) {
