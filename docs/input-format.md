@@ -20,6 +20,8 @@
 
 費用 `c(S)` を与えるゲームは、ライブラリでは `games::cost::CostGame`、CLI では `--cost` で扱う。
 節約ゲームに直して解き、費用の分担に戻す。
+CLI で費用を扱えるのは `nucleolus` (`--exact` を含む)・`least-core`・`kernel`・`shapley`・`banzhaf`・`compare`。
+JSON・CSV の `type` が `cost` のファイルは `--cost` なしでも費用として読み、他のコマンドではエラーにする。
 
 ## 提携ごとの値の形式 (JSON・CSV)
 
@@ -36,6 +38,9 @@ JSON の `values` は、キーが提携 (番号をカンマでつなぐ。順序
 
 `{"coalition": [番号, ...], "value": 値}` の配列でもよい。
 `players` (人数) を省くと、現れた最大の番号 + 1 人とする。
+`type` は文字列 `"value"` か `"cost"` で書く。
+これ以外のトップレベルのキーは無視する (説明などを書き添えてよい)。
+ただし `"tpye"` や `"Players"` のように、`players`・`type`・`values` の書き間違いらしいキー (大文字小文字の違い、1 文字の違い、隣り合う 2 文字の入れ替え) はエラーにする。
 
 ```json
 {"type": "cost",
@@ -44,6 +49,8 @@ JSON の `values` は、キーが提携 (番号をカンマでつなぐ。順序
 
 CSV は 1 行目を見出し `coalition,value` とし、提携の番号を `|` でつなぐ。
 人数は現れた最大の番号 + 1 とする。
+値は `8/3` の形の分数でもよい。
+先頭の UTF-8 の BOM (表計算ソフトが付けることがある) は無視する。
 
 ```csv
 coalition,value
@@ -58,6 +65,7 @@ coalition,value
 
 CLI は `v.txt` と同じく、配分を 1 行 1 値 (`i` 行目がプレイヤー `i`) で出す。
 `type` が `cost` (CSV は見出しが `coalition,cost`) なら費用の分担を出す。
+`nucleolus --exact` と `certify --rational` は、JSON の数を字面どおり (`0.1` は `1/10`) の有理数として読み、浮動小数点数を経由しない。
 
 ```console
 $ coopgame nucleolus game.csv
@@ -79,7 +87,7 @@ CLI では次のオプションで扱いを変えられる。
 | オプション | 扱い |
 |---|---|
 | `--missing zero` | 0 とみなす |
-| `--missing ignore` (`nucleolus` のみ) | 値が分かる提携だけで解く。1 人提携とその補集合の値は必要。結果の保証は `approximate` |
+| `--missing ignore` (`nucleolus` のみ) | 値が分かる提携だけで解く。1 人提携とその補集合の値は必要。結果の保証は `approximate`。費用なら節約ゲームに直して解く。`--full` は使えない |
 
 `{0, 2}` と `{1, 2}` の値がない `partial.csv` の例:
 
