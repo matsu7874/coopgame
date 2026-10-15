@@ -26,6 +26,7 @@ pub struct PlotOptions {
     pub kernel: bool,
     pub shapley: bool,
     /// 追加で描く配分。図には [`Point::Extra`] の番号 (この列での 0 始まりの位置) で示す。
+    /// 長さはプレイヤー数と同じで、成分は有限の値でなければならない (違えば [`imputation_figure`] がエラーを返す)。
     pub points: Vec<Vec<f64>>,
     pub title: Option<String>,
 }
@@ -122,6 +123,11 @@ pub fn imputation_figure(game: &ExplicitGame, options: &PlotOptions) -> Result<F
                 "{point} の長さが人数と異なる"
             )));
         }
+        if let Some(value) = x.iter().find(|v| !v.is_finite()) {
+            return Err(Error::InvalidArgument(format!(
+                "{point} に有限でない値 {value} がある"
+            )));
+        }
     }
 
     // 画面の座標の範囲 (配分集合の頂点と全ての点を含む)。
@@ -134,6 +140,18 @@ pub fn imputation_figure(game: &ExplicitGame, options: &PlotOptions) -> Result<F
         .collect();
     let mut screen: Vec<(f64, f64)> = corners.iter().map(|x| projection.project(x)).collect();
     screen.extend(points.iter().map(|(_, x)| projection.project(x)));
+    // 有限の配分でも、値が極端に大きいと図の座標があふれる。
+    if let Some(k) = screen
+        .iter()
+        .position(|p| !(p.0.is_finite() && p.1.is_finite()))
+    {
+        let name = k
+            .checked_sub(n)
+            .map_or_else(|| format!("頂点 {k}"), |i| points[i].0.to_string());
+        return Err(Error::InvalidArgument(format!(
+            "{name} の図の座標が有限でない (値が大きすぎる)"
+        )));
+    }
     let scene = Scene {
         n,
         view: View::fit(&screen),

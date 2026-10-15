@@ -1,4 +1,6 @@
 //! 超過 `e(S, x) = v(S) - x(S)` と最大余剰 `s_ij(x)`。
+//!
+//! 配分 `x` の長さはプレイヤー数と同じでなければならない。異なるとパニックする。
 
 use crate::game::{Coalition, ExplicitGame, excess_table};
 

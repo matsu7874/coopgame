@@ -26,12 +26,23 @@ pub trait Amount: Clone + PartialOrd + Num + Signed + FromPrimitive {}
 
 impl<T: Clone + PartialOrd + Num + Signed + FromPrimitive> Amount for T {}
 
-fn validate<T: Amount>(estate: &T, claims: &[T]) -> Result<T> {
-    if claims.iter().any(Signed::is_negative) {
+/// 有限の値か (NaN・無限大でないか)。`f64` では `d - d` が 0 にならないことで見分ける。
+fn is_finite_amount<T: Amount>(value: &T) -> bool {
+    value.clone() - value.clone() == T::zero()
+}
+
+/// 破産問題の前提 (遺産と請求は有限かつ非負、遺産は請求の総和以下) を確かめ、請求の総和を返す。
+///
+/// `-0.0` は 0 として受け付ける (`Signed::is_negative` は `-0.0` も負とみなすので使わない)。
+pub(crate) fn validate<T: Amount>(estate: &T, claims: &[T]) -> Result<T> {
+    if !is_finite_amount(estate) || !claims.iter().all(is_finite_amount) {
+        return Err(Error::InvalidArgument("遺産と請求は有限の値".into()));
+    }
+    if claims.iter().any(|d| *d < T::zero()) {
         return Err(Error::InvalidArgument("請求は非負".into()));
     }
     let total = claims.iter().cloned().fold(T::zero(), |acc, d| acc + d);
-    if estate.is_negative() || *estate > total {
+    if *estate < T::zero() || *estate > total {
         return Err(Error::InvalidArgument(
             "遺産は 0 以上、請求の総和以下 (破産問題の前提)".into(),
         ));
@@ -113,12 +124,20 @@ pub struct BankruptcyGame {
 }
 
 impl BankruptcyGame {
+    /// 遺産と請求は非負の有限値で、遺産は請求の総和以下 (`0 <= E <= D`、破産問題の前提)。
+    ///
+    /// `E > D` を許すと空提携の値 `max(0, E - D)` が正になり、[`SetFunction`] の前提 (空提携の値は 0) に反する。
     pub fn new(estate: f64, claims: Vec<f64>) -> Result<BankruptcyGame> {
         if estate < 0.0 || claims.iter().any(|d| *d < 0.0 || !d.is_finite()) || !estate.is_finite()
         {
             return Err(Error::InvalidArgument("遺産と請求は非負の有限値".into()));
         }
-        let total = claims.iter().sum();
+        let total: f64 = claims.iter().sum();
+        if !total.is_finite() || estate > total {
+            return Err(Error::InvalidArgument(format!(
+                "遺産 {estate} が請求の総和 {total} を超える (破産問題の前提は遺産 <= 請求の総和)"
+            )));
+        }
         Ok(BankruptcyGame {
             estate,
             claims,
@@ -135,7 +154,6 @@ impl BankruptcyGame {
     }
 
     /// 仁を閉じた形の解 (タルムード則) で求める。LP を使わず `O(n log n)`。
-    /// 遺産が請求の総和を超える場合はタルムード則が定義されないのでエラーを返す。
     pub fn nucleolus(&self) -> Result<Vec<f64>> {
         talmud_rule(self.estate, &self.claims)
     }
@@ -161,6 +179,13 @@ impl ConvexGame for BankruptcyGame {
 
 impl OracleGame for BankruptcyGame {
     fn excess_order<'a>(&'a self, x: &'a [f64]) -> Box<dyn Iterator<Item = (PlayerSet, f64)> + 'a> {
+        let n = self.players();
+        assert_eq!(
+            x.len(),
+            n,
+            "配分の長さ {} がプレイヤー数 {n} と異なる",
+            x.len()
+        );
         let negative: Vec<f64> = x.iter().map(|v| -v).collect();
         let gains: Vec<f64> = self.claims.iter().zip(x).map(|(d, v)| d - v).collect();
         let zero_part = SubsetsByWeight::new(&negative, 0.0);

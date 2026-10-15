@@ -162,6 +162,15 @@ def test_callback_exception_is_raised():
         coopgame.sampled_nucleolus(coopgame.FunctionGame(4, broken), 10)
 
 
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+def test_callback_non_finite_value_is_rejected(bad):
+    game = coopgame.FunctionGame(4, lambda coalition: bad if len(coalition) == 2 else 1.0)
+    with pytest.raises(ValueError):
+        coopgame.shapley_sampling(game, 10)
+    with pytest.raises(ValueError):
+        coopgame.sampled_nucleolus(game, 10)
+
+
 # ---------------------------------------------------------------- サンプリングした仁
 
 
@@ -196,6 +205,9 @@ def test_invalid_inputs_raise_value_error():
         coopgame.verify(game, [0.5])
     with pytest.raises(ValueError):
         coopgame.shapley_sampling("not a game", 10)
+    with pytest.raises(ValueError):
+        game.is_in_core([1.0])  # 長さが人数と異なる
+    assert game.is_in_core([0.5, 0.5])
 
 
 def test_binary_and_lex_orders_agree():
@@ -336,6 +348,8 @@ def test_uncertainty_and_influence():
     assert all(abs(v) < 1e-6 for v in coopgame.influence(game, coalitions=[[0]])[0][1])
     with pytest.raises(ValueError):
         coopgame.uncertainty(game)
+    with pytest.raises(ValueError):
+        coopgame.influence(game, coalitions=[[]])  # 空提携の値は 0 に固定
 
 
 def test_nucleolus_exact():

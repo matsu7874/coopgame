@@ -25,8 +25,18 @@ pub(crate) fn coalition_sums(x: &[f64]) -> Vec<f64> {
 }
 
 /// 全提携の超過 `e(S, x) = v(S) - x(S)` (ビット順、長さ `2^n`)。空提携の超過は 0。
+///
+/// # Panics
+///
+/// `x` の長さがプレイヤー数と異なるとパニックする (長さの違う配分で誤った表を返さないため、release でも確かめる)。
 pub(crate) fn excess_table(game: &ExplicitGame, x: &[f64]) -> Vec<f64> {
-    debug_assert_eq!(x.len(), game.players());
+    assert_eq!(
+        x.len(),
+        game.players(),
+        "配分の長さ {} がプレイヤー数 {} と異なる",
+        x.len(),
+        game.players()
+    );
     let mut excess = coalition_sums(x);
     for (e, value) in excess.iter_mut().zip(game.values()) {
         *e = value - *e;
@@ -34,7 +44,22 @@ pub(crate) fn excess_table(game: &ExplicitGame, x: &[f64]) -> Vec<f64> {
     excess
 }
 
-/// 効率性と領域条件の違反を調べる。違反があればその説明を返す。
+/// 配分の長さと有限性を確かめる。不正ならその説明を返す。
+pub(crate) fn allocation_defect(n: usize, x: &[f64]) -> Option<String> {
+    if x.len() != n {
+        return Some(format!(
+            "配分の長さ {} がプレイヤー数 {n} と異なる",
+            x.len()
+        ));
+    }
+    x.iter()
+        .position(|v| !v.is_finite())
+        .map(|i| format!("x_{i} = {} は有限でない", x[i]))
+}
+
+/// 長さ・有限性・効率性・領域条件の違反を調べる。違反があればその説明を返す。
+///
+/// ゲームの値や許容誤差に NaN があれば違反として扱う。
 pub(crate) fn feasibility_violation<G: SetFunction + ?Sized>(
     game: &G,
     x: &[f64],
@@ -42,9 +67,12 @@ pub(crate) fn feasibility_violation<G: SetFunction + ?Sized>(
     tolerance: f64,
 ) -> Option<String> {
     let n = game.players();
+    if let Some(defect) = allocation_defect(n, x) {
+        return Some(defect);
+    }
     let total: f64 = x.iter().sum();
     let grand = game.value(&PlayerSet::grand(n));
-    if (total - grand).abs() > tolerance {
+    if !at_most((total - grand).abs(), tolerance) {
         return Some(format!(
             "効率性を満たさない: x(N) = {total}, v(N) = {grand}"
         ));
@@ -52,7 +80,7 @@ pub(crate) fn feasibility_violation<G: SetFunction + ?Sized>(
     if domain == Domain::Imputation {
         for (i, xi) in x.iter().enumerate() {
             let lower = game.value(&PlayerSet::singleton(n, i));
-            if *xi < lower - tolerance {
+            if !at_most(lower - tolerance, *xi) {
                 return Some(format!(
                     "個人合理性を満たさない: x_{i} = {xi} < v({{{i}}}) = {lower}"
                 ));
@@ -60,6 +88,11 @@ pub(crate) fn feasibility_violation<G: SetFunction + ?Sized>(
         }
     }
     None
+}
+
+/// `a <= b`。どちらかが NaN なら偽 (NaN を違反として扱うため)。
+fn at_most(a: f64, b: f64) -> bool {
+    a <= b
 }
 
 /// 配分の領域が空でないかを確かめる (`Domain::Imputation` で `sum v({i}) <= v(N) + tolerance`)。
