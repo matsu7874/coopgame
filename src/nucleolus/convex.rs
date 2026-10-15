@@ -16,6 +16,9 @@
 //! 1 周の間に、どの組の不釣り合い `|s_ij - s_ji|` も許容誤差以下で、移転が起きなかったら停止する。
 //! この最後の 1 周は停止時の `x` で全ての組を調べたことになるので、停止時の `x` はプレカーネル条件を満たす。
 //!
+//! 劣モジュラ最小化と停止条件は絶対誤差で判定するので、[`value_scale`] 以下で最大の 2 のべき乗で値を割った
+//! ゲームで求め、結果を元の大きさに戻す (値を `c` 倍すると結果も `c` 倍になる)。
+//!
 //! 保証の種類はゲームの性質の根拠 ([`crate::properties::ProofKind`]) で決まる。
 //! 性質を宣言しただけのゲーム ([`crate::properties::Assume`]) では、最大余剰の最小化も
 //! カーネル = 仁 の定理も成り立たないことがあるので、結果は [`crate::Unverified`] で返る。
@@ -24,6 +27,7 @@ use std::cell::Cell;
 
 use crate::Domain;
 use crate::error::{Error, Result};
+use crate::game::scale::{Scaled, normalizer};
 use crate::game::{PlayerSet, SetFunction, value_scale};
 use crate::properties::{ConvexGame, ProofKind};
 use crate::solution::{Property, Solution};
@@ -32,7 +36,7 @@ use crate::submodular;
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct ConvexOptions {
-    /// 不釣り合い `|s_ij - s_ji|` の許容誤差。`None` なら `1e-9 * scale`。
+    /// 不釣り合い `|s_ij - s_ji|` の許容誤差 (ゲームの値と同じ単位)。`None` なら `1e-9 * value_scale(game)`。
     pub tolerance: Option<f64>,
     /// 組を回る周回の上限。
     pub max_sweeps: usize,
@@ -115,6 +119,24 @@ fn prekernel_point<G: SetFunction + ?Sized>(
     game: &G,
     options: ConvexOptions,
 ) -> Result<(Vec<f64>, ConvexStats)> {
+    let scale = value_scale(game);
+    let divisor = normalizer(scale);
+    let options = ConvexOptions {
+        tolerance: Some(options.tolerance.unwrap_or(1e-9 * scale) / divisor),
+        ..options
+    };
+    let (mut x, stats) = normalized_prekernel_point(&Scaled::new(game, divisor), options)?;
+    for value in &mut x {
+        *value *= divisor;
+    }
+    Ok((x, stats))
+}
+
+/// 値の大きさを 1 前後にそろえたゲームで transfer scheme を行う。`options.tolerance` は設定済み。
+fn normalized_prekernel_point<G: SetFunction + ?Sized>(
+    game: &G,
+    options: ConvexOptions,
+) -> Result<(Vec<f64>, ConvexStats)> {
     let n = game.players();
     if n == 0 {
         return Err(Error::InvalidArgument("プレイヤーがいない".into()));
@@ -125,8 +147,7 @@ fn prekernel_point<G: SetFunction + ?Sized>(
     if n == 1 {
         return Ok((x, stats));
     }
-    let scale = value_scale(game);
-    let tolerance = options.tolerance.unwrap_or(1e-9 * scale);
+    let tolerance = options.tolerance.expect("prekernel_point が設定する");
     // 最大余剰はこの許容誤差より十分細かく求める。
     let sfm_tolerance = 1e-3 * tolerance;
     let evaluations = Cell::new(0);

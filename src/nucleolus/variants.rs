@@ -16,6 +16,11 @@
 //! - 張る空間が `R^n` になれば配分は一意に決まる。不満が尽きても `R^n` にならなければ、
 //!   辞書式最小は一意ではないのでエラーを返す。
 //!
+//! 許容誤差はゲームの値と同じ単位 (超過の単位) で、不満 `f_k` そのもの (比になりうる) ではなく
+//! `c_k - a_k . x - w_k t` (段 `t` からの超過のずれ) に当てる。こうすると重み `w_k` の大きさによらず
+//! 同じ基準で等号を判定できる。LP は絶対誤差で判定するので、定数 (`c_k`・配分集合の値) と重みをそれぞれ
+//! 2 のべき乗で割って最大絶対値を `[1, 2)` にそろえてから解き、結果を元の大きさに戻す。
+//!
 //! 不満の選び方 (CoopGame 0.2.2 の `perCapitaNucleolus`・`proportionalNucleolus`・`modiclus` と同じ):
 //!
 //! | 関数 | 不満 | 領域 |
@@ -43,8 +48,9 @@ use microlp::{Problem, Variable};
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::allocation::check_imputation_set;
-use crate::game::{Coalition, ExplicitGame, default_tolerance};
+use crate::game::allocation::lower_bounds;
+use crate::game::scale::normalizer;
+use crate::game::{Coalition, ExplicitGame, PlayerSet, default_tolerance};
 use crate::linalg::{Span, indicator};
 use crate::lp::{self, Cmp, Counter};
 use crate::solution::Guarantee;
@@ -109,6 +115,8 @@ impl LexicographicResult {
 }
 
 /// 不満のベクトルを辞書式に最小化する配分を求める。
+///
+/// `tolerance` は定数 `c_k` (配分) と同じ単位で、等号の判定は `c_k - a_k . x - w_k t` に当てる。
 pub fn lexicographic_minimum(
     players: usize,
     feasible: &Feasible,
@@ -128,11 +136,43 @@ pub fn lexicographic_minimum(
             "不満の係数の長さがプレイヤー数と異なるか、重みが正でない".into(),
         ));
     }
+    // 定数と重みをそれぞれ 2 のべき乗で割る (丸めは起きない)。
+    // 配分は定数と同じ倍率、不満の値は 定数の倍率 / 重みの倍率 で変わる。
+    let constants = complaints
+        .iter()
+        .map(|c| c.constant)
+        .chain(std::iter::once(feasible.total))
+        .chain(feasible.lower.iter().flatten().copied())
+        .chain(feasible.constraints.iter().map(|(_, b)| *b))
+        .filter(|v| v.is_finite())
+        .fold(0.0, |acc: f64, v| acc.max(v.abs()));
+    let weights = complaints.iter().fold(0.0, |acc: f64, c| acc.max(c.weight));
+    let (value_divisor, weight_divisor) = (normalizer(constants), normalizer(weights));
+    let normalized_feasible = Feasible {
+        total: feasible.total / value_divisor,
+        lower: feasible
+            .lower
+            .as_ref()
+            .map(|lower| lower.iter().map(|v| v / value_divisor).collect()),
+        constraints: feasible
+            .constraints
+            .iter()
+            .map(|(a, b)| (a.clone(), b / value_divisor))
+            .collect(),
+    };
+    let normalized_complaints: Vec<Complaint> = complaints
+        .iter()
+        .map(|c| Complaint {
+            coefficients: c.coefficients.clone(),
+            constant: c.constant / value_divisor,
+            weight: c.weight / weight_divisor,
+        })
+        .collect();
     let mut solver = Lexicographic {
         n: players,
-        feasible,
-        complaints,
-        tolerance,
+        feasible: &normalized_feasible,
+        complaints: &normalized_complaints,
+        tolerance: tolerance / value_divisor,
         open: (0..complaints.len()).collect(),
         fixed: Vec::new(),
         span: Span::new(players),
@@ -140,13 +180,21 @@ pub fn lexicographic_minimum(
     };
     solver.span.insert(&vec![1.0; players]);
     solver.drop_determined();
-    solver.run()
+    let mut result = solver.run()?;
+    for value in &mut result.allocation {
+        *value *= value_divisor;
+    }
+    for level in &mut result.levels {
+        *level *= value_divisor / weight_divisor;
+    }
+    Ok(result)
 }
 
 struct Lexicographic<'a> {
     n: usize,
     feasible: &'a Feasible,
     complaints: &'a [Complaint],
+    /// 超過 `c - a . x` の単位の許容誤差。
     tolerance: f64,
     /// 未確定の不満の番号。
     open: Vec<usize>,
@@ -158,6 +206,14 @@ struct Lexicographic<'a> {
 
 impl Lexicographic<'_> {
     fn run(mut self) -> Result<LexicographicResult> {
+        if let Some(point) = self.single_point() {
+            return Ok(LexicographicResult {
+                allocation: point,
+                levels: Vec::new(),
+                lp_solves: 0,
+                guarantee: Guarantee::Exact,
+            });
+        }
         let mut levels = Vec::new();
         let mut allocation = match self.open.is_empty() {
             true => self.any_feasible()?,
@@ -181,6 +237,26 @@ impl Lexicographic<'_> {
             lp_solves: self.counter.solves,
             guarantee: Guarantee::Exact,
         })
+    }
+
+    /// 下限の和が `total` に (和の丸め誤差を除いて) 等しく、他の制約も許容誤差以内で満たすなら、
+    /// 配分の集合は 1 点 `lower` で、それが辞書式最小。許容誤差以内で空の配分集合で下限を下げた場合もこれに当たる。
+    ///
+    /// 不満の差が許容誤差より小さくなり、LP の段で誤った値で確定しうるので先に判定する。
+    fn single_point(&self) -> Option<Vec<f64>> {
+        let lower = self.feasible.lower.as_ref()?;
+        let sum: f64 = lower.iter().sum();
+        let magnitude = lower
+            .iter()
+            .fold(self.feasible.total.abs(), |acc, v| acc.max(v.abs()));
+        let rounding = 4.0 * f64::EPSILON * self.n as f64 * magnitude;
+        let feasible = (sum - self.feasible.total).abs() <= rounding
+            && self
+                .feasible
+                .constraints
+                .iter()
+                .all(|(a, b)| dot(a, lower) >= b - self.tolerance);
+        feasible.then(|| lower.clone())
     }
 
     /// 係数が確定済みの空間に入った不満を外す (実行可能集合の上で定数になる)。
@@ -245,7 +321,7 @@ impl Lexicographic<'_> {
                 let mut problem = lp::maximize();
                 let objective: Vec<f64> = direction.iter().map(|d| sign * d).collect();
                 let x = self.add_domain(&mut problem, Some(&objective));
-                self.add_open_rows(&mut problem, &x, Row::AtMost(f64::INFINITY));
+                self.add_open_rows(&mut problem, &x, Row::Unbounded);
                 match self.counter.solve_bounded(&problem)? {
                     Some(solution) => range[slot] = sign * solution.objective(),
                     None => return Ok(false),
@@ -268,8 +344,11 @@ impl Lexicographic<'_> {
                     row_terms.push((t, complaint.weight));
                     complaint.constant
                 }
-                Row::AtMost(bound) if bound.is_infinite() => continue,
-                Row::AtMost(bound) => complaint.constant - complaint.weight * bound,
+                Row::Unbounded => continue,
+                // c - a . x <= w level + relax
+                Row::AtMost { level, relax } => {
+                    complaint.constant - complaint.weight * level - relax
+                }
             };
             lp::add(problem, row_terms, Cmp::Ge, rhs);
         }
@@ -292,7 +371,8 @@ impl Lexicographic<'_> {
         let mut problem = lp::maximize();
         let x = self.add_domain(&mut problem, Some(a));
         // 最適値の丸め誤差で実行不可能にならないよう、許容誤差の 1% だけ緩める。
-        self.add_open_rows(&mut problem, &x, Row::AtMost(level + 0.01 * self.tolerance));
+        let relax = 0.01 * self.tolerance;
+        self.add_open_rows(&mut problem, &x, Row::AtMost { level, relax });
         let solution = self
             .counter
             .solve_bounded(&problem)?
@@ -303,12 +383,18 @@ impl Lexicographic<'_> {
         ))
     }
 
+    /// 段 `level` からの超過のずれ `c - a . x - w level` (値の単位)。
+    fn deviation(&self, k: usize, x: &[f64], level: f64) -> f64 {
+        let complaint = &self.complaints[k];
+        complaint.constant - dot(&complaint.coefficients, x) - complaint.weight * level
+    }
+
     fn fix_tight(&mut self, level: f64, x: &[f64]) -> Result<()> {
         let tight: Vec<usize> = self
             .open
             .iter()
             .copied()
-            .filter(|&k| (self.complaints[k].value(x) - level).abs() <= self.tolerance)
+            .filter(|&k| self.deviation(k, x, level).abs() <= self.tolerance)
             .collect();
         let mut not_fixed = vec![false; tight.len()];
         let mut progressed = false;
@@ -320,14 +406,14 @@ impl Lexicographic<'_> {
             }
             let fixed_value = complaint.constant - complaint.weight * level;
             let (max_value, witness) = self.maximize_direction(&complaint.coefficients, level)?;
-            if max_value <= fixed_value + self.tolerance * complaint.weight {
+            if max_value <= fixed_value + self.tolerance {
                 self.fixed.push((k, level));
                 self.span.insert(&complaint.coefficients);
                 progressed = true;
             } else {
                 // witness で不満が level 未満になる不満も確定していない。
                 for (later, flag) in tight.iter().zip(not_fixed.iter_mut()).skip(position + 1) {
-                    if self.complaints[*later].value(&witness) < level - self.tolerance {
+                    if self.deviation(*later, &witness, level) < -self.tolerance {
                         *flag = true;
                     }
                 }
@@ -347,8 +433,12 @@ impl Lexicographic<'_> {
 
 #[derive(Clone, Copy)]
 enum Row {
+    /// `c - a . x <= w t` (`t` は変数)。
     WithLevel(Variable),
-    AtMost(f64),
+    /// `c - a . x <= w level + relax`。
+    AtMost { level: f64, relax: f64 },
+    /// 不満の行を入れない。
+    Unbounded,
 }
 
 fn terms(x: &[Variable], a: &[f64]) -> Vec<(Variable, f64)> {
@@ -367,12 +457,15 @@ fn proper_coalitions(game: &ExplicitGame) -> impl Iterator<Item = Coalition> {
     (1..game.grand().0).map(Coalition)
 }
 
-fn feasible_set(game: &ExplicitGame, domain: Domain) -> Feasible {
-    Feasible {
+/// 配分集合 (準配分集合)。配分集合が許容誤差を超えて空なら [`Error::EmptyImputationSet`]、
+/// 許容誤差以内で空なら下限を下げる ([`crate::nucleolus::Options::tolerance`] と同じ扱い)。
+fn feasible_set(game: &ExplicitGame, domain: Domain) -> Result<Feasible> {
+    let grand = PlayerSet::grand(game.players());
+    Ok(Feasible {
         total: game.value(game.grand()),
-        lower: (domain == Domain::Imputation).then(|| game.singleton_values()),
+        lower: lower_bounds(game, &[grand], domain, default_tolerance(game))?,
         constraints: Vec::new(),
-    }
+    })
 }
 
 /// 超過の complaint `e(S, x) / weight`。
@@ -387,13 +480,13 @@ fn excess_complaint(game: &ExplicitGame, coalition: Coalition, weight: f64) -> C
 /// 全ての空でない真部分提携の超過 (重み 1) を不満にした場合。仁 (プレ仁) に一致する。
 #[cfg(test)]
 fn nucleolus_by_complaints(game: &ExplicitGame, domain: Domain) -> Result<LexicographicResult> {
-    check_imputation_set(game, domain, default_tolerance(game))?;
+    let feasible = feasible_set(game, domain)?;
     let complaints: Vec<Complaint> = proper_coalitions(game)
         .map(|s| excess_complaint(game, s, 1.0))
         .collect();
     lexicographic_minimum(
         game.players(),
-        &feasible_set(game, domain),
+        &feasible,
         &complaints,
         default_tolerance(game),
     )
@@ -401,13 +494,13 @@ fn nucleolus_by_complaints(game: &ExplicitGame, domain: Domain) -> Result<Lexico
 
 /// per capita 仁: 超過を提携の人数で割った `e(S, x) / abs(S)` を辞書式に最小化する。
 pub fn per_capita_nucleolus(game: &ExplicitGame, domain: Domain) -> Result<LexicographicResult> {
-    check_imputation_set(game, domain, default_tolerance(game))?;
+    let feasible = feasible_set(game, domain)?;
     let complaints: Vec<Complaint> = proper_coalitions(game)
         .map(|s| excess_complaint(game, s, s.len() as f64))
         .collect();
     lexicographic_minimum(
         game.players(),
-        &feasible_set(game, domain),
+        &feasible,
         &complaints,
         default_tolerance(game),
     )
@@ -466,13 +559,12 @@ pub fn anti_nucleolus(game: &ExplicitGame) -> Result<crate::nucleolus::Nucleolus
 /// 非負のゲーム (`v(S) >= 0`) に限る。`v(S) = 0` の提携は不満にせず、制約 `x(S) >= 0` にする
 /// (CoopGame と同じ扱い)。
 pub fn proportional_nucleolus(game: &ExplicitGame, domain: Domain) -> Result<LexicographicResult> {
-    check_imputation_set(game, domain, default_tolerance(game))?;
     if game.values().iter().any(|v| *v < 0.0) {
         return Err(Error::InvalidArgument(
             "比例仁は非負のゲーム (全ての v(S) >= 0) に限る".into(),
         ));
     }
-    let mut feasible = feasible_set(game, domain);
+    let mut feasible = feasible_set(game, domain)?;
     let mut complaints = Vec::new();
     for s in proper_coalitions(game) {
         let value = game.value(s);
@@ -525,7 +617,7 @@ pub fn modiclus(game: &ExplicitGame) -> Result<LexicographicResult> {
     }
     lexicographic_minimum(
         n,
-        &feasible_set(game, Domain::Preimputation),
+        &feasible_set(game, Domain::Preimputation)?,
         &complaints,
         default_tolerance(game),
     )

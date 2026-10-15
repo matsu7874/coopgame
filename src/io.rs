@@ -404,7 +404,7 @@ impl OracleGame for PartialGame {
     }
 
     fn scale(&self) -> f64 {
-        self.known.values().fold(1.0, |acc, v| acc.max(v.abs()))
+        self.known.values().fold(0.0, |acc, v| acc.max(v.abs()))
     }
 }
 
