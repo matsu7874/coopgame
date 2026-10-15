@@ -13,6 +13,7 @@
 use std::fmt::{self, Write as _};
 
 use crate::error::{Error, Result};
+use crate::game::scale::positive_scale;
 use crate::game::{Coalition, ExplicitGame};
 use crate::kernel::{SetOptions, kernel_set};
 use crate::linalg::{for_each_combination, indicator, solve_square};
@@ -87,7 +88,7 @@ pub fn imputation_figure(game: &ExplicitGame, options: &PlotOptions) -> Result<F
     }
     let singles = game.singleton_values();
     let surplus = game.value(game.grand()) - singles.iter().sum::<f64>();
-    if surplus <= 1e-12 * game.max_abs_value().max(1.0) {
+    if surplus <= 1e-12 * positive_scale(game.max_abs_value()) {
         return Err(Error::InvalidArgument(
             "配分集合が 1 点以下 (v(N) <= sum v({i})) なので描けない".into(),
         ));
@@ -633,7 +634,7 @@ fn core_constraints(game: &ExplicitGame) -> Vec<(Coalition, f64)> {
 /// コアの頂点 (`n - 1` 本の制約が等号で成り立ち、全ての制約を満たす点)。
 pub fn core_vertices(game: &ExplicitGame) -> Vec<Vec<f64>> {
     let n = game.players();
-    let tolerance = 1e-9 * game.max_abs_value().max(1.0);
+    let tolerance = 1e-9 * positive_scale(game.max_abs_value());
     let constraints = core_constraints(game);
     let total = game.value(game.grand());
     let mut vertices: Vec<Vec<f64>> = Vec::new();
@@ -664,7 +665,7 @@ pub fn core_vertices(game: &ExplicitGame) -> Vec<Vec<f64>> {
 /// コアの稜線 (2 つの頂点で共通に等号が成り立つ制約が `n - 2` 本以上あり、独立なもの)。
 fn core_edges(game: &ExplicitGame, vertices: &[Vec<f64>]) -> Vec<(usize, usize)> {
     let n = game.players();
-    let tolerance = 1e-7 * game.max_abs_value().max(1.0);
+    let tolerance = 1e-7 * positive_scale(game.max_abs_value());
     let constraints = core_constraints(game);
     let tight: Vec<Vec<usize>> = vertices
         .iter()

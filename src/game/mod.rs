@@ -11,6 +11,7 @@ pub(crate) mod coalition;
 pub mod exact;
 pub mod oracle;
 mod player_set;
+pub(crate) mod scale;
 pub(crate) mod subsets;
 
 pub use allocation::Domain;
@@ -183,9 +184,12 @@ impl ExplicitGame {
     }
 }
 
-/// 特性関数の値の大きさに合わせた既定の許容誤差。
+/// 特性関数の値の大きさに合わせた既定の許容誤差: 値の最大絶対値の `1e-7` 倍 (全ての値が 0 なら `1e-7`)。
+///
+/// 値の大きさに比例させるので、ゲームの値を `c` 倍すると許容誤差も `c` 倍になる
+/// (値の小さいゲームでも許容誤差が値を上回らない)。
 pub fn default_tolerance(game: &ExplicitGame) -> f64 {
-    1e-7 * game.max_abs_value().max(1.0)
+    1e-7 * scale::positive_scale(game.max_abs_value())
 }
 
 pub(super) fn check_players(players: usize) -> Result<()> {

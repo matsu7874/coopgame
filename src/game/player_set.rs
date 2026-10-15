@@ -245,17 +245,18 @@ impl<G: SetFunction + ?Sized> SetFunction for &G {
 
 /// 全提携を列挙せずに得られる、特性関数の値の大きさの目安 (許容誤差の基準)。
 ///
-/// 全体提携、1 人提携、`n - 1` 人提携の値の絶対値の最大 (1 以上)。評価は `2n + 1` 回。
+/// 全体提携、1 人提携、`n - 1` 人提携の値の絶対値の最大 (これらが全て 0 なら 1)。評価は `2n + 1` 回。
+/// ゲームの値を `c` 倍すると、この値も `c` 倍になる。
 pub fn value_scale<G: SetFunction + ?Sized>(game: &G) -> f64 {
     let n = game.players();
-    let mut scale = game.value(&PlayerSet::grand(n)).abs().max(1.0);
+    let mut scale = game.value(&PlayerSet::grand(n)).abs();
     for i in 0..n {
         let single = PlayerSet::singleton(n, i);
         scale = scale
             .max(game.value(&single).abs())
             .max(game.value(&single.complement()).abs());
     }
-    scale
+    crate::game::scale::positive_scale(scale)
 }
 
 impl SetFunction for ExplicitGame {
