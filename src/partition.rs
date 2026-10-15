@@ -33,7 +33,11 @@ impl fmt::Display for CoalitionStructure {
 
 impl CoalitionStructure {
     /// プレイヤー番号のブロックの列から作る。全員がちょうど 1 つのブロックに属する必要がある。
+    /// 人数は 64 まで ([`Coalition`] で表すため)。
     pub fn new(players: usize, blocks: &[Vec<usize>]) -> Result<CoalitionStructure> {
+        if players > 64 {
+            return Err(Error::TooManyPlayers { players, max: 64 });
+        }
         let mut seen = 0u64;
         let mut coalitions = Vec::with_capacity(blocks.len());
         for block in blocks {

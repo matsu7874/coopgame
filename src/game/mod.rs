@@ -74,12 +74,10 @@ impl ExplicitGame {
     /// 適用するための入口。特性関数を `2^n - 1` 回評価する。
     pub fn tabulate<G: SetFunction + ?Sized>(game: &G) -> Result<ExplicitGame> {
         let n = game.players();
-        if n == 0 || n > MAX_PLAYERS {
-            return Err(Error::TooManyPlayers {
-                players: n,
-                max: MAX_PLAYERS,
-            });
+        if n == 0 {
+            return Err(Error::InvalidArgument("プレイヤー数は 1 以上".into()));
         }
+        check_players(n)?;
         let mut set = PlayerSet::grand(n);
         ExplicitGame::from_fn(n, |coalition| {
             set.assign(coalition);
@@ -88,7 +86,15 @@ impl ExplicitGame {
     }
 
     /// `members` の人だけの部分ゲーム。プレイヤーは `members` の昇順に 0 から番号を振り直す。
+    ///
+    /// `members` にプレイヤー数以上の番号があれば [`Error::InvalidArgument`]。
     pub fn subgame(&self, members: Coalition) -> Result<ExplicitGame> {
+        if !members.is_subset(self.grand()) {
+            return Err(Error::InvalidArgument(format!(
+                "提携 {members} に人数 {} 以上の番号がある",
+                self.players
+            )));
+        }
         let members: Vec<usize> = members.members().collect();
         ExplicitGame::from_fn(members.len(), |sub| {
             self.value(Coalition::embed(&members, sub.0))

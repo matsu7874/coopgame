@@ -20,6 +20,7 @@ pub fn bnf(kind: u8, n: usize, seed: u64) -> Result<ExplicitGame> {
     if n < 2 {
         return Err(Error::InvalidArgument("プレイヤー数は 2 以上".into()));
     }
+    check_size(n)?;
     let n64 = n as u64;
     let mut rng = SplitMix64::new(seed);
     let full = (1u64 << n) - 1;
@@ -108,6 +109,7 @@ pub fn bankruptcy(estate: f64, claims: &[f64]) -> Result<ExplicitGame> {
 ///
 /// 凸ゲームではカーネルと仁が一致する (Maschler, Peleg, Shapley 1971、docs/references.md の MPS1971)。
 pub fn random_convex(n: usize, seed: u64) -> Result<ExplicitGame> {
+    check_size(n)?;
     let mut rng = SplitMix64::new(seed);
     let size = 1usize << n;
     let mut values = vec![0.0; size];
@@ -128,6 +130,7 @@ pub fn random_convex(n: usize, seed: u64) -> Result<ExplicitGame> {
 /// 優加法的なゲーム。提携ごとに `[0, |S|)` の一様乱数を基本値とし、
 /// 分割して稼いだ方が大きければその値に置き換える(優加法的な包)。計算量は `3^n`。
 pub fn random_superadditive(n: usize, seed: u64) -> Result<ExplicitGame> {
+    check_size(n)?;
     let mut rng = SplitMix64::new(seed);
     let size = 1usize << n;
     let mut values = vec![0.0; size];
@@ -136,6 +139,15 @@ pub fn random_superadditive(n: usize, seed: u64) -> Result<ExplicitGame> {
     }
     superadditive_cover(&mut values, |a, b| a + b);
     ExplicitGame::from_binary(&values[1..])
+}
+
+/// 全提携の表を作る前に、人数が 1 以上 [`crate::game::MAX_PLAYERS`] 以下かを確かめる
+/// (`1 << n` の計算や `2^n` 個の確保より先に弾くため)。
+fn check_size(n: usize) -> Result<()> {
+    if n == 0 {
+        return Err(Error::InvalidArgument("プレイヤー数は 1 以上".into()));
+    }
+    crate::game::check_players(n)
 }
 
 /// 各提携の値を、その提携の 2 分割の値の和との最大値で置き換える (小さい提携から順に、優加法的にする)。
@@ -182,12 +194,7 @@ pub fn by_class(class: &str, n: usize, seed: u64) -> Result<ExplicitGame> {
 /// 検証には [`crate::verify::certify_exact`] を使う。
 pub fn random_superadditive_exact(n: usize, seed: u64) -> Result<crate::game::exact::ExactGame> {
     use crate::game::exact::{Rational, to_rational};
-    if n == 0 || n > crate::game::MAX_PLAYERS {
-        return Err(Error::TooManyPlayers {
-            players: n,
-            max: crate::game::MAX_PLAYERS,
-        });
-    }
+    check_size(n)?;
     let mut rng = SplitMix64::new(seed);
     let size = 1usize << n;
     let mut values: Vec<Rational> = vec![Rational::from_integer(0.into()); size];
