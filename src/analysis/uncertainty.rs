@@ -367,4 +367,12 @@ mod tests {
             assert!((a - e).abs() < 1e-9, "{:?}", result[0].sensitivity);
         }
     }
+
+    #[test]
+    fn key_coalitions_of_one_player_game() {
+        // 真部分提携がないので、全体提携だけ。
+        let game = ExplicitGame::from_lex(&[1.0]).unwrap();
+        let key = key_coalitions(&game, &[1.0], 2).unwrap();
+        assert_eq!(key, vec![game.grand()]);
+    }
 }

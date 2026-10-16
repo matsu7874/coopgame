@@ -9,7 +9,7 @@ pub enum Error {
     InvalidLength(usize),
     /// 扱えるプレイヤー数を超えている。
     TooManyPlayers { players: usize, max: usize },
-    /// 入力の解析に失敗した(`line` は 1 始まり)。
+    /// 入力の解析に失敗した(`line` は 1 始まりの行番号。0 は行に結び付かない、入力全体についてのエラー)。
     Parse { line: usize, message: String },
     /// 引数が不正。
     InvalidArgument(String),
@@ -32,6 +32,7 @@ impl fmt::Display for Error {
             Error::TooManyPlayers { players, max } => {
                 write!(f, "プレイヤー数 {players} は上限 {max} を超えている")
             }
+            Error::Parse { line: 0, message } => write!(f, "入力が不正: {message}"),
             Error::Parse { line, message } => write!(f, "{line} 行目: {message}"),
             Error::InvalidArgument(message) => write!(f, "引数が不正: {message}"),
             Error::EmptyImputationSet => write!(f, "配分集合が空 (sum v({{i}}) > v(N))"),
