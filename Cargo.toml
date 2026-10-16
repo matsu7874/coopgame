@@ -1,6 +1,6 @@
 [package]
 name = "coopgame"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.88"
 description = "TU協力ゲームの仁・プレ仁・カーネル・プレカーネルの計算と検証"
