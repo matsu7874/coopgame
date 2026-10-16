@@ -9,6 +9,9 @@ use std::fmt;
 
 use crate::error::{Error, Result};
 
+/// [`Coalition`] で扱えるプレイヤー数の上限 (ビット数)。
+const CAPACITY: usize = 64;
+
 /// 64 人までのプレイヤーの集合。プレイヤー `i` はビット `i` に対応する。
 ///
 /// 任意の人数の集合は [`PlayerSet`](crate::game::PlayerSet)。2 つの型は同じ名前の操作を持つ。
@@ -22,22 +25,36 @@ impl Coalition {
     }
 
     /// `n` 人全員からなる全体提携。
+    ///
+    /// # Panics
+    ///
+    /// `n` が 64 を超えるとパニックする。
     pub fn grand(n: usize) -> Coalition {
-        debug_assert!(n < 64);
-        Coalition((1u64 << n) - 1)
+        assert!(n <= CAPACITY, "Coalition は 64 人まで ({n} 人)");
+        Coalition(if n == 0 { 0 } else { u64::MAX >> (64 - n) })
     }
 
+    /// # Panics
+    ///
+    /// `player` が 64 以上だとパニックする。
     pub fn singleton(player: usize) -> Coalition {
-        Coalition(1u64 << player)
+        Coalition(bit(player))
     }
 
+    /// # Panics
+    ///
+    /// 64 以上の番号があるとパニックする。範囲を確かめて `Result` を返すのは [`Coalition::try_from_players`]。
     pub fn from_players(players: &[usize]) -> Coalition {
-        Coalition(players.iter().fold(0, |mask, &i| mask | (1u64 << i)))
+        Coalition(players.iter().fold(0, |mask, &i| mask | bit(i)))
     }
 
-    /// [`Coalition::from_players`] の、番号が `n` 人の範囲にあるかを確かめる版。
+    /// [`Coalition::from_players`] の、番号が `n` 人の範囲 (かつ 64 未満) にあるかを確かめる版。
     pub fn try_from_players(n: usize, players: &[usize]) -> Result<Coalition> {
-        match players.iter().find(|&&i| i >= n) {
+        let limit = n.min(CAPACITY);
+        match players.iter().find(|&&i| i >= limit) {
+            Some(&i) if i < n => Err(Error::InvalidArgument(format!(
+                "プレイヤー番号 {i} は Coalition で扱える範囲 (64 未満) を超える"
+            ))),
             Some(i) => Err(Error::InvalidArgument(format!(
                 "プレイヤー番号 {i} が人数 {n} 以上"
             ))),
@@ -67,8 +84,9 @@ impl Coalition {
         )
     }
 
+    /// `player` がメンバーか。64 以上の番号はメンバーになりえないので `false`。
     pub fn contains(self, player: usize) -> bool {
-        self.0 >> player & 1 == 1
+        player < CAPACITY && self.0 >> player & 1 == 1
     }
 
     pub fn len(self) -> usize {
@@ -79,12 +97,18 @@ impl Coalition {
         self.0 == 0
     }
 
+    /// # Panics
+    ///
+    /// `player` が 64 以上だとパニックする。
     pub fn insert(&mut self, player: usize) {
-        self.0 |= 1u64 << player;
+        self.0 |= bit(player);
     }
 
+    /// `player` を除く。64 以上の番号はメンバーでないので何もしない。
     pub fn remove(&mut self, player: usize) {
-        self.0 &= !(1u64 << player);
+        if player < CAPACITY {
+            self.0 &= !(1u64 << player);
+        }
     }
 
     pub fn union(self, other: Coalition) -> Coalition {
@@ -100,6 +124,10 @@ impl Coalition {
     }
 
     /// `n` 人のうち、この提携に入らないプレイヤーの提携。
+    ///
+    /// # Panics
+    ///
+    /// `n` が 64 を超えるとパニックする。
     pub fn complement(self, n: usize) -> Coalition {
         Coalition(Coalition::grand(n).0 & !self.0)
     }
@@ -126,6 +154,15 @@ impl Coalition {
     pub fn sum(self, x: &[f64]) -> f64 {
         self.members().map(|i| x[i]).sum()
     }
+}
+
+/// プレイヤー `player` のビット。64 以上なら (release でも) パニックする。
+fn bit(player: usize) -> u64 {
+    assert!(
+        player < CAPACITY,
+        "Coalition のプレイヤー番号は 64 未満 ({player})"
+    );
+    1u64 << player
 }
 
 impl fmt::Display for Coalition {

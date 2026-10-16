@@ -18,7 +18,8 @@ microlp = "0.6.0"
 num-bigint = "0.4"
 num-rational = { version = "0.4.2", features = ["num-bigint"] }
 num-traits = "0.2.19"
-serde_json = { version = "1", optional = true }
+# raw_value: JSON の数値を字面のまま読み、--exact で 10 進数の値どおりの有理数にする
+serde_json = { version = "1", optional = true, features = ["raw_value"] }
 
 [features]
 default = []

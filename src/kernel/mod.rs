@@ -17,7 +17,7 @@ pub use set::{KernelPiece, KernelSet, MAX_KERNEL_SET_PLAYERS, Row, SetOptions, k
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::allocation::{check_imputation_set, feasibility_violation};
+use crate::game::allocation::{allocation_defect, check_imputation_set, feasibility_violation};
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::solution::Guarantee;
 use crate::surplus::max_surplus_flat;
@@ -81,14 +81,19 @@ impl KernelResult {
 /// 最大余剰の不釣り合い。`x` が(プレ)カーネルに属すれば 0。
 ///
 /// 組 `(i, j)` ごとの値は `2 * delta_ij` で、その最大値を返す。
+/// `x` の長さがプレイヤー数と異なるか、有限でない成分があれば `f64::INFINITY` を返す
+/// (どの許容誤差でもカーネルに属さないと判定されるように)。
 pub fn kernel_violation(game: &ExplicitGame, x: &[f64], domain: Domain) -> f64 {
+    if allocation_defect(game.players(), x).is_some() {
+        return f64::INFINITY;
+    }
     best_transfer(game, x, domain).map_or(0.0, |(_, _, delta)| 2.0 * delta)
 }
 
 /// `x` が効率性・領域条件を満たし、不釣り合いが `tolerance` 以下かを判定する。
+/// 長さがプレイヤー数と異なる `x` や、有限でない成分 (NaN など) を含む `x` は属さない (`false`)。
 pub fn is_in_kernel(game: &ExplicitGame, x: &[f64], domain: Domain, tolerance: f64) -> bool {
-    x.len() == game.players()
-        && feasibility_violation(game, x, domain, tolerance).is_none()
+    feasibility_violation(game, x, domain, tolerance).is_none()
         && kernel_violation(game, x, domain) <= tolerance
 }
 

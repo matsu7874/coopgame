@@ -32,6 +32,9 @@ pub struct Distribution {
 const QUANTILES: [f64; 3] = [0.05, 0.5, 0.95];
 
 /// `sample` でゲームを `samples` 回引き、`solve` で解いた配分の分布を求める。
+///
+/// `solve` がエラーを返した標本は失敗として数える。`solve` が返した配分の長さが
+/// 引いたゲームの人数と異なる場合や、標本ごとに人数が異なる場合は [`Error::InvalidArgument`] を返す。
 pub fn monte_carlo(
     samples: usize,
     seed: u64,
@@ -41,9 +44,23 @@ pub fn monte_carlo(
     let mut rng = SplitMix64::new(seed);
     let mut allocations: Vec<Vec<f64>> = Vec::with_capacity(samples);
     let mut failures = 0;
+    let mut players: Option<usize> = None;
     for _ in 0..samples {
         let game = sample(&mut rng)?;
+        let n = *players.get_or_insert(game.players());
+        if game.players() != n {
+            return Err(Error::InvalidArgument(format!(
+                "標本のゲームの人数 {} が最初の標本の人数 {n} と異なる",
+                game.players()
+            )));
+        }
         match solve(&game) {
+            Ok(x) if x.len() != n => {
+                return Err(Error::InvalidArgument(format!(
+                    "解いた配分の長さ {} がプレイヤー数 {n} と異なる",
+                    x.len()
+                )));
+            }
             Ok(x) => allocations.push(x),
             Err(_) => failures += 1,
         }
@@ -193,6 +210,9 @@ impl Influence {
 }
 
 /// 提携 `coalitions` の値を `±delta` 動かしたときの配分の変化率。
+///
+/// 提携は空でなく、プレイヤー数の範囲の番号だけからなる必要がある (空提携の値は 0 に固定のため動かせない)。
+/// `solve` が返した配分の長さがプレイヤー数と異なれば [`Error::InvalidArgument`]。
 pub fn influence(
     game: &ExplicitGame,
     coalitions: &[Coalition],
@@ -202,13 +222,35 @@ pub fn influence(
     if !(delta.is_finite() && delta > 0.0) {
         return Err(Error::InvalidArgument("delta は正の有限値".into()));
     }
+    let n = game.players();
+    for coalition in coalitions {
+        if coalition.is_empty() {
+            return Err(Error::InvalidArgument(
+                "空の提携の値は 0 に固定なので動かせない".into(),
+            ));
+        }
+        if !coalition.is_subset(game.grand()) {
+            return Err(Error::InvalidArgument(format!(
+                "提携 {coalition} に人数 {n} 以上の番号がある"
+            )));
+        }
+    }
+    let check = |x: Vec<f64>| -> Result<Vec<f64>> {
+        if x.len() != n {
+            return Err(Error::InvalidArgument(format!(
+                "解いた配分の長さ {} がプレイヤー数 {n} と異なる",
+                x.len()
+            )));
+        }
+        Ok(x)
+    };
     coalitions
         .iter()
         .map(|&coalition| {
             let shifted =
                 |sign: f64| game.with_value(coalition, game.value(coalition) + sign * delta);
-            let plus = solve(&shifted(1.0)?)?;
-            let minus = solve(&shifted(-1.0)?)?;
+            let plus = check(solve(&shifted(1.0)?)?)?;
+            let minus = check(solve(&shifted(-1.0)?)?)?;
             Ok(Influence {
                 coalition,
                 sensitivity: plus
@@ -324,5 +366,13 @@ mod tests {
         for (a, e) in result[0].sensitivity.iter().zip(expected) {
             assert!((a - e).abs() < 1e-9, "{:?}", result[0].sensitivity);
         }
+    }
+
+    #[test]
+    fn key_coalitions_of_one_player_game() {
+        // 真部分提携がないので、全体提携だけ。
+        let game = ExplicitGame::from_lex(&[1.0]).unwrap();
+        let key = key_coalitions(&game, &[1.0], 2).unwrap();
+        assert_eq!(key, vec![game.grand()]);
     }
 }

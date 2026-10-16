@@ -15,6 +15,9 @@ use crate::game::{Coalition, ExplicitGame, PlayerSet, SetFunction, excess_table}
 pub trait OracleGame: SetFunction {
     /// 真部分提携 (空でも全体でもない提携) を超過 `v(S) - x(S)` の非増加順に返す。
     /// 返す値は超過で、同じ超過の提携の順序は実装が決めてよい。
+    ///
+    /// `x` の長さはプレイヤー数と同じでなければならない。異なる場合、実装はパニックしてよい
+    /// (空の列を返すと「違反する提携はない」と解釈されるため、黙って続けてはならない)。
     fn excess_order<'a>(&'a self, x: &'a [f64]) -> Box<dyn Iterator<Item = (PlayerSet, f64)> + 'a>;
 
     /// 特性関数の値の大きさの目安 (許容誤差の基準)。
@@ -74,6 +77,12 @@ impl<G: OracleGame + ?Sized> Separation for G {
 impl OracleGame for ExplicitGame {
     fn excess_order<'a>(&'a self, x: &'a [f64]) -> Box<dyn Iterator<Item = (PlayerSet, f64)> + 'a> {
         let n = ExplicitGame::players(self);
+        assert_eq!(
+            x.len(),
+            n,
+            "配分の長さ {} がプレイヤー数 {n} と異なる",
+            x.len()
+        );
         let full = (1u64 << n) - 1;
         let excess = excess_table(self, x);
         let mut order: Vec<u64> = (1..full).collect();

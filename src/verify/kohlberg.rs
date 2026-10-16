@@ -77,6 +77,12 @@ pub fn kohlberg(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<Kohlbe
             span.insert_coalition(coalition);
             end += 1;
         }
+        if end == start {
+            // 超過が NaN などで比較できず、段が 1 つも進まない (入口の検証で防いでいるが、無限ループを避ける)。
+            return Err(Error::Numerical(format!(
+                "超過 {level} の段を作れない (比較できない値がある)"
+            )));
+        }
         levels_checked += 1;
         if !is_balanced(&collection, &at_lower_bound, n, &mut counter)? {
             return Ok(KohlbergReport {

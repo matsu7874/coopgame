@@ -72,10 +72,15 @@ pub struct Report {
     /// `x(N) - v(N)`。0 でなければ配分になっていない。
     pub efficiency_gap: f64,
     /// 真部分提携の超過の最大値。0 以下ならどの提携も離脱で得をしない。
+    /// 真部分提携のない 1 人ゲームでは負の無限大。
     pub max_excess: f64,
     /// 最小コアの値 (準配分で最大超過を最小化した値)。`max_excess` がこれに等しい配分は最小コアに属する。
-    pub least_core_epsilon: f64,
+    /// 真部分提携のない 1 人ゲームでは定まらないので `None`。
+    pub least_core_epsilon: Option<f64>,
+    /// 効率性 (`efficiency_gap` が 0) と、全ての超過が 0 以下であることを、どちらも `tolerance` の範囲で満たすか。
     pub in_core: bool,
+    /// 判定に使った許容誤差 (超過と `efficiency_gap` を 0 とみなす幅、同じ段とみなす超過の差)。
+    pub tolerance: f64,
     pub levels: Vec<Level>,
     pub players: Vec<PlayerReport>,
 }
@@ -133,7 +138,12 @@ pub fn report(game: &ExplicitGame, x: &[f64], options: ExplainOptions) -> Result
         .first()
         .map_or(f64::NEG_INFINITY, |&mask| excess[mask as usize]);
     let efficiency_gap = x.iter().sum::<f64>() - game.value(game.grand());
-    let least_core_epsilon = nucleolus::least_core(game, Domain::Preimputation)?.epsilon;
+    // 1 人ゲームには真部分提携がなく、最大超過を最小化する LP が有界でない。
+    let least_core_epsilon = if n >= 2 {
+        Some(nucleolus::least_core(game, Domain::Preimputation)?.epsilon)
+    } else {
+        None
+    };
 
     let players = (0..n)
         .map(|i| {
@@ -161,6 +171,7 @@ pub fn report(game: &ExplicitGame, x: &[f64], options: ExplainOptions) -> Result
         max_excess,
         least_core_epsilon,
         in_core: efficiency_gap.abs() <= tolerance && max_excess <= tolerance,
+        tolerance,
         levels,
         players,
     })
@@ -177,7 +188,9 @@ pub fn render(report: &Report) -> String {
             p.player, p.payoff, p.standalone, p.gain
         );
     }
-    if report.efficiency_gap.abs() > 1e-9 {
+    let efficient = report.efficiency_gap.abs() <= report.tolerance;
+    let blocked = report.max_excess > report.tolerance;
+    if !efficient {
         let _ = writeln!(
             out,
             "注意: 配分の和が v(N) と {:+.6} 異なる (配分になっていない)",
@@ -185,28 +198,40 @@ pub fn render(report: &Report) -> String {
         );
     }
     let _ = writeln!(out, "\n安定性:");
-    let _ = writeln!(
-        out,
-        "  最大の不満 (超過) は {:.6}。{}",
-        report.max_excess,
-        if report.in_core {
-            "どの提携も離脱して得をしないので、コアに属する。"
-        } else {
-            "正の超過を持つ提携は離脱すると得をするので、コアに属さない。"
+    let largest = if report.max_excess == f64::NEG_INFINITY {
+        "真部分提携がない (1 人ゲーム)。".to_string()
+    } else {
+        format!("最大の不満 (超過) は {:.6}。", report.max_excess)
+    };
+    // コアに属さない理由は、効率性を満たさないことと正の超過を持つ提携があることに分けて書く。
+    let verdict = match (efficient, blocked) {
+        (true, false) => "どの提携も離脱して得をしないので、コアに属する。",
+        (false, false) => {
+            "正の超過を持つ提携はないが、配分の和が v(N) と異なる (効率性を満たさない) ので、コアに属さない。"
         }
-    );
-    let _ = writeln!(
-        out,
-        "  最小コアの値は {:.6}。最大の不満をこれより下げられる配分はない{}。",
-        report.least_core_epsilon,
-        if (report.max_excess - report.least_core_epsilon).abs()
-            <= 1e-7 * report.max_excess.abs().max(1.0)
-        {
-            " (この配分は最大の不満を最小にしている)"
-        } else {
-            ""
+        (true, true) => "正の超過を持つ提携は離脱すると得をするので、コアに属さない。",
+        (false, true) => {
+            "配分の和が v(N) と異なり (効率性を満たさない)、正の超過を持つ提携は離脱すると得をするので、コアに属さない。"
         }
-    );
+    };
+    let _ = writeln!(out, "  {largest}{verdict}");
+    match report.least_core_epsilon {
+        Some(epsilon) => {
+            let _ = writeln!(
+                out,
+                "  最小コアの値は {:.6}。最大の不満をこれより下げられる配分はない{}。",
+                epsilon,
+                if efficient && (report.max_excess - epsilon).abs() <= report.tolerance {
+                    " (この配分は最大の不満を最小にしている)"
+                } else {
+                    ""
+                }
+            );
+        }
+        None => {
+            let _ = writeln!(out, "  真部分提携がないので、最小コアの値は定まらない。");
+        }
+    }
     let _ = writeln!(out, "\n不満の大きい提携 (超過の大きい順の段):");
     for (k, level) in report.levels.iter().enumerate() {
         let listed: Vec<String> = level.coalitions.iter().map(Coalition::to_string).collect();
@@ -224,11 +249,20 @@ pub fn render(report: &Report) -> String {
         );
     }
     let _ = writeln!(out, "\nプレイヤーごとの最も不満な提携:");
+    let worst = |(coalition, excess): (Coalition, f64)| {
+        if excess == f64::NEG_INFINITY {
+            "なし".to_string()
+        } else {
+            format!("{coalition} (超過 {excess:.6})")
+        }
+    };
     for p in &report.players {
         let _ = writeln!(
             out,
-            "  プレイヤー {}: 含む提携 {} (超過 {:.6})、含まない提携 {} (超過 {:.6})",
-            p.player, p.worst_with.0, p.worst_with.1, p.worst_without.0, p.worst_without.1
+            "  プレイヤー {}: 含む提携 {}、含まない提携 {}",
+            p.player,
+            worst(p.worst_with),
+            worst(p.worst_without)
         );
     }
     out
@@ -307,7 +341,7 @@ mod tests {
         let report = report(&game, &x, ExplainOptions::default()).unwrap();
         assert!(report.in_core);
         assert!(report.max_excess.abs() < 1e-9);
-        assert!((report.least_core_epsilon - report.max_excess).abs() < 1e-9);
+        assert!((report.least_core_epsilon.unwrap() - report.max_excess).abs() < 1e-9);
         assert!(
             report.levels[0]
                 .coalitions
@@ -330,5 +364,58 @@ mod tests {
         let report = report(&game, &[0.5, 0.5, 0.0], ExplainOptions::default()).unwrap();
         // 2 は {0, 2} か {1, 2} で 0.5 の不満を持つ。
         assert!((report.players[2].worst_with.1 - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn separates_efficiency_from_blocking_coalitions() {
+        // v({0, 1}) = 4, v(N) = 4。(5, 5, 5) は全ての超過が負だが、和が v(N) を 11 超える。
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
+        let report = report(&game, &[5.0, 5.0, 5.0], ExplainOptions::default()).unwrap();
+        assert!(!report.in_core);
+        let text = render(&report);
+        assert!(text.contains("正の超過を持つ提携はないが"), "{text}");
+        assert!(text.contains("効率性を満たさない"), "{text}");
+        // (1, 1, 1): 和が足りず、{0, 1} の超過 2 も正。
+        let text =
+            render(&super::report(&game, &[1.0, 1.0, 1.0], ExplainOptions::default()).unwrap());
+        assert!(text.contains("効率性を満たさない"), "{text}");
+        assert!(
+            text.contains("正の超過を持つ提携は離脱すると得をする"),
+            "{text}"
+        );
+        // (4, 0, 0) は和が v(N) で、{0, 1} 以外の超過も 0 以下なので、効率性には触れない。
+        let text =
+            render(&super::report(&game, &[2.0, 2.0, 0.0], ExplainOptions::default()).unwrap());
+        assert!(!text.contains("効率性") && !text.contains("注意"), "{text}");
+    }
+
+    #[test]
+    fn notice_uses_same_tolerance_as_core_check() {
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
+        let options = ExplainOptions {
+            tolerance: Some(1e-6),
+            ..ExplainOptions::default()
+        };
+        let report = report(&game, &[2.0 + 1e-8, 2.0, 0.0], options).unwrap();
+        assert!(report.in_core);
+        assert_eq!(report.tolerance, 1e-6);
+        let text = render(&report);
+        assert!(!text.contains("注意"), "{text}");
+        assert!(text.contains("コアに属する"), "{text}");
+    }
+
+    #[test]
+    fn explains_one_player_game() {
+        // 真部分提携がないので最小コアの値は求めない (LP が有界でない)。
+        let game = ExplicitGame::from_lex(&[1.0]).unwrap();
+        let report = report(&game, &[1.0], ExplainOptions::default()).unwrap();
+        assert!(report.in_core);
+        assert_eq!(report.least_core_epsilon, None);
+        assert!(report.levels.is_empty());
+        let text = render(&report);
+        assert!(text.contains("真部分提携がない"), "{text}");
+        assert!(!text.contains("inf"), "{text}");
+        let text = render(&super::report(&game, &[2.0], ExplainOptions::default()).unwrap());
+        assert!(text.contains("効率性を満たさない"), "{text}");
     }
 }

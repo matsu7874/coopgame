@@ -25,7 +25,16 @@ impl WeightedVotingGame {
     /// 動的計画法の状態数 `q + 1` が大きすぎないよう、基準の上限を設ける。
     pub const MAX_QUOTA: u64 = 1_000_000;
 
+    /// 重み `weights` と基準 `quota` から作る。基準は 1 以上 [`Self::MAX_QUOTA`] 以下。
+    ///
+    /// 基準が 0 だと空提携も勝利提携になり、空提携の値が 1 になる ([`SetFunction`] の前提に反する)。
+    /// 重みの和は基準で打ち切って数えるので、和が `u64` を超える重みでも正しく扱う。
     pub fn new(weights: Vec<u64>, quota: u64) -> Result<WeightedVotingGame> {
+        if quota == 0 {
+            return Err(Error::InvalidArgument(
+                "基準は 1 以上 (0 だと空提携が勝利提携になる)".into(),
+            ));
+        }
         if quota > Self::MAX_QUOTA {
             return Err(Error::InvalidArgument(format!(
                 "基準 {quota} は上限 {} を超える",
@@ -43,8 +52,11 @@ impl WeightedVotingGame {
         self.quota
     }
 
+    /// 提携の重みの和 (`u64` であふれないよう飽和させる。勝敗は基準との比較だけで決まる)。
     fn weight(&self, coalition: &PlayerSet) -> u64 {
-        coalition.members().map(|i| self.weights[i]).sum()
+        coalition
+            .members()
+            .fold(0u64, |acc, i| acc.saturating_add(self.weights[i]))
     }
 
     /// 超過の大きい順 (同じなら提携の昇順) に、真部分提携を最大 `k` 個返す。
@@ -61,7 +73,9 @@ impl WeightedVotingGame {
         for (i, (&weight, &payoff)) in self.weights.iter().zip(x).enumerate() {
             let mut next: Vec<Vec<(f64, PlayerSet)>> = vec![Vec::new(); q + 1];
             for (c, list) in states.iter().enumerate() {
-                let reached = (c + weight as usize).min(q);
+                let reached = c
+                    .saturating_add(usize::try_from(weight).unwrap_or(usize::MAX))
+                    .min(q);
                 for (sum, set) in list {
                     next[c].push((*sum, set.clone()));
                     let mut with = set.clone();
@@ -135,6 +149,13 @@ impl Iterator for VotingExcess<'_> {
 
 impl OracleGame for WeightedVotingGame {
     fn excess_order<'a>(&'a self, x: &'a [f64]) -> Box<dyn Iterator<Item = (PlayerSet, f64)> + 'a> {
+        let n = self.players();
+        assert_eq!(
+            x.len(),
+            n,
+            "配分の長さ {} がプレイヤー数 {n} と異なる",
+            x.len()
+        );
         Box::new(VotingExcess {
             game: self,
             x,

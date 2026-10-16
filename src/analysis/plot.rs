@@ -13,6 +13,7 @@
 use std::fmt::{self, Write as _};
 
 use crate::error::{Error, Result};
+use crate::game::scale::positive_scale;
 use crate::game::{Coalition, ExplicitGame};
 use crate::kernel::{SetOptions, kernel_set};
 use crate::linalg::{for_each_combination, indicator, solve_square};
@@ -25,6 +26,7 @@ pub struct PlotOptions {
     pub kernel: bool,
     pub shapley: bool,
     /// 追加で描く配分。図には [`Point::Extra`] の番号 (この列での 0 始まりの位置) で示す。
+    /// 長さはプレイヤー数と同じで、成分は有限の値でなければならない (違えば [`imputation_figure`] がエラーを返す)。
     pub points: Vec<Vec<f64>>,
     pub title: Option<String>,
 }
@@ -86,7 +88,7 @@ pub fn imputation_figure(game: &ExplicitGame, options: &PlotOptions) -> Result<F
     }
     let singles = game.singleton_values();
     let surplus = game.value(game.grand()) - singles.iter().sum::<f64>();
-    if surplus <= 1e-12 * game.max_abs_value().max(1.0) {
+    if surplus <= 1e-12 * positive_scale(game.max_abs_value()) {
         return Err(Error::InvalidArgument(
             "配分集合が 1 点以下 (v(N) <= sum v({i})) なので描けない".into(),
         ));
@@ -121,6 +123,11 @@ pub fn imputation_figure(game: &ExplicitGame, options: &PlotOptions) -> Result<F
                 "{point} の長さが人数と異なる"
             )));
         }
+        if let Some(value) = x.iter().find(|v| !v.is_finite()) {
+            return Err(Error::InvalidArgument(format!(
+                "{point} に有限でない値 {value} がある"
+            )));
+        }
     }
 
     // 画面の座標の範囲 (配分集合の頂点と全ての点を含む)。
@@ -133,6 +140,18 @@ pub fn imputation_figure(game: &ExplicitGame, options: &PlotOptions) -> Result<F
         .collect();
     let mut screen: Vec<(f64, f64)> = corners.iter().map(|x| projection.project(x)).collect();
     screen.extend(points.iter().map(|(_, x)| projection.project(x)));
+    // 有限の配分でも、値が極端に大きいと図の座標があふれる。
+    if let Some(k) = screen
+        .iter()
+        .position(|p| !(p.0.is_finite() && p.1.is_finite()))
+    {
+        let name = k
+            .checked_sub(n)
+            .map_or_else(|| format!("頂点 {k}"), |i| points[i].0.to_string());
+        return Err(Error::InvalidArgument(format!(
+            "{name} の図の座標が有限でない (値が大きすぎる)"
+        )));
+    }
     let scene = Scene {
         n,
         view: View::fit(&screen),
@@ -615,7 +634,7 @@ fn core_constraints(game: &ExplicitGame) -> Vec<(Coalition, f64)> {
 /// コアの頂点 (`n - 1` 本の制約が等号で成り立ち、全ての制約を満たす点)。
 pub fn core_vertices(game: &ExplicitGame) -> Vec<Vec<f64>> {
     let n = game.players();
-    let tolerance = 1e-9 * game.max_abs_value().max(1.0);
+    let tolerance = 1e-9 * positive_scale(game.max_abs_value());
     let constraints = core_constraints(game);
     let total = game.value(game.grand());
     let mut vertices: Vec<Vec<f64>> = Vec::new();
@@ -646,7 +665,7 @@ pub fn core_vertices(game: &ExplicitGame) -> Vec<Vec<f64>> {
 /// コアの稜線 (2 つの頂点で共通に等号が成り立つ制約が `n - 2` 本以上あり、独立なもの)。
 fn core_edges(game: &ExplicitGame, vertices: &[Vec<f64>]) -> Vec<(usize, usize)> {
     let n = game.players();
-    let tolerance = 1e-7 * game.max_abs_value().max(1.0);
+    let tolerance = 1e-7 * positive_scale(game.max_abs_value());
     let constraints = core_constraints(game);
     let tight: Vec<Vec<usize>> = vertices
         .iter()

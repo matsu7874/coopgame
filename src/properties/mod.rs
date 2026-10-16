@@ -24,6 +24,7 @@ mod proof;
 
 pub use proof::{Assume, Assumed, ConvexChecked, ConvexGame, Convexity, ProofKind, Proven};
 
+use crate::game::allocation::allocation_defect;
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 
 /// 互いに素な `S, T` について `v(S ∪ T) >= v(S) + v(T)`。計算量は `3^n`。
@@ -85,7 +86,12 @@ pub fn is_zero_monotonic(game: &ExplicitGame) -> bool {
 }
 
 /// `x` がコアに属するか。
+///
+/// 長さがプレイヤー数と異なる `x` や、有限でない成分 (NaN など) を含む `x` は属さない (`false`)。
 pub fn is_in_core(game: &ExplicitGame, x: &[f64], tolerance: f64) -> bool {
+    if allocation_defect(game.players(), x).is_some() {
+        return false;
+    }
     let total: f64 = x.iter().sum();
     if (total - game.value(game.grand())).abs() > tolerance {
         return false;

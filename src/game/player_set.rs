@@ -31,10 +31,16 @@ impl PlayerSet {
         PlayerSet::empty(players).complement()
     }
 
+    /// # Panics
+    ///
+    /// `player` が人数以上だとパニックする。
     pub fn singleton(players: usize, player: usize) -> PlayerSet {
         PlayerSet::from_players(players, &[player])
     }
 
+    /// # Panics
+    ///
+    /// `members` に人数以上の番号があるとパニックする。
     pub fn from_players(players: usize, members: &[usize]) -> PlayerSet {
         let mut set = PlayerSet::empty(players);
         for &i in members {
@@ -43,7 +49,16 @@ impl PlayerSet {
         set
     }
 
+    /// `players` 人のうちの、`coalition` と同じメンバーの集合。
+    ///
+    /// # Panics
+    ///
+    /// `coalition` に `players` 以上の番号があるとパニックする。
     pub fn from_coalition(players: usize, coalition: Coalition) -> PlayerSet {
+        assert!(
+            coalition.is_subset(Coalition::grand(players.min(64))),
+            "提携 {coalition} に人数 {players} 以上の番号がある"
+        );
         let mut set = PlayerSet::empty(players);
         if let Some(word) = set.words.first_mut() {
             *word = coalition.0;
@@ -73,21 +88,32 @@ impl PlayerSet {
         self.players
     }
 
+    /// # Panics
+    ///
+    /// `player` が人数以上だとパニックする。
     pub fn insert(&mut self, player: usize) {
-        debug_assert!(player < self.players);
+        assert!(
+            player < self.players,
+            "プレイヤー番号 {player} が人数 {} 以上",
+            self.players
+        );
         self.words[player / 64] |= 1 << (player % 64);
     }
 
+    /// `player` を除く。人数以上の番号はメンバーでないので何もしない。
     pub fn remove(&mut self, player: usize) {
-        self.words[player / 64] &= !(1 << (player % 64));
+        if player < self.players {
+            self.words[player / 64] &= !(1 << (player % 64));
+        }
     }
 
     pub(crate) fn toggle(&mut self, player: usize) {
         self.words[player / 64] ^= 1 << (player % 64);
     }
 
+    /// `player` がメンバーか。人数以上の番号は `false`。
     pub fn contains(&self, player: usize) -> bool {
-        self.words[player / 64] >> (player % 64) & 1 == 1
+        player < self.players && self.words[player / 64] >> (player % 64) & 1 == 1
     }
 
     pub fn len(&self) -> usize {
@@ -219,17 +245,18 @@ impl<G: SetFunction + ?Sized> SetFunction for &G {
 
 /// 全提携を列挙せずに得られる、特性関数の値の大きさの目安 (許容誤差の基準)。
 ///
-/// 全体提携、1 人提携、`n - 1` 人提携の値の絶対値の最大 (1 以上)。評価は `2n + 1` 回。
+/// 全体提携、1 人提携、`n - 1` 人提携の値の絶対値の最大 (これらが全て 0 なら 1)。評価は `2n + 1` 回。
+/// ゲームの値を `c` 倍すると、この値も `c` 倍になる。
 pub fn value_scale<G: SetFunction + ?Sized>(game: &G) -> f64 {
     let n = game.players();
-    let mut scale = game.value(&PlayerSet::grand(n)).abs().max(1.0);
+    let mut scale = game.value(&PlayerSet::grand(n)).abs();
     for i in 0..n {
         let single = PlayerSet::singleton(n, i);
         scale = scale
             .max(game.value(&single).abs())
             .max(game.value(&single.complement()).abs());
     }
-    scale
+    crate::game::scale::positive_scale(scale)
 }
 
 impl SetFunction for ExplicitGame {
