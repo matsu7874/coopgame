@@ -9,7 +9,7 @@
 
 use std::collections::HashSet;
 
-use crate::game::{Coalition, ExplicitGame, PlayerSet, SetFunction, excess_table};
+use crate::game::{ExplicitGame, PlayerSet, SetFunction};
 
 /// 超過の大きい順に提携を返せるゲーム。
 pub trait OracleGame: SetFunction {
@@ -73,30 +73,14 @@ impl<G: OracleGame + ?Sized> Separation for G {
     }
 }
 
-/// 明示ゲームは全提携の超過を並べ替えて返す (オラクルの正しさを確かめる基準)。
+/// 明示ゲームは全提携の超過を、読んだ分だけ並べ替えて返す (オラクルの正しさを確かめる基準)。
 impl OracleGame for ExplicitGame {
     fn excess_order<'a>(&'a self, x: &'a [f64]) -> Box<dyn Iterator<Item = (PlayerSet, f64)> + 'a> {
         let n = ExplicitGame::players(self);
-        assert_eq!(
-            x.len(),
-            n,
-            "配分の長さ {} がプレイヤー数 {n} と異なる",
-            x.len()
-        );
-        let full = (1u64 << n) - 1;
-        let excess = excess_table(self, x);
-        let mut order: Vec<u64> = (1..full).collect();
-        order.sort_by(|a, b| {
-            excess[*b as usize]
-                .total_cmp(&excess[*a as usize])
-                .then(a.cmp(b))
-        });
-        Box::new(order.into_iter().map(move |mask| {
-            (
-                PlayerSet::from_coalition(n, Coalition(mask)),
-                excess[mask as usize],
-            )
-        }))
+        Box::new(
+            crate::surplus::excess_order(self, x)
+                .map(move |(coalition, excess)| (PlayerSet::from_coalition(n, coalition), excess)),
+        )
     }
 
     fn scale(&self) -> f64 {

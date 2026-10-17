@@ -66,7 +66,7 @@ fn describe(check: &Check) -> String {
 /// 超過の大きい順に、上位 `count` 個の提携 (空提携と全体提携を除く) を表示する。
 fn print_top_excesses(game: &ExplicitGame, x: &[f64], count: usize) {
     // excess_order は、空でも全体でもない提携を超過の大きい順に返す。
-    for (coalition, excess) in surplus::excess_order(game, x).into_iter().take(count) {
+    for (coalition, excess) in surplus::excess_order(game, x).take(count) {
         println!(
             "    {coalition:<10} v(S) = {:>5.2}  超過 = {excess:>5.2}",
             game.value(coalition)

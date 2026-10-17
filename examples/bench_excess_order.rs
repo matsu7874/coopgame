@@ -70,12 +70,18 @@ fn main() {
         let x = equal_surplus_division(&game);
         let total = (1usize << n) - 2;
         for k in [1, 10, 100, total] {
-            let label = if k == total { "all".to_string() } else { k.to_string() };
+            let label = if k == total {
+                "all".to_string()
+            } else {
+                k.to_string()
+            };
             let seconds = median_seconds(reps, || {
                 let sum: f64 = game.excess_order(&x).take(k).map(|(_, e)| e).sum();
                 black_box(sum);
             });
             println!("oracle_take,{n},{label},{seconds:.6}");
+            // `into_iter` は、`surplus::excess_order` が `Vec` を返していた版でも同じ例で測るため。
+            #[allow(clippy::useless_conversion)]
             let seconds = median_seconds(reps, || {
                 let sum: f64 = surplus::excess_order(&game, &x)
                     .into_iter()
@@ -97,7 +103,9 @@ fn main() {
             println!("nucleolus,{n},,{seconds:.6}");
             let seconds = median_seconds(reps, || {
                 let options = TransferOptions::for_game(&game);
-                black_box(kernel_point(&game, Domain::Imputation, None, options).expect("カーネル"));
+                black_box(
+                    kernel_point(&game, Domain::Imputation, None, options).expect("カーネル"),
+                );
             });
             println!("kernel,{n},,{seconds:.6}");
         }

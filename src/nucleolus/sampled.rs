@@ -20,6 +20,7 @@ use crate::game::{PlayerSet, SetFunction};
 use crate::nucleolus::{LeastCore, NucleolusResult};
 use crate::rng::SplitMix64;
 use crate::solution::Guarantee;
+use crate::sorted::{LazySorted, by_excess_desc};
 
 fn finite(value: f64) -> Result<f64> {
     if value.is_finite() {
@@ -151,13 +152,13 @@ impl SetFunction for SampledGame {
 
 impl OracleGame for SampledGame {
     fn excess_order<'a>(&'a self, x: &'a [f64]) -> Box<dyn Iterator<Item = (PlayerSet, f64)> + 'a> {
-        let mut order: Vec<(PlayerSet, f64)> = self
+        let order: Vec<(PlayerSet, f64)> = self
             .coalitions
             .iter()
             .map(|set| (set.clone(), self.values[set] - set.sum(x)))
             .collect();
-        order.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-        Box::new(order.into_iter())
+        let first_chunk = 4 * self.players * self.players;
+        Box::new(LazySorted::new(order, first_chunk, by_excess_desc))
     }
 
     fn scale(&self) -> f64 {

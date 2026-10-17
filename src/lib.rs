@@ -47,6 +47,7 @@ pub mod properties;
 pub(crate) mod rational;
 pub(crate) mod rng;
 pub mod solution;
+pub(crate) mod sorted;
 pub(crate) mod submodular;
 pub mod surplus;
 pub mod values;

@@ -45,7 +45,7 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 | disruption nucleolus | `nucleolus::variants::disruption_nucleolus` | 抜ける傾向を、コアの上で `e(S, x) / (v(N) - v(S) - v(N \ S))` の辞書式最小化に直して同じ逐次 LP で解く (Littlechild & Vaidya 1976)。コアが空でないゲームに限る |
 | anti-prenucleolus・anti-nucleolus | `nucleolus::variants::{anti_prenucleolus, anti_nucleolus}`、`ExplicitGame::dual` | 超過を小さい順に辞書式に最大化する解。双対ゲーム `v*(S) = v(N) - v(N \ S)` のプレ仁・仁として求める (Funaki & Meinhardt 2006) |
 | 提携構造・事前の連合 | `partition::{CoalitionStructure, aumann_dreze, owen, nucleolus, quotient_game}` | Aumann–Drèze 値 (ブロック内の Shapley 値)、提携構造つきの仁 (各ブロックで `x(B) = v(B)`)、Owen 値 (事前の連合) |
-| 超過・最大余剰 `s_ij` | `surplus::{excess, excesses, max_surplus}`、`game::oracle::OracleGame::excess_order` | `excesses` は空でない全提携の超過をビット順に返す。超過の大きい順に見るには `excess_order`。最大余剰は超過の上位の提携だけを部分ソートして走査 |
+| 超過・最大余剰 `s_ij` | `surplus::{excess, excesses, excess_order, max_surplus}`、`game::oracle::OracleGame::excess_order` | `excesses` は空でない全提携の超過をビット順に返す。超過の大きい順に見るには `excess_order` (読んだ分だけ並べ替えるイテレーター)。最大余剰も同じく超過の上位の提携だけを並べ替えて走査 |
 
 ## 結果を検証する
 
