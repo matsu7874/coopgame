@@ -3,6 +3,7 @@
 //! 配分 `x` の長さはプレイヤー数と同じでなければならない。異なるとパニックする。
 
 use crate::game::{Coalition, ExplicitGame, excess_table};
+use crate::sorted::{LazySorted, by_excess_desc};
 
 /// 空でない全ての提携の超過 `(S, e(S, x))`。提携はビット順 (`S.0` の昇順) に並ぶ。
 pub fn excesses(game: &ExplicitGame, x: &[f64]) -> Vec<(Coalition, f64)> {
@@ -14,13 +15,17 @@ pub fn excesses(game: &ExplicitGame, x: &[f64]) -> Vec<(Coalition, f64)> {
         .collect()
 }
 
-/// 真部分提携 (空でも全体でもない提携) の超過を、大きい順に並べたもの。
-/// 同じ超過の提携はビット順。
-pub fn excess_order(game: &ExplicitGame, x: &[f64]) -> Vec<(Coalition, f64)> {
+/// 真部分提携 (空でも全体でもない提携) の超過を、大きい順に返す。同じ超過の提携はビット順。
+///
+/// 読んだ分だけ並べ替えるので、先頭の数個だけ読むなら全体を並べ替えるより速い。
+pub fn excess_order(
+    game: &ExplicitGame,
+    x: &[f64],
+) -> impl Iterator<Item = (Coalition, f64)> + use<> {
+    let n = game.players();
     let mut order = excesses(game, x);
     order.pop(); // 全体提携
-    order.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    order
+    LazySorted::new(order, 4 * n * n, by_excess_desc)
 }
 
 pub fn excess(game: &ExplicitGame, coalition: Coalition, x: &[f64]) -> f64 {
@@ -40,46 +45,33 @@ pub fn max_surplus(game: &ExplicitGame, x: &[f64]) -> Vec<Vec<f64>> {
 /// [`max_surplus`] を行優先の平らな配列で返す。
 ///
 /// 超過の大きい提携から順に見て、最初に `i in S, j not in S` を満たした提携の超過を
-/// `s_ij` とする。全ての組は上位の少数の提携で埋まるため、上位 `k` 個だけを部分ソートし、
-/// 埋まらなければ `k` を増やす。
+/// `s_ij` とする。全ての組は上位の少数の提携で埋まるため、読んだ分だけ並べ替える [`LazySorted`] で走査する。
 pub(crate) fn max_surplus_flat(game: &ExplicitGame, x: &[f64]) -> Vec<f64> {
     let n = game.players();
     let excess = excess_table(game, x);
-    let full = (1usize << n) - 1;
+    let full = (1u32 << n) - 1;
     let mut surplus = vec![f64::NEG_INFINITY; n * n];
-    // 真部分提携(空提携と全体提携を除く)。
-    let mut order: Vec<u32> = (1..full as u32).collect();
     let mut remaining = n * (n - 1);
-    let mut scanned = 0;
-    let mut k = (4 * n * n).min(order.len());
-    while remaining > 0 && scanned < order.len() {
-        // order[scanned..k] を超過の降順に並べる。
-        let rest = &mut order[scanned..];
-        let take = k - scanned;
-        let by_excess_desc = |a: &u32, b: &u32| excess[*b as usize].total_cmp(&excess[*a as usize]);
-        if take < rest.len() {
-            rest.select_nth_unstable_by(take - 1, by_excess_desc);
+    // 真部分提携(空提携と全体提携を除く)を超過の降順に見る。
+    let order = LazySorted::new((1..full).collect(), 4 * n * n, |a: &u32, b: &u32| {
+        excess[*b as usize].total_cmp(&excess[*a as usize])
+    });
+    for mask in order {
+        if remaining == 0 {
+            break;
         }
-        rest[..take].sort_unstable_by(by_excess_desc);
-        for &mask in &order[scanned..k] {
-            let e = excess[mask as usize];
-            let inside = Coalition(u64::from(mask));
-            let outside = inside.complement(n);
-            for i in inside.members() {
-                let row = &mut surplus[i * n..(i + 1) * n];
-                for j in outside.members() {
-                    if row[j] == f64::NEG_INFINITY {
-                        row[j] = e;
-                        remaining -= 1;
-                    }
+        let e = excess[mask as usize];
+        let inside = Coalition(u64::from(mask));
+        let outside = inside.complement(n);
+        for i in inside.members() {
+            let row = &mut surplus[i * n..(i + 1) * n];
+            for j in outside.members() {
+                if row[j] == f64::NEG_INFINITY {
+                    row[j] = e;
+                    remaining -= 1;
                 }
             }
-            if remaining == 0 {
-                break;
-            }
         }
-        scanned = k;
-        k = (4 * k).min(order.len());
     }
     surplus
 }
