@@ -1,107 +1,110 @@
 # coopgame
 
-TU 協力ゲームの仁・カーネル・Shapley 値などの解を計算し、検証する Rust ライブラリと CLI。
+[日本語版 README](README.ja.md)
 
-ブラウザで動かせるデモ: https://matsu7874.github.io/coopgame-demo/ (配分三角形、タルムードの遺産分割、議会の投票力、水道管の費用分担、どの解を使うかの早見図。ソースは [coopgame-demo](https://github.com/matsu7874/coopgame-demo))
+A Rust library and CLI for computing and verifying solutions of transferable-utility (TU) cooperative games, such as the nucleolus, the kernel, and the Shapley value.
 
-## 機能
+Try it in your browser: https://matsu7874.github.io/coopgame-demo/ (imputation triangles, the Talmud estate division, voting power in a parliament, water pipe cost sharing, and a chart for choosing a solution; source in [coopgame-demo](https://github.com/matsu7874/coopgame-demo))
 
-- **解を求める**
-  - 仁・プレ仁・最小コア (`nucleolus`)。有理数による厳密な計算にも対応 (`nucleolus::exact`)
-  - カーネル・プレカーネルの 1 点 (`kernel`) と、6 人までの全体 (`kernel::kernel_set`)
-  - Shapley 値・Banzhaf 値の厳密計算とサンプリング推定、solidarity 値 (`values`)
-  - tau 値・Gately 点 (`compromise`)、通信グラフのもとでの Myerson 値 (`communication`)
-  - 単純ゲームの投票力指数: Johnston・Deegan–Packel・Public Good (Holler)・Coleman (`power`)
-  - per capita 仁・比例仁・modiclus・disruption nucleolus・anti-nucleolus (`nucleolus::variants`)
-  - 提携構造のある解: Aumann–Drèze 値・Owen 値・提携構造つきの仁 (`partition`)
-- **結果を検証する**
-  - 仁の Kohlberg 基準と、有理数による厳密な検証 (`verify`)
-  - カーネル条件 (`kernel`)・交渉集合への所属 (`bargaining`)
-  - 凸性・コアなどゲームの性質 (`properties`)
-  - 結果に付く保証の種類と事後検証 (`verify`、`auto`)
-- **大きいゲームを扱う**
-  - 全提携を列挙しないオラクル (`game::oracle`、`nucleolus::oracle`)
-  - 凸ゲームの仁 (`nucleolus::convex`)
-  - 提携のサンプリングによる近似 (`nucleolus::sampled`)
-- **特定のゲームを解く**
-  - 破産ゲーム (タルムード則)、空港ゲーム、最小全域木ゲーム、線形生産ゲーム、重み付き投票ゲーム、費用ゲーム (`games`)
-- **配分を分析する**
-  - 配分の説明と比較 (`analysis::explain`)、値の不確かさと感度 (`analysis::uncertainty`)
-  - 3-4 人の配分集合の図 (`analysis::plot`)、性質の反例の探索 (`analysis::search`)
-- **入出力**
-  - 提携をプレイヤーの番号で書く JSON・CSV (`io`)、ランダムなゲームの生成 (`generators`)
+## Features
 
-プレイヤーは 0 始まりの番号だけで扱い、提携は `{0, 2}` の形で表示する (名前との対応は利用側で持つ。[docs/api-overview.md](docs/api-overview.md))。
+- **Compute solutions**
+  - Nucleolus, prenucleolus, and least core (`nucleolus`), including exact computation with rational numbers (`nucleolus::exact`)
+  - A single point of the kernel or prekernel (`kernel`), and the whole set for up to 6 players (`kernel::kernel_set`)
+  - Exact and sampled Shapley and Banzhaf values, and the solidarity value (`values`)
+  - Tau value and Gately point (`compromise`), and the Myerson value for communication graphs (`communication`)
+  - Power indices for simple games: Johnston, Deegan–Packel, Public Good (Holler), and Coleman (`power`)
+  - Per capita nucleolus, proportional nucleolus, modiclus, disruption nucleolus, and anti-nucleolus (`nucleolus::variants`)
+  - Solutions with coalition structures: Aumann–Drèze value, Owen value, and the nucleolus with a coalition structure (`partition`)
+- **Verify results**
+  - Kohlberg criterion for the nucleolus, and exact verification with rational numbers (`verify`)
+  - Kernel conditions (`kernel`) and bargaining set membership (`bargaining`)
+  - Game properties such as convexity and the core (`properties`)
+  - The kind of guarantee attached to each result, and verification after the fact (`verify`, `auto`)
+- **Handle large games**
+  - Oracles that do not enumerate all coalitions (`game::oracle`, `nucleolus::oracle`)
+  - The nucleolus of convex games (`nucleolus::convex`)
+  - Approximation by sampling coalitions (`nucleolus::sampled`)
+- **Solve specific classes of games**
+  - Bankruptcy games (Talmud rule), airport games, minimum-cost spanning tree games, linear production games, weighted voting games, and cost games (`games`)
+- **Analyze allocations**
+  - Explaining and comparing allocations (`analysis::explain`), and value uncertainty and sensitivity (`analysis::uncertainty`)
+  - Plots of allocation sets for 3–4 players (`analysis::plot`), and search for counterexamples to properties (`analysis::search`)
+- **Input and output**
+  - JSON and CSV formats that write coalitions as player numbers (`io`), and random game generation (`generators`)
 
-関数と手法の一覧は [docs/api-overview.md](docs/api-overview.md)、知りたいことから解を選ぶ早見図は [docs/choosing.md](docs/choosing.md) にある。
-LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を使うので、外部のソルバーは不要。
+Players are identified only by 0-based numbers, and coalitions are displayed as `{0, 2}`. Mapping names to numbers is left to the caller.
 
-## インストール
+The LP solver is [microlp](https://crates.io/crates/microlp), written in pure Rust, so no external solver is required.
 
-ライブラリとして使う場合:
+## Installation
+
+To use the library:
 
 ```toml
 [dependencies]
 coopgame = "0.3"
 ```
 
-JSON・CSV でゲームを読み書きする `io` モジュールは、feature `io` で有効にする。
+Enable the `io` feature for the `io` module, which reads and writes games as JSON and CSV.
 
-CLI (`coopgame` コマンド) を使う場合:
+To install the CLI (the `coopgame` command):
 
 ```bash
 cargo install coopgame --features cli
 ```
 
-## 使い方
+## Usage
 
 ```rust
 use coopgame::{Domain, ExplicitGame, kernel, nucleolus, values, verify};
 
 fn main() -> coopgame::Result<()> {
-    // 3 人ゲームの特性関数 (辞書式順: {0}, {1}, {2}, {0,1}, {0,2}, {1,2}, {0,1,2})
+    // Characteristic function of a 3-player game
+    // (lexicographic order: {0}, {1}, {2}, {0,1}, {0,2}, {1,2}, {0,1,2})
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0])?;
 
-    let x = nucleolus::nucleolus(&game)?.into_allocation(); // 仁 [2, 2, 0]
+    let x = nucleolus::nucleolus(&game)?.into_allocation(); // nucleolus: [2, 2, 0]
     assert!(verify::kohlberg(&game, &x, Domain::Imputation)?.satisfied);
     assert!(kernel::is_in_kernel(&game, &x, Domain::Imputation, 1e-9));
 
-    let phi = values::shapley(&game); // Shapley 値 [2, 2, 0]
+    let phi = values::shapley(&game); // Shapley value: [2, 2, 0]
     assert!(phi.iter().zip(&x).all(|(a, b)| (a - b).abs() < 1e-9));
     Ok(())
 }
 ```
 
-CLI では、1 行 1 値のファイルで特性関数を与える。
+The CLI takes the characteristic function from a file with one value per line.
 
 ```bash
-coopgame generate --type 1 --n 5 --seed 1 > v.txt   # ランダムなゲーム
-coopgame nucleolus v.txt > sol.txt                   # 仁
-coopgame verify v.txt sol.txt                        # Kohlberg 基準とカーネル条件で検証
-coopgame shapley v.txt                               # Shapley 値
+coopgame generate --type 1 --n 5 --seed 1 > v.txt   # random game
+coopgame nucleolus v.txt > sol.txt                   # nucleolus
+coopgame verify v.txt sol.txt                        # verify with the Kohlberg criterion and kernel conditions
+coopgame shapley v.txt                               # Shapley value
 ```
 
-全てのサブコマンドは [docs/cli.md](docs/cli.md)、入力ファイルの並び順と JSON・CSV の形式は [docs/input-format.md](docs/input-format.md) を参照。
+## Documentation
 
-## ドキュメント
+The guides below and the [API reference on docs.rs](https://docs.rs/coopgame) are currently written in Japanese.
 
-- [チュートリアル](docs/tutorial/README.md): 古典的な論文 (Shapley–Shubik の投票力指数、タルムードの破産問題など) の結果を再現しながら使い方を学ぶ。
-- [使い方の例](examples/README.md): 目的ごとに、ゲームの作成から結果の検証までを通して動かせるプログラム (`cargo run --example quickstart` など)。
-- [大きいゲーム](docs/large-games.md)・[性能と制約](docs/performance.md): 30 人を超えるゲームの扱い方、規模の上限、計測例。
-- [保証の種類](docs/guarantees.md)・[既存実装との比較](docs/comparison.md)・[参考文献](docs/references.md): 結果の正しさの根拠。
+- [Tutorial](docs/tutorial/README.md): learn the library by reproducing results from classic papers, such as the Shapley–Shubik power index and the Talmud bankruptcy problem.
+- [Examples](examples/README.md): runnable programs for each task, from building a game to verifying the result (for example, `cargo run --example quickstart`).
+- [API overview](docs/api-overview.md) and [choosing a solution](docs/choosing.md): functions and methods, and a chart for picking a solution by what you want to know.
+- [CLI](docs/cli.md) and [input formats](docs/input-format.md): all subcommands, the order of values in input files, and the JSON and CSV formats.
+- [Large games](docs/large-games.md) and [performance and limits](docs/performance.md): handling games with more than 30 players, size limits, and measurements.
+- [Guarantees](docs/guarantees.md), [comparison with other implementations](docs/comparison.md), and [references](docs/references.md): the grounds for the correctness of results.
 
-全ての文書の一覧は [docs/README.md](docs/README.md) にある。
-API リファレンスは [docs.rs](https://docs.rs/coopgame)。
+See [docs/README.md](docs/README.md) for the full list.
 
-## Python バインディング
+## Python bindings
 
-`python/` に PyO3 によるバインディングがある (PyPI の配布名は `coopgame-py`、import 名は `coopgame`)。
-ビルド方法と API は [python/README.md](python/README.md) を参照。
+`python/` contains PyO3 bindings (distributed on PyPI as `coopgame-py`, imported as `coopgame`).
+See [python/README.md](python/README.md) (in Japanese) for how to build them and for the API.
 
-## コントリビューション
+## Contributing
 
-開発環境、テストの方針、リリースの手順は [CONTRIBUTING.md](CONTRIBUTING.md) にまとめている。
+See [CONTRIBUTING.md](CONTRIBUTING.md) (in Japanese) for the development environment, testing policy, and release steps.
 
-## ライセンス
+## License
 
-MIT License。[LICENSE](LICENSE) を参照。
+MIT License. See [LICENSE](LICENSE).
