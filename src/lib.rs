@@ -65,6 +65,8 @@ mod docs {
     struct Tutorial04;
     #[doc = include_str!("../README.md")]
     struct Readme;
+    #[doc = include_str!("../README.ja.md")]
+    struct ReadmeJa;
     #[doc = include_str!("../docs/examples.md")]
     struct Examples;
 }
