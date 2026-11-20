@@ -99,28 +99,32 @@ x* は、同じインスタンスで coopgame-rs の配分から復元し、合�
 `perCapitaNucleolus`・`proportionalNucleolus` と比べた (`scripts/compare/check_variants.py`)。
 
 - ゲーム: BNF タイプ 1, 2, 4 の n = 3, 4, 5、seed 0-3 (36 個) と、CoopGame のヘルプの例など 5 個。
-- 結果: 2 つの解とも 41 ゲーム全てで一致した。差は相対 9.1e-14 以下。
-- 比例仁は負の値を持つゲームでは定義しない。そのようなゲーム 1 個で、両方とも計算しなかった。
+- 結果: per capita 仁は 41 ゲーム全てで一致した。比例仁は 40 ゲームで一致し、残る 1 個は両方とも計算しなかった
+  (負の値を持つゲームで、比例仁を定義しない)。差は相対 9.1e-14 以下。
+- 最後に実行したのは 2026-11-21 (macOS、R 4.6.2) で、比例仁の `v(S) = 0` の提携の順序づけと、
+  逐次 LP の確定値の変更を入れた後の実装である。
 
 modiclus は CoopGame と一致しない。
 CoopGame の `modiclus` は超過の差 `e(S, x) - e(T, x)` の組を空でない真部分提携に限るが、
 本実装は文献の定義どおり空提携と全体提携を含む全ての組を使う (根拠は [references.md](references.md))。
-例えば CoopGame のヘルプの 4 人ゲームで、CoopGame は (4.25, 5.25, 5.75, 5.75)、本実装は (13/3, 16/3, 17/3, 17/3) を返す。
+CoopGame 0.2.2 を実行すると、次の値を返す (2026-11-21)。
+
+| ゲーム | CoopGame の `modiclus` | 本実装 | 文献の値 |
+|---|---|---|---|
+| CoopGame のヘルプの 4 人ゲーム | (4.25, 5.25, 5.75, 5.75) | (13/3, 16/3, 17/3, 17/3) | なし |
+| Meinhardt の Table 4.1 の 4 人ゲーム | (7, 3, 3, 3) | (8, 53/12, 37/12, 1/2) | (8, 53/12, 37/12, 1/2) |
+
 本実装の値は、双対被覆ゲームのプレ仁の射影と一致する (`tests/modiclus.rs`)。
-上の照合は、modiclus も CoopGame と同じ組で求めていた時点で行い、3 つの解とも一致した。
-現在の `check_variants.py` は modiclus を照合しない。
+`check_variants.py` は modiclus を照合しない。
 
 実装は、不満をアフィン関数に一般化した逐次 LP (`nucleolus::variants::lexicographic_minimum`) である。
 不満の定義は文献に合わせた (`src/nucleolus/variants.rs` の表を参照)。
-照合した時点の比例仁は、`v(S) = 0` の提携の順序づけ (Young, Okada & Hashimoto 1982 の取り決め) を実装しておらず、
-`v(S) > 0` の提携の比例超過だけで配分が決まらないゲームではエラーを返した。
-上の 40 ゲームでは配分を返したので、比例超過だけで配分が決まり、順序づけは結果に関わらない。
 
 ## 再現
 
 ```bash
 cargo build --release --features cli
-scripts/compare/setup.sh                      # R・rcdd・CoopGame・TUGLab を用意
+scripts/compare/setup.sh                      # R・rcdd・CoopGame・TUGLab を用意 (Ubuntu と macOS の Homebrew)
 scripts/compare/make_instances.sh             # scripts/compare/work/{small,large}
 export R_LIBS=scripts/compare/work/rlib TUGLAB_DIR=scripts/compare/work/TUGLab/R
 python3 scripts/compare/run.py scripts/compare/work/small > small.csv

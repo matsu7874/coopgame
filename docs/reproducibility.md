@@ -101,3 +101,24 @@ TUGLab の large で状態が変わった 3 件は、いずれもタイプ 4 の
 
 今回完了した n = 15, 16 の配分は、coopgame-rs の配分 (Kohlberg 基準で検証済み) と最大 0.52、0.92 異なり、
 正しい仁ではなかった。`docs/comparison.md` の「TUGLab はタイプ 2, 4 で誤った仁を返す」という結論は変わらない。
+
+## 再実行の結果 (2026-11-21、macOS)
+
+逐次 LP の確定値の決め方、仁の変種の定義、入力の検証を変えた後に、別の環境で一部を再実行した。
+
+| 項目 | 版 |
+|---|---|
+| OS・CPU | macOS 27.2.1、Apple M4 Pro |
+| Rust | rustc 1.99.1 |
+| R | 4.6.2 (Homebrew) |
+| R パッケージ | geometry 0.5.2、gtools 3.9.5 (CRAN)、rcdd 1.6-1、CoopGame 0.2.2 (`scripts/compare/setup.sh` で固定したコミット) |
+
+| 対象 | 方法 | 結果 |
+|---|---|---|
+| インスタンス | `make_instances.sh` で再生成し、`instances.sha256` と照合 | 144 個全てが一致 |
+| 比較: coopgame-rs の仁・プレ仁 | `IMPLS=coopgame-rs,coopgame-rs-full` で `run.py` を再実行し、`diff_results.py` で `data/compare/` と照合 | small 504 件、large 72 件の状態と配分 (相対 1e-9) が全て一致 |
+| Shapley 値・Banzhaf 値 | `scripts/compare/check_values.py` | 12 ゲーム 24 件が相対 2.3e-15 以内で一致 |
+| per capita 仁・比例仁 | `scripts/compare/check_variants.py` | per capita 仁は 41 ゲームで一致。比例仁は 40 ゲームで一致し、1 件は両方とも計算しない。相対 9.1e-14 以内 |
+| modiclus | CoopGame の `modiclus` を直接実行 | 本実装と一致しない (値は [comparison.md](comparison.md#仁の変種-per-capita-仁比例仁modiclus)) |
+
+CoopGame と TUGLab の仁 (`run.py` の残りの実装) は再実行していない。
