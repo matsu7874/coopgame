@@ -164,15 +164,25 @@ impl ExplicitGame {
     }
 
     /// 双対ゲーム `v*(S) = v(N) - v(N \ S)`。
-    pub fn dual(&self) -> ExplicitGame {
+    ///
+    /// 差が `f64` で表せない (有限でない) 提携があれば [`Error::InvalidArgument`] を返す。
+    pub fn dual(&self) -> Result<ExplicitGame> {
         let grand = self.values.len() - 1;
         let total = self.values[grand];
-        ExplicitGame {
-            players: self.players,
-            values: (0..self.values.len())
-                .map(|mask| total - self.values[grand & !mask])
-                .collect(),
+        let values: Vec<f64> = (0..self.values.len())
+            .map(|mask| total - self.values[grand & !mask])
+            .collect();
+        if let Some(mask) = values.iter().position(|v| !v.is_finite()) {
+            return Err(Error::InvalidArgument(format!(
+                "双対ゲームの提携 {} の値 v(N) - v(N \\ S) = {total} - {} が有限でない",
+                Coalition(mask as u64),
+                self.values[grand & !mask]
+            )));
         }
+        Ok(ExplicitGame {
+            players: self.players,
+            values,
+        })
     }
 
     /// 符号を反転したゲーム。費用ゲーム `c` の仁は `-(-c の仁)` で求まる。
@@ -255,6 +265,24 @@ mod tests {
         let lex = ExplicitGame::from_lex(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]).unwrap();
         let binary = ExplicitGame::from_binary(&[1.0, 2.0, 4.0, 3.0, 5.0, 6.0, 7.0]).unwrap();
         assert_eq!(lex, binary);
+    }
+
+    #[test]
+    fn dual_of_three_players() {
+        // 辞書式: {1},{2},{3},{12},{13},{23},{123}。v*(S) = v(N) - v(N \ S)。
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0]).unwrap();
+        let dual = game.dual().unwrap();
+        let expected = ExplicitGame::from_lex(&[4.0, 6.0, 8.0, 12.0, 12.0, 12.0, 12.0]).unwrap();
+        assert_eq!(dual, expected);
+        assert_eq!(dual.dual().unwrap(), game);
+    }
+
+    #[test]
+    fn dual_rejects_values_that_overflow() {
+        // 値は全て有限だが、v*({1}) = v(N) - v({2}) = 1e308 + 1e308 は有限でない。
+        let game = ExplicitGame::from_binary(&[-1e308, -1e308, 1e308]).unwrap();
+        let err = game.dual().unwrap_err();
+        assert!(matches!(err, Error::InvalidArgument(_)), "{err}");
     }
 
     #[test]

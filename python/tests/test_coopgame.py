@@ -224,8 +224,10 @@ def test_binary_and_lex_orders_agree():
 
 
 def test_variants_documented_examples():
+    # CoopGame の modiclus のヘルプの 4 人ゲーム。CoopGame は空提携と全体提携を組に入れないので
+    # (4.25, 5.25, 5.75, 5.75) を返すが、定義どおりの modiclus は (13/3, 16/3, 17/3, 17/3)。
     game = coopgame.Game([0, 0, 0, 0, 5, 5, 8, 9, 10, 8, 13, 15, 16, 17, 21], order="lex")
-    assert close(coopgame.modiclus(game)["allocation"], [4.25, 5.25, 5.75, 5.75])
+    assert close(coopgame.modiclus(game)["allocation"], [13 / 3, 16 / 3, 17 / 3, 17 / 3])
     young = coopgame.Game([0, 0, 0, 0, 9, 10, 12], order="lex")
     assert close(coopgame.per_capita_nucleolus(young)["allocation"], [2 / 3, 7 / 6, 61 / 6])
     with pytest.raises(ValueError):

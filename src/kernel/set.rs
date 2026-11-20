@@ -250,6 +250,8 @@ pub struct SetOptions {
     /// 差が `0.01 * default_tolerance` を超えて `default_tolerance` 以下のゲームでは、既定値のままだと
     /// `kernel_set` は解を返し `kernel_point` は [`crate::Error::EmptyImputationSet`] を返す。
     /// 判定をそろえるには同じ許容誤差を渡す。
+    ///
+    /// 有限で 0 以上の値に限る ([`kernel_set`] はそれ以外を [`crate::Error::InvalidArgument`] にする)。
     pub tolerance: f64,
     /// 探索する節点の数の上限。超えたらエラーを返す。
     pub max_nodes: usize,
@@ -287,6 +289,8 @@ impl SetOptions {
 ///
 /// LP は絶対誤差で判定するので、ゲームの値を 2 のべき乗で割って最大絶対値を `[1, 2)` にそろえてから求め、
 /// 多面体を元の大きさに戻す (値を `c` 倍すると、多面体も `c` 倍になる)。
+///
+/// [`SetOptions::tolerance`] が有限で 0 以上でなければ [`Error::InvalidArgument`] を返す。
 pub fn kernel_set(game: &ExplicitGame, domain: Domain, options: SetOptions) -> Result<KernelSet> {
     let n = game.players();
     if n > MAX_KERNEL_SET_PLAYERS {
@@ -294,6 +298,12 @@ pub fn kernel_set(game: &ExplicitGame, domain: Domain, options: SetOptions) -> R
             players: n,
             max: MAX_KERNEL_SET_PLAYERS,
         });
+    }
+    if !(options.tolerance.is_finite() && options.tolerance >= 0.0) {
+        return Err(Error::InvalidArgument(format!(
+            "許容誤差 {} が有限で 0 以上でない",
+            options.tolerance
+        )));
     }
     let (normalized, divisor) = game.normalized();
     let options = SetOptions {
@@ -919,5 +929,23 @@ mod tests {
         let game = crate::generators::bnf(2, MAX_KERNEL_SET_PLAYERS + 1, 0).unwrap();
         let err = kernel_set(&game, Domain::Imputation, SetOptions::for_game(&game)).unwrap_err();
         assert!(matches!(err, Error::TooManyPlayers { .. }));
+    }
+
+    #[test]
+    fn rejects_invalid_tolerance() {
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
+        for tolerance in [f64::NAN, -1.0, -1e-12, f64::INFINITY] {
+            let mut options = SetOptions::for_game(&game);
+            options.tolerance = tolerance;
+            let result = kernel_set(&game, Domain::Imputation, options);
+            assert!(
+                matches!(result, Err(Error::InvalidArgument(_))),
+                "{tolerance}: {result:?}"
+            );
+        }
+        let mut options = SetOptions::for_game(&game);
+        options.tolerance = 0.0;
+        let set = kernel_set(&game, Domain::Imputation, options).unwrap();
+        assert_eq!(set.pieces.len(), 1, "{set:?}");
     }
 }

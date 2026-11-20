@@ -40,9 +40,9 @@ flowchart LR
     q -->|その他の公平さ| o1{何を均すか}
     o1 -->|各人の取り分の上限と下限の妥協| tau[tau 値<br>compromise::tau_value<br>準平衡なゲームだけ]
     o1 -->|抜ける傾向を全員で等しく| gately[Gately 点<br>compromise::gately_point]
-    o1 -->|提携の抜ける傾向を辞書式に小さく| disr[disruption nucleolus<br>nucleolus::variants::disruption_nucleolus<br>コアが空でないゲームだけ]
-    o1 -->|不満を提携の人数で割る| pc[per capita 仁<br>nucleolus::variants::per_capita_nucleolus]
-    o1 -->|不満を提携の値で割る| prop[比例仁<br>nucleolus::variants::proportional_nucleolus]
+    o1 -->|提携の抜ける傾向を辞書式に小さく| disr[disruption nucleolus<br>nucleolus::variants::disruption_nucleolus<br>コアが空でないゲームだけ、16 人まで]
+    o1 -->|不満を提携の人数で割る| pc[per capita 仁<br>nucleolus::variants::per_capita_nucleolus<br>17 人まで]
+    o1 -->|不満を提携の値で割る| prop[比例仁<br>nucleolus::variants::proportional_nucleolus<br>17 人まで]
     o1 -->|提携どうしの不満の差を小さく| modi[modiclus<br>nucleolus::variants::modiclus<br>7 人まで]
     o1 -->|最も得をしている提携の得を小さく| anti[anti-nucleolus<br>nucleolus::variants::anti_nucleolus]
     o1 -->|2 人の間で互いに文句を言えない| ker[カーネル<br>kernel::kernel_point・kernel::kernel_set]
@@ -85,7 +85,7 @@ flowchart TD
 | 誰も抜けたくならないか (コアに入るか) | `properties::is_in_core` | `coopgame explain` |
 | どの提携がどれだけ不満か | `analysis::explain::{report, compare}` | `coopgame explain`、`coopgame compare` |
 | 求めた配分が本当に仁か (証明つき) | `verify::kohlberg`、`verify::certify` | `coopgame verify`、`coopgame certify` |
-| 交渉集合に入るか (異議に反論できるか) | `bargaining::check` | `coopgame bargaining` |
+| 交渉集合に入るか (異議に反論できるか、11 人まで) | `bargaining::check` | `coopgame bargaining` |
 | 値が不確かなとき配分がどれだけ揺れるか | `analysis::uncertainty::{monte_carlo, influence}` | `coopgame uncertainty`、`coopgame influence` |
 
 ## ゲームが大きいとき

@@ -1095,7 +1095,7 @@ fn power_indices<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDic
     Ok(dict)
 }
 
-/// disruption nucleolus (Littlechild & Vaidya 1976)。コアが空なら ValueError。
+/// disruption nucleolus (Littlechild & Vaidya 1976)。コアが空なら ValueError (16 人まで)。
 /// 戻り値は `per_capita_nucleolus` と同じ形の辞書。
 #[pyfunction]
 fn disruption_nucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
@@ -1119,12 +1119,12 @@ fn anti_nucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDi
     nucleolus_dict(py, result)
 }
 
-/// 双対ゲーム `v*(S) = v(N) - v(N \ S)`。
+/// 双対ゲーム `v*(S) = v(N) - v(N \ S)`。値が有限でない提携があれば ValueError。
 #[pyfunction]
-fn dual(game: &Game) -> Game {
-    Game {
-        inner: game.inner.dual(),
-    }
+fn dual(game: &Game) -> PyResult<Game> {
+    Ok(Game {
+        inner: game.inner.dual().map_err(to_py_err)?,
+    })
 }
 
 /// 和が 1 になるように割る。
@@ -1237,7 +1237,8 @@ fn lexicographic_dict<'py>(
     Ok(dict)
 }
 
-/// per capita 仁: `e(S, x) / |S|` を辞書式に最小化する。
+/// per capita 仁: `e(S, x) / |S|` を辞書式に最小化する (17 人まで)。
+/// 原典 (weak nucleolus) の定義は `domain="preimputation"`。
 #[pyfunction]
 #[pyo3(signature = (game, domain = "imputation"))]
 fn per_capita_nucleolus<'py>(
@@ -1250,7 +1251,8 @@ fn per_capita_nucleolus<'py>(
     lexicographic_dict(py, result)
 }
 
-/// 比例仁: `e(S, x) / v(S)` を辞書式に最小化する (非負のゲーム)。
+/// 比例仁: `e(S, x) / v(S)` を辞書式に最小化する (非負のゲーム、17 人まで)。
+/// `v(S) = 0` の提携は、その後に `-x(S)` で順序づける。原典の定義は `domain="preimputation"`。
 #[pyfunction]
 #[pyo3(signature = (game, domain = "imputation"))]
 fn proportional_nucleolus<'py>(
@@ -1263,14 +1265,15 @@ fn proportional_nucleolus<'py>(
     lexicographic_dict(py, result)
 }
 
-/// modiclus: 超過の差 `e(S, x) - e(T, x)` を辞書式に最小化する準配分 (7 人まで)。
+/// modiclus: 空提携と全体提携を含む全ての提携の組の超過の差 `e(S, x) - e(T, x)` を
+/// 辞書式に最小化する準配分 (7 人まで)。
 #[pyfunction]
 fn modiclus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
     let result = variants::modiclus(&game.inner).map_err(to_py_err)?;
     lexicographic_dict(py, result)
 }
 
-/// `x` が交渉集合 (`domain="imputation"`) かプレ交渉集合に属するか。
+/// `x` が交渉集合 (`domain="imputation"`) かプレ交渉集合に属するか (11 人まで)。
 ///
 /// `objection` は反論のない異議 (`objector`, `target`, `coalition`, `payoff`, `margin`) か None。
 #[pyfunction]

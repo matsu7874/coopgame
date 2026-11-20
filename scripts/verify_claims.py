@@ -14,6 +14,7 @@ import argparse
 import collections
 import csv
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -298,6 +299,47 @@ def verify_sampled():
     check(doc, "その最大の相対誤差 (タイプ 4 の 0.055)", (worst["type"], round(float(worst["relative_error"]), 3)), ("4", 0.055))
 
 
+def verify_variant_limits():
+    """全ての行を LP に入れる解と交渉集合の判定の、プレイヤー数の上限の根拠。"""
+    doc = "docs/performance.md (全ての行を LP に入れる解と交渉集合の判定)"
+    rows = read("data/bench/variant-limits.csv")
+    check(doc, "全ての計測が完了した", {r["status"] for r in rows}, {"ok"})
+    constants = {}
+    for path in ("src/nucleolus/variants.rs", "src/bargaining.rs"):
+        with open(path) as f:
+            for name, value in re.findall(r"pub const (MAX_\w+_PLAYERS): usize = (\d+);", f.read()):
+                constants[name] = int(value)
+
+    def group(method, n):
+        return [r for r in rows if r["method"] == method and int(r["n"]) == n]
+
+    def within(method, n):
+        # 1 回が 1 分以内、最大メモリが 1 GB 以内
+        return all(float(r["seconds"]) <= 60 and float(r["max_rss_mb"]) <= 1024 for r in group(method, n))
+
+    def worst(method, n):
+        g = group(method, n)
+        return (round(max(float(r["seconds"]) for r in g), 1), max(int(r["max_rss_mb"]) for r in g))
+
+    limits = [("per-capita", "MAX_PER_CAPITA_PLAYERS"), ("proportional", "MAX_PROPORTIONAL_PLAYERS"),
+              ("disruption", "MAX_DISRUPTION_PLAYERS"), ("bargaining", "MAX_BARGAINING_SET_PLAYERS")]
+    for method, name in limits:
+        largest = max(int(r["n"]) for r in rows if r["method"] == method and within(method, int(r["n"])))
+        check(doc, f"{method}: 条件を満たす最大の人数が {name}", largest, constants[name])
+        check(doc, f"{method}: 1 人多い人数を測り、条件を超えた", (bool(group(method, largest + 1)), within(method, largest + 1)), (True, False))
+    expected = {
+        ("per-capita", 17): (19.3, 924), ("per-capita", 18): (52.4, 1383),
+        ("proportional", 17): (39.2, 937), ("proportional", 18): (57.0, 1681),
+        ("disruption", 16): (7.9, 847), ("disruption", 17): (19.7, 1487),
+        ("modiclus", 7): (0.4, 51),
+        ("bargaining", 11): (21.8, 7), ("bargaining", 12): (80.6, 10),
+    }
+    for (method, n), value in expected.items():
+        check(doc, f"{method} の {n} 人での最大 (秒, MB)", worst(method, n), value)
+    check(doc, "modiclus の上限 7 人で条件を満たす", (constants["MAX_MODICLUS_PLAYERS"], within("modiclus", 7)), (7, True))
+    check(doc, "基準 2 の投票ゲームの 11 人の交渉集合の LP の数", [int(r["lp_solves"]) for r in group("bargaining", 11) if r["game"] == "quota2"], [56210])
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--instances", help="make_instances.sh で作ったディレクトリ")
@@ -309,6 +351,7 @@ def main():
     verify_sampled()
     verify_guarantees()
     verify_exact_solver()
+    verify_variant_limits()
     if args.instances:
         verify_allocations(args.instances)
     print(f"\n{'食い違い ' + str(len(failures)) + ' 件' if failures else '全ての主張がデータと一致した'}")

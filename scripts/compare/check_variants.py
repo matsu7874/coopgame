@@ -1,11 +1,15 @@
-"""per capita 仁・比例仁・modiclus を CoopGame と照合する。
+"""per capita 仁・比例仁を CoopGame と照合する。
 
 使い方 (リポジトリのルートで、R_LIBS を setup.sh の出力どおりに設定して実行):
   python3 scripts/compare/check_variants.py
 
 BNF タイプ 1, 2, 4、n = 3, 4, 5、seed 0-3 のゲームと、CoopGame のヘルプにある例で、
-coopgame-rs の `per-capita`・`proportional`・`modiclus` と CoopGame 0.2.2 の結果を比べる。
+coopgame-rs の `per-capita`・`proportional` と CoopGame 0.2.2 の結果を比べる。
 CoopGame が計算しないゲーム (比例仁で負の値を持つゲームなど) は、coopgame-rs もエラーを返すことを確かめる。
+
+variants.R は modiclus (M) も出力するが、照合しない。CoopGame の `modiclus` は超過の差の組を
+空でない真部分提携に限り、coopgame-rs は空提携と全体提携を含む組を使う (文献の定義) ので、値が異なる
+(docs/comparison.md)。
 """
 import os, subprocess, sys, tempfile
 
@@ -48,11 +52,13 @@ with tempfile.TemporaryDirectory() as work:
             f.write("\n".join(str(v) for v in lex_to_binary(lex)) + "\n")
         files.append(path)
     out = subprocess.run(["Rscript", os.path.join(here, "variants.R"), *files], capture_output=True, text=True, check=True).stdout
-    commands = {"C": "per-capita", "P": "proportional", "M": "modiclus"}
+    commands = {"C": "per-capita", "P": "proportional"}
     tally = {kind: {"match": 0, "both_na": 0, "mismatch": []} for kind in commands}
     worst = 0.0
     for line in out.splitlines():
         name, kind, *values = line.split()
+        if kind not in commands:
+            continue
         result = subprocess.run([rust, commands[kind], os.path.join(work, name)], capture_output=True, text=True)
         ours = [float(v) for v in result.stdout.split()] if result.returncode == 0 else None
         if values == ["NA"]:

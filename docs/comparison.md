@@ -95,15 +95,26 @@ x* は、同じインスタンスで coopgame-rs の配分から復元し、合�
 
 ## 仁の変種 (per capita 仁・比例仁・modiclus)
 
-`nucleolus::variants::{per_capita_nucleolus, proportional_nucleolus, modiclus}` を CoopGame 0.2.2 の
-`perCapitaNucleolus`・`proportionalNucleolus`・`modiclus` と比べた (`scripts/compare/check_variants.py`)。
+`nucleolus::variants::{per_capita_nucleolus, proportional_nucleolus}` を CoopGame 0.2.2 の
+`perCapitaNucleolus`・`proportionalNucleolus` と比べた (`scripts/compare/check_variants.py`)。
 
 - ゲーム: BNF タイプ 1, 2, 4 の n = 3, 4, 5、seed 0-3 (36 個) と、CoopGame のヘルプの例など 5 個。
-- 結果: 3 つの解とも 41 ゲーム全てで一致した。差は相対 9.1e-14 以下。
+- 結果: 2 つの解とも 41 ゲーム全てで一致した。差は相対 9.1e-14 以下。
 - 比例仁は負の値を持つゲームでは定義しない。そのようなゲーム 1 個で、両方とも計算しなかった。
 
+modiclus は CoopGame と一致しない。
+CoopGame の `modiclus` は超過の差 `e(S, x) - e(T, x)` の組を空でない真部分提携に限るが、
+本実装は文献の定義どおり空提携と全体提携を含む全ての組を使う (根拠は [references.md](references.md))。
+例えば CoopGame のヘルプの 4 人ゲームで、CoopGame は (4.25, 5.25, 5.75, 5.75)、本実装は (13/3, 16/3, 17/3, 17/3) を返す。
+本実装の値は、双対被覆ゲームのプレ仁の射影と一致する (`tests/modiclus.rs`)。
+上の照合は、modiclus も CoopGame と同じ組で求めていた時点で行い、3 つの解とも一致した。
+現在の `check_variants.py` は modiclus を照合しない。
+
 実装は、不満をアフィン関数に一般化した逐次 LP (`nucleolus::variants::lexicographic_minimum`) である。
-不満の定義は CoopGame のソースと同じにした (`src/nucleolus/variants.rs` の表を参照)。
+不満の定義は文献に合わせた (`src/nucleolus/variants.rs` の表を参照)。
+照合した時点の比例仁は、`v(S) = 0` の提携の順序づけ (Young, Okada & Hashimoto 1982 の取り決め) を実装しておらず、
+`v(S) > 0` の提携の比例超過だけで配分が決まらないゲームではエラーを返した。
+上の 40 ゲームでは配分を返したので、比例超過だけで配分が決まり、順序づけは結果に関わらない。
 
 ## 再現
 

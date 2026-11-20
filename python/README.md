@@ -54,9 +54,9 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 | `Game(values, order="binary" or "lex")`, `Game.from_function(n, f)`, `Game.weighted_voting`, `Game.bankruptcy`, `Game.bnf` | 明示ベクトルのゲーム (30 人まで)。`value`, `values`, `is_convex` などのメソッドを持つ |
 | `FunctionGame(n, f)` | Python の関数で値を返すゲーム。受け付けるのは `shapley_sampling`・`banzhaf_sampling`・`sampled_nucleolus`・`sampled_least_core`・`convex_nucleolus(..., assume=True)`・`verify_solution` |
 | `nucleolus(game, domain="imputation", method="cg" or "full")`, `prenucleolus`, `least_core` | 仁・プレ仁・最小コア |
-| `per_capita_nucleolus`, `proportional_nucleolus`, `modiclus` | 仁の変種 |
+| `per_capita_nucleolus`, `proportional_nucleolus`, `modiclus` | 仁の変種 (per capita 仁・比例仁は 17 人まで、modiclus は 7 人まで) |
 | `kernel_point`, `kernel_violation`, `is_in_kernel`, `kernel_set(..., merge=False)` | カーネル・プレカーネル |
-| `bargaining_set(game, x, domain)` | 交渉集合 (プレ交渉集合) への所属と、反論のない異議 |
+| `bargaining_set(game, x, domain)` | 交渉集合 (プレ交渉集合) への所属と、反論のない異議 (11 人まで) |
 | `InducedSubgraphGame(n, edges)` | 誘導部分グラフゲーム (重みは非負、構造的に凸、人数の上限なし) |
 | `convex_nucleolus(game, assume=False, verify=True)` | 凸ゲームの手法で仁。`assume=True` は凸と仮定して試し、`verdict` に検証結果 |
 | `auto_nucleolus(game)` | 保証のある手法のうち最も速いものを選ぶ |
@@ -72,8 +72,8 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 | `certify_rational(values, x, domain, order)` | 有理数の値 (`Fraction`・`"8/3"`・`"0.1"`) のゲームで厳密に検証 |
 | `verify`, `certify` | Kohlberg 基準による検証 (浮動小数点、有理数) |
 | `shapley`, `banzhaf`, `normalize`, `shapley_sampling`, `banzhaf_sampling` | Shapley 値・Banzhaf 値。サンプリングの順列数・提携数は 1 以上 (0 なら ValueError) |
-| `disruption_nucleolus(game)` | disruption nucleolus (Littlechild & Vaidya 1976、コアが空なら ValueError)。`per_capita_nucleolus` と同じ形の辞書 |
-| `anti_prenucleolus(game)`, `anti_nucleolus(game)`, `dual(game)` | anti-prenucleolus・anti-nucleolus (双対ゲームのプレ仁・仁、Funaki & Meinhardt 2006) と双対ゲーム。anti の 2 つは `nucleolus` と同じ形の辞書 |
+| `disruption_nucleolus(game)` | disruption nucleolus (Littlechild & Vaidya 1976、コアが空なら ValueError、16 人まで)。`per_capita_nucleolus` と同じ形の辞書 |
+| `anti_prenucleolus(game)`, `anti_nucleolus(game)`, `dual(game)` | anti-prenucleolus・anti-nucleolus (双対ゲームのプレ仁・仁、Funaki & Meinhardt 2006) と双対ゲーム (値が有限でなければ ValueError)。anti の 2 つは `nucleolus` と同じ形の辞書 |
 | `solidarity(game)` | solidarity 値 (Nowak & Radzik 1994) |
 | `tau_value(game)`, `utopia_payoffs(game)` | tau 値 (Tijs 1981、準平衡でなければ ValueError)。理想の支払いと最小の権利 |
 | `gately_point(game)` | Gately 点 (Gately 1974) |

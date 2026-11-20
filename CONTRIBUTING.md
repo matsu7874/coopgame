@@ -104,8 +104,10 @@ cargo build --no-default-features       # feature なしでビルドできるこ
 - Shapley 値・Banzhaf 値が文献の例 (Ibn Ezra の相続問題、空港ゲーム、手袋ゲームなど) と一致すること
 - タルムード則が、別実装・LP の仁 (n = 60)・有理数で検証した仁 (分数として完全一致) と一致すること (`tests/bankruptcy.rs`)
 - サンプリングした仁が、サンプルを増やすと厳密なプレ仁に近づき、全提携で一致すること (`tests/sampled.rs`)
-- per capita 仁・modiclus が文献の例と一致し、modiclus が定和ゲームでプレ仁に一致し凸ゲームでコアに属すること (Sudhölter 1997)、
+- per capita 仁が文献の例と一致し、modiclus が定和ゲームでプレ仁に一致し凸ゲームでコアに属すること (Sudhölter 1997)、
   仁・カーネルの点が交渉集合に属し、凸ゲームで交渉集合がコアに一致すること (`tests/variants.rs`)
+- modiclus が文献の数値例と一致し、双対被覆ゲームのプレ仁の射影と一致し、bi-excess の族の平衡性を満たすこと (`tests/modiclus.rs`)
+- per capita 仁 (weak nucleolus)・比例仁・disruption nucleolus が Young, Okada & Hashimoto (1982) と Lemaire (1984) の数値例と一致すること (`tests/variant_literature.rs`)
 - Owen 値・Aumann–Drèze 値・提携構造つきの仁を、Shapley 値・仁・商ゲームとの関係で確かめる (`tests/partition.rs`)
 - 費用ゲーム・空港ゲーム・最小全域木ゲーム・線形生産ゲームを、明示ゲームの計算とコアの定理で確かめる (`tests/cost_games.rs`)
 - 保証の種類・分離オラクル・性質の宣言・凸ゲームの手法・事後検証・有理数で構築したゲーム (`tests/guarantees.rs`)
@@ -139,6 +141,9 @@ crates.io で公開しているので、公開 API の変更は semver に従う
 - `docs/` には、利用者と、現状を理解したい人向けの文書だけを置く。研究としての分析や開発の判断のための調査はリポジトリに置かない。
 - crates.io に表示する `README.md` は英語で書き、日本語版の `README.ja.md` と内容を揃える。
 - 文献に依拠する主張は、[docs/references.md](docs/references.md) に文献と確認元を書き、計算で確かめられるものはテストかデータで確かめる。
+- 解の定義は、原典か、原典の定義を引用している文献の本文で確かめてから実装する。他の実装 (CoopGame など) の挙動を定義の根拠にしない。
+  他の実装との一致は検算として扱い、食い違ったときは文献の定義に合わせる (modiclus は、他の実装が文献と異なる組の範囲を使っていた)。
+  本文を確認できなかった点は、未確認であることを rustdoc と [docs/references.md](docs/references.md) に書く。
 - 文献の数値例を使うときは、出典と、答えを裏付けた方法 (原典、引用元、手計算) を書く ([docs/literature-cases.md](docs/literature-cases.md))。
 - 保証つきのアルゴリズムは、原論文の本文で手順と保証を確かめてから実装する。
   要旨だけで実装すると、保証が成り立つことを確認できないからである。

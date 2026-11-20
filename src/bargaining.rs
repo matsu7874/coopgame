@@ -20,6 +20,8 @@
 //!
 //! 最適値が正なら、反論のない異議 (正当な異議) がある。LP の数は `n (n - 1) 2^(n-2)` 個で、
 //! 超過 `e(S, x) <= 0` の提携は異議に使えないので解かない。
+//! LP の数と各 LP の行の数 (`2^(n-2)` 個の反論の提携) がともに指数的に増えるので、
+//! プレイヤー数は [`MAX_BARGAINING_SET_PLAYERS`] 以下に限る。
 
 use microlp::Variable;
 
@@ -28,6 +30,12 @@ use crate::error::{Error, Result};
 use crate::game::allocation::feasibility_violation;
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::lp::{self, Cmp, Counter};
+
+/// [`check`] (と [`is_in_bargaining_set`]) が扱うプレイヤー数の上限。
+///
+/// 超過が正の提携が多い配分では、LP の数が `n (n - 1) 2^(n-2)` (`n = 11` で 56,320) に近づく。
+/// 上限は、1 回の判定が 1 分以内に収まる人数である (計測は `docs/performance.md`)。
+pub const MAX_BARGAINING_SET_PLAYERS: usize = 11;
 
 /// 反論のない異議。
 #[derive(Clone, Debug, PartialEq)]
@@ -59,6 +67,9 @@ impl BargainingReport {
 }
 
 /// `x` が交渉集合 (プレ交渉集合) に属するかを判定する。異議の余裕が `tolerance` 以下なら異議とみなさない。
+///
+/// プレイヤー数が [`MAX_BARGAINING_SET_PLAYERS`] を超えれば [`Error::TooManyPlayers`]、
+/// `tolerance` が有限で 0 以上でなければ [`Error::InvalidArgument`] を返す。
 pub fn check(
     game: &ExplicitGame,
     x: &[f64],
@@ -66,6 +77,17 @@ pub fn check(
     tolerance: f64,
 ) -> Result<BargainingReport> {
     let n = game.players();
+    if n > MAX_BARGAINING_SET_PLAYERS {
+        return Err(Error::TooManyPlayers {
+            players: n,
+            max: MAX_BARGAINING_SET_PLAYERS,
+        });
+    }
+    if !(tolerance.is_finite() && tolerance >= 0.0) {
+        return Err(Error::InvalidArgument(format!(
+            "許容誤差 {tolerance} が有限で 0 以上でない"
+        )));
+    }
     if x.len() != n {
         return Err(Error::InvalidArgument(format!(
             "配分の長さ {} がプレイヤー数 {n} と異なる",
@@ -116,6 +138,7 @@ pub fn check(
 }
 
 /// 既定の許容誤差 (`1e-7 * max |v|` の 10 倍。全ての値が 0 なら `1e-6`) で判定する。
+/// プレイヤー数の上限は [`check`] と同じ。
 pub fn is_in_bargaining_set(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<bool> {
     Ok(check(game, x, domain, 10.0 * default_tolerance(game))?.is_member())
 }
@@ -205,6 +228,30 @@ mod tests {
         assert_eq!((objection.objector, objection.target), (1, 0));
         assert_eq!(objection.coalition, Coalition::from_players(&[1, 2]));
         assert!(objection.payoff[1] > 0.4 && objection.payoff[2] > 0.4);
+    }
+
+    #[test]
+    fn rejects_games_above_player_limit() {
+        // 対称な多数決ゲームの均等配分は交渉集合に属し、上限がなければ多くの LP を解く。
+        let n = MAX_BARGAINING_SET_PLAYERS + 1;
+        let game = ExplicitGame::from_fn(n, |s| if 2 * s.len() > n { 1.0 } else { 0.0 }).unwrap();
+        let x = vec![1.0 / n as f64; n];
+        let err = check(&game, &x, Domain::Imputation, 1e-9).unwrap_err();
+        assert!(
+            matches!(err, Error::TooManyPlayers { max, .. } if max == MAX_BARGAINING_SET_PLAYERS),
+            "{err}"
+        );
+        assert!(is_in_bargaining_set(&game, &x, Domain::Imputation).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_tolerance() {
+        let game = majority();
+        for tolerance in [f64::NAN, -1e-9, f64::INFINITY] {
+            let err = check(&game, &[1.0 / 3.0; 3], Domain::Imputation, tolerance).unwrap_err();
+            assert!(matches!(err, Error::InvalidArgument(_)), "{err}");
+        }
+        assert!(check(&game, &[1.0 / 3.0; 3], Domain::Imputation, 0.0).is_ok());
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! per capita 仁・比例仁・modiclus と交渉集合を、文献の値・手計算・定理と突き合わせる。
 //!
-//! CoopGame 0.2.2 との数値の照合は `scripts/compare/check_variants.py` で行う (R が必要なのでテストには含めない)。
+//! per capita 仁・比例仁の CoopGame 0.2.2 との数値の照合は `scripts/compare/check_variants.py` で行う
+//! (R が必要なのでテストには含めない)。modiclus の文献の数値例と定義どおりの値は `tests/modiclus.rs` にある。
 
 mod common;
 
@@ -9,22 +10,6 @@ use coopgame::generators::{self, SplitMix64};
 use coopgame::kernel::{self, TransferOptions};
 use coopgame::nucleolus::variants;
 use coopgame::{Domain, ExplicitGame, bargaining, nucleolus, properties, values};
-
-/// CoopGame の `modiclus` のヘルプにある 4 人ゲームの値 (4.25, 5.25, 5.75, 5.75)。
-#[test]
-fn modiclus_documented_example() {
-    let game = ExplicitGame::from_lex(&[
-        0.0, 0.0, 0.0, 0.0, 5.0, 5.0, 8.0, 9.0, 10.0, 8.0, 13.0, 15.0, 16.0, 17.0, 21.0,
-    ])
-    .unwrap();
-    let result = variants::modiclus(&game).unwrap();
-    assert_close(
-        result.allocation(),
-        &[4.25, 5.25, 5.75, 5.75],
-        1e-9,
-        "modiclus",
-    );
-}
 
 /// Young (1985) の費用分担の例 (CoopGame の `perCapitaNucleolus` のヘルプが引用)。
 /// 費用 C = (15, 20, 55, 35, 61, 65, 78) の節約ゲームは v(13) = 9, v(23) = 10, v(N) = 12、他は 0。

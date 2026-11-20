@@ -38,6 +38,7 @@ CoopGame の誤りと判定した 4 件について、超過を降順に並べ�
 | `data/bench/convex-graph.csv`、`data/bench/convex-bankruptcy.csv` | 凸ゲームの手法の計測 (同上) | 同上 | `bench_convex graph 10,16,24,32,48,64 3`、`bench_convex bankruptcy 10,20,30,40 3` (`cargo run --release --example ...`) |
 | `data/bench/auto-threshold.csv` | 自動選択の境目の計測 (同上) | 同上 | `cargo run --release --example bench_auto_threshold -- 8,10,12,14,16,18,20 3` |
 | `data/bench/exact-scaling.csv` | 有理数だけの仁のソルバーの計測 | 厳密なソルバーを追加したコミット | `cargo run --release --example bench_exact -- 3,4,5,6,7,8,9,10` |
+| `data/bench/variant-limits.csv` | 仁の変種と交渉集合の判定の時間と最大メモリ (`docs/performance.md` の上限の根拠) | 上限を追加したコミット。上限より 1 人多い人数は `MAX_*_PLAYERS` を一時的に大きくしたビルド | `cargo run --release --example bench_limits > data/bench/variant-limits.csv` (Apple M4 Pro・macOS・rustc 1.99.1 で計測。最大メモリは `/usr/bin/time -l`) |
 | `data/analysis/counterexamples.txt` | 反例の探索と縮小の実例 | 反例探索を追加したコミット | `cargo run --release --example study_counterexamples` (約 1 分) |
 | `data/compare/small.csv` | 既存実装との比較 (n = 4-12) | coopgame-rs はコミット `3f85dc1` の CLI | `python3 scripts/compare/run.py work/small` |
 | `data/compare/tuglab-retry-tol1e-8.csv` | TUGLab の再実行 | 同上 | `IMPLS=TUGLab python3 scripts/compare/run.py <失敗したインスタンス> 1e-8` |
@@ -91,7 +92,7 @@ python3 scripts/compare/diff_results.py data/compare/large.csv large.csv
 | 比較: TUGLab | 同上 | small 252 件は全て一致。large 36 件のうち 33 件が一致し、3 件は状態が変わった |
 | 明示ベクトルの計測 | `verify_claims.py` (件数と検証結果) | 540 件全てが検証済み |
 | Shapley 値・Banzhaf 値 | `scripts/compare/check_values.py` (CoopGame 0.2.2 と照合) | 12 ゲーム 24 件が相対 2.3e-15 以内で一致 |
-| per capita 仁・比例仁・modiclus | `scripts/compare/check_variants.py` (CoopGame 0.2.2 と照合) | 41 ゲームで 3 つとも一致 (比例仁の 1 件は両方とも計算しない)。相対 9.1e-14 以内 |
+| per capita 仁・比例仁・modiclus | `scripts/compare/check_variants.py` (CoopGame 0.2.2 と照合) | 41 ゲームで 3 つとも一致 (比例仁の 1 件は両方とも計算しない)。相対 9.1e-14 以内。当時の modiclus は CoopGame と同じく空でない真部分提携の組だけを使っていた。現在の modiclus は空提携と全体提携を含む組を使う文献の定義で、CoopGame とは一致しないので照合から外した |
 
 TUGLab の large で状態が変わった 3 件は、いずれもタイプ 4 の仁で、時間の上限 (300 秒) の境目によるものである。
 
