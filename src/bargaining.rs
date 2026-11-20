@@ -28,6 +28,7 @@ use microlp::Variable;
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::feasibility_violation;
+use crate::game::scale::check_tolerance;
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::lp::{self, Cmp, Counter};
 
@@ -83,11 +84,7 @@ pub fn check(
             max: MAX_BARGAINING_SET_PLAYERS,
         });
     }
-    if !(tolerance.is_finite() && tolerance >= 0.0) {
-        return Err(Error::InvalidArgument(format!(
-            "許容誤差 {tolerance} が有限で 0 以上でない"
-        )));
-    }
+    check_tolerance(tolerance)?;
     if x.len() != n {
         return Err(Error::InvalidArgument(format!(
             "配分の長さ {} がプレイヤー数 {n} と異なる",

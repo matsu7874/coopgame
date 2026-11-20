@@ -9,7 +9,7 @@ use crate::error::{Error, Result};
 use crate::game::allocation::allocation_defect;
 use crate::game::exact::{ExactGame, Rational, format_rational, to_f64, to_rational};
 use crate::game::excess_table;
-use crate::game::scale::positive_scale;
+use crate::game::scale::{check_tolerance, positive_scale};
 use crate::game::{Coalition, ExplicitGame};
 use crate::linalg::Span;
 use crate::rational::{ExactEchelon, Inserted, indicator, simplex};
@@ -204,11 +204,7 @@ pub fn recover_allocation(
         )));
     }
     check_allocation(n, x)?;
-    if !(tolerance.is_finite() && tolerance >= 0.0) {
-        return Err(Error::InvalidArgument(format!(
-            "許容誤差 {tolerance} は有限で 0 以上でなければならない"
-        )));
-    }
+    check_tolerance(tolerance)?;
     let sorted = SortedExcess::new(game, x);
     let Some(reading) = sorted.read(game, x, domain, tolerance)? else {
         return Ok(None);

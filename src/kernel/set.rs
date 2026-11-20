@@ -5,6 +5,7 @@ use microlp::Variable;
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::lower_bounds;
+use crate::game::scale::check_tolerance;
 use crate::game::{Coalition, ExplicitGame, PlayerSet, default_tolerance};
 use crate::linalg::{Span, for_each_combination, solve_square};
 use crate::lp::{self, Cmp, Counter};
@@ -299,12 +300,7 @@ pub fn kernel_set(game: &ExplicitGame, domain: Domain, options: SetOptions) -> R
             max: MAX_KERNEL_SET_PLAYERS,
         });
     }
-    if !(options.tolerance.is_finite() && options.tolerance >= 0.0) {
-        return Err(Error::InvalidArgument(format!(
-            "許容誤差 {} が有限で 0 以上でない",
-            options.tolerance
-        )));
-    }
+    check_tolerance(options.tolerance)?;
     let (normalized, divisor) = game.normalized();
     let options = SetOptions {
         tolerance: options.tolerance / divisor,

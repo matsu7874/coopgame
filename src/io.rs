@@ -59,7 +59,7 @@ use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::exact::{self, ExactGame, Rational};
 use crate::game::oracle::OracleGame;
-use crate::game::{Coalition, ExplicitGame, MAX_PLAYERS, PlayerSet, SetFunction};
+use crate::game::{Coalition, ExplicitGame, MAX_PLAYERS, PlayerSet, SetFunction, strip_bom};
 use crate::nucleolus::NucleolusResult;
 use crate::sorted::{LazySorted, by_excess_desc};
 
@@ -157,11 +157,6 @@ fn error_at(line: Option<usize>, message: impl Into<String>) -> Error {
         line: line.unwrap_or(0),
         message: message.into(),
     }
-}
-
-/// UTF-8 の BOM (表計算ソフトが CSV の先頭に付けることがある) を取り除く。
-fn strip_bom(text: &str) -> &str {
-    text.strip_prefix('\u{feff}').unwrap_or(text)
 }
 
 /// プレイヤーの番号を読む。

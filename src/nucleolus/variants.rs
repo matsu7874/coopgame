@@ -60,7 +60,7 @@ use microlp::{Problem, Variable};
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::lower_bounds;
-use crate::game::scale::normalizer;
+use crate::game::scale::{check_tolerance, normalizer};
 use crate::game::{Coalition, ExplicitGame, PlayerSet, default_tolerance};
 use crate::linalg::{Span, indicator};
 use crate::lp::{self, Cmp, Counter};
@@ -243,9 +243,7 @@ fn validate_problem<'a>(
     if players == 0 {
         return invalid("プレイヤーが 0 人".into());
     }
-    if !(tolerance.is_finite() && tolerance >= 0.0) {
-        return invalid(format!("許容誤差 {tolerance} が有限で 0 以上でない"));
-    }
+    check_tolerance(tolerance)?;
     if !feasible.total.is_finite() {
         return invalid(format!("配分の総額 {} が有限でない", feasible.total));
     }
