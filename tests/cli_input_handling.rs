@@ -73,6 +73,23 @@ fn explain_rejects_non_finite_allocation() {
     assert!(stderr.contains("NaN"), "{stderr}");
 }
 
+/// 厳密な検証は、非有限の配分をエラーにして終わる (段の読み取りが進まず止まらなくなることがない)。
+#[test]
+fn certify_rejects_non_finite_allocation() {
+    let cli = Cli::new("certify_non_finite");
+    cli.file("v.txt", V_TXT);
+    for (name, content) in [("nan.txt", "NaN\n2\n1\n"), ("inf.txt", "inf\n-inf\n6\n")] {
+        cli.file(name, content);
+        for extra in [&[][..], &["--rational"][..]] {
+            let mut args = vec!["certify", "v.txt", name];
+            args.extend_from_slice(extra);
+            let run = cli.run(&args);
+            let stderr = run.error();
+            assert!(stderr.contains("有限でない"), "{args:?}: {stderr}");
+        }
+    }
+}
+
 /// 全提携の表を作れない 31 人のゲームも、--missing ignore なら分かる提携だけで解く。
 #[test]
 fn missing_ignore_solves_games_beyond_table_limit() {

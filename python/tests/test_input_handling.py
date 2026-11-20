@@ -21,6 +21,18 @@ def test_explain_and_compare_reject_non_finite_allocations(bad):
         coopgame.compare(GAME, [[3, 2, 1], [bad, 2, 1]])
 
 
+# ---------------------------------------------------------------- 厳密な検証
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+def test_certify_rejects_non_finite_allocations(bad):
+    # 段の読み取りが進まず止まらなくなることがなく、ValueError で終わる。
+    with pytest.raises(ValueError, match="有限でない"):
+        coopgame.certify(GAME, [bad, 2, 1])
+    with pytest.raises(ValueError, match="有限でない"):
+        coopgame.certify_rational([0, 0, 4, 0, 3, 2, 6], [bad, 2, 1])
+
+
 # ---------------------------------------------------------------- 感度
 
 
