@@ -50,6 +50,7 @@ use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::{block_lower_bounds, coalition_sums, excess_table};
 use crate::game::exact::{ExactGame, to_rational};
+use crate::game::scale::check_tolerance;
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
@@ -94,13 +95,7 @@ impl Options {
     /// 許容誤差が有限で 0 以上でないとき、または割った許容誤差が有限でない
     /// (ゲームの値に比べて大きすぎる) ときは [`Error::InvalidArgument`]。
     fn divided_by(self, divisor: f64) -> Result<Options> {
-        if !(self.tolerance.is_finite() && self.tolerance >= 0.0) {
-            return Err(Error::InvalidArgument(format!(
-                "許容誤差 {} は有限で 0 以上の値にする",
-                self.tolerance
-            )));
-        }
-        let tolerance = self.tolerance / divisor;
+        let tolerance = check_tolerance(self.tolerance)? / divisor;
         if !tolerance.is_finite() {
             return Err(Error::InvalidArgument(format!(
                 "許容誤差 {} がゲームの値の大きさに比べて大きすぎる",
@@ -112,7 +107,7 @@ impl Options {
 }
 
 /// 元の大きさに戻した値が全て有限かを確かめる。f64 で表せない値があれば [`Error::Numerical`]。
-fn check_representable(values: &[f64], what: &str) -> Result<()> {
+pub(crate) fn check_representable(values: &[f64], what: &str) -> Result<()> {
     match values.iter().find(|v| !v.is_finite()) {
         None => Ok(()),
         Some(value) => Err(Error::Numerical(format!(

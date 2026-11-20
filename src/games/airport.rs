@@ -15,7 +15,7 @@
 use crate::error::{Error, Result};
 use crate::game::{PlayerSet, SetFunction};
 use crate::nucleolus::convex;
-use crate::properties::{ConvexGame, Proven};
+use crate::properties::{ConvexGame, Proven, Sealed};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AirportGame {
@@ -82,6 +82,8 @@ impl SetFunction for AirportGame {
         total - self.cost(coalition)
     }
 }
+
+impl Sealed for AirportGame {}
 
 impl ConvexGame for AirportGame {
     type Proof = Proven;

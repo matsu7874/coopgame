@@ -19,7 +19,7 @@ use crate::error::{Error, Result};
 use crate::game::oracle::{MaxMerge, OracleGame};
 use crate::game::subsets::SubsetsByWeight;
 use crate::game::{PlayerSet, SetFunction};
-use crate::properties::{ConvexGame, Proven};
+use crate::properties::{ConvexGame, Proven, Sealed};
 
 /// 規則に使える数の型。
 pub trait Amount: Clone + PartialOrd + Num + Signed + FromPrimitive {}
@@ -177,6 +177,8 @@ impl SetFunction for BankruptcyGame {
         (self.estate - self.total + inside).max(0.0)
     }
 }
+
+impl Sealed for BankruptcyGame {}
 
 /// 破産ゲームは凸である。`v(S) = max(0, (E - D) + d(S))` は、加法的な `d(S)` に
 /// 凸で非減少な関数 `t -> max(0, (E - D) + t)` を合成したもので、`d_i >= 0` のときこの合成は優モジュラになる

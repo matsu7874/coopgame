@@ -5,7 +5,7 @@
 
 | 方法 | モジュール | 使える場面 | 保証 |
 |---|---|---|---|
-| オラクル | `oracle` | 超過の大きい順に提携を列挙できるゲーム | 厳密 (計算量の保証なし) |
+| オラクル | `oracle` | 超過の大きい順に提携を列挙できるゲーム | 厳密 (計算量の保証なし)。一部の提携だけを扱うオラクルでは近似 |
 | 凸ゲームの手法 | `convex` | 凸ゲーム | 厳密 |
 | 閉じた形の解 | `games::bankruptcy`、`games::airport` など | 破産ゲーム、空港ゲームなど特定のクラス | 厳密 |
 | 提携のサンプリング | `sampled`、`values::shapley_sampling` | 人数の多いゲーム (データ評価など) | 近似 |
@@ -22,6 +22,10 @@
 仁・プレ仁・最小コアは `nucleolus::oracle::{nucleolus, prenucleolus, least_core}` で求める。
 破産ゲーム (`games::bankruptcy`) と重み付き投票ゲーム (`games::voting`) のオラクルを用意している。
 
+一部の提携しか扱わないオラクル (サンプルした提携だけ、値が分かる提携だけなど) は、`OracleGame::lists_all_coalitions`
+(分離オラクル `Separation` では `covers_all_coalitions`) で `false` を返す。
+このとき求まるのは扱った提携に限ったゲームの仁なので、結果の保証は近似 (`approximate`) になる。
+
 小さいオラクルのゲームは、`ExplicitGame::tabulate` で全提携の表 (`ExplicitGame`) に直せば、明示ベクトル向けの全ての関数を使える
 ([チュートリアル 2 章](tutorial/02-voting-power.md) に例がある)。
 
@@ -29,6 +33,10 @@
 
 凸ゲームではカーネルと仁が一致する。
 `nucleolus::convex::nucleolus` はこれを使い、最大余剰を劣モジュラ最小化で求める transfer scheme で仁を求める。
+
+使えるのは `properties::ConvexGame` を満たす型で、構造的に凸な型 (破産・誘導部分グラフ・空港ゲーム)、
+凸であることを計算で確かめた `properties::ConvexChecked`、凸と宣言した `properties::Assume::convex` に限る。
+利用者が定義したゲームは `Assume::convex` で包み、結果を検証して使う ([保証の種類と、性質に基づく手法の使い分け](guarantees.md))。
 
 ## サンプリング
 

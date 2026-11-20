@@ -65,7 +65,7 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 
 | 対象 | 関数 | 手法 |
 |---|---|---|
-| 仁・プレ仁・最小コア (オラクル) | `nucleolus::oracle::{nucleolus, prenucleolus, least_core}` | 超過の大きい順に提携を返すオラクルで制約生成。破産ゲーム (`games::bankruptcy`)・重み付き投票ゲーム (`games::voting`) のオラクルを用意 |
+| 仁・プレ仁・最小コア (オラクル) | `nucleolus::oracle::{nucleolus, prenucleolus, least_core}` | 超過の大きい順に提携を返すオラクルで制約生成。破産ゲーム (`games::bankruptcy`)・重み付き投票ゲーム (`games::voting`) のオラクルを用意。一部の提携だけを扱うオラクル (`lists_all_coalitions` が `false`) では保証は近似 |
 | 凸ゲームの仁 | `nucleolus::convex::nucleolus` | カーネル = 仁 (凸ゲーム) を使い、最大余剰を劣モジュラ最小化で求める transfer scheme |
 | サンプリングした提携による仁・最小コア | `nucleolus::sampled::{nucleolus, least_core, SampledGame}` | 提携とその補集合を組でサンプルし、サンプルした提携だけで逐次 LP を解く。全提携をサンプルすれば真の仁に一致 |
 

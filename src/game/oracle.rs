@@ -6,6 +6,11 @@
 //!
 //! - [`Separation`] は違反する提携を返せるゲーム (仁の制約生成が必要とする最小の能力)
 //! - [`OracleGame`] は超過の大きい順に提携を返せるゲーム。自動で [`Separation`] も満たす
+//!
+//! オラクルが全ての真部分提携について答えるかを [`Separation::covers_all_coalitions`]
+//! ([`OracleGame::lists_all_coalitions`]) で問い合わせる。一部の提携しか扱わないオラクル
+//! (サンプルした提携だけを持つ [`crate::nucleolus::sampled::SampledGame`] など) で求めた仁は、
+//! 元のゲームの仁とは限らないので、[`crate::nucleolus::oracle`] は保証を近似 ([`crate::Guarantee::Approximate`]) にする。
 
 use std::collections::HashSet;
 
@@ -22,6 +27,16 @@ pub trait OracleGame: SetFunction {
 
     /// 特性関数の値の大きさの目安 (許容誤差の基準)。
     fn scale(&self) -> f64;
+
+    /// [`OracleGame::excess_order`] が全ての真部分提携を返すか。
+    ///
+    /// 既定は `true` で、これは「全ての真部分提携を超過の順に返す」という [`OracleGame::excess_order`]
+    /// の契約そのものである。サンプルした提携や値が分かる提携など、一部の提携だけを返すゲームは `false` を返す。
+    /// `false` のゲームで求めた仁・最小コア ([`crate::nucleolus::oracle`]) の保証は
+    /// [`crate::Guarantee::Approximate`] になる。
+    fn lists_all_coalitions(&self) -> bool {
+        true
+    }
 }
 
 /// 分離オラクル: 配分 `x` で超過がしきい値を超える提携を返せるゲーム。
@@ -45,9 +60,20 @@ pub trait Separation: SetFunction {
 
     /// 特性関数の値の大きさの目安 (許容誤差の基準)。
     fn value_scale(&self) -> f64;
+
+    /// [`Separation::violated`] が全ての真部分提携を対象に答えるか。
+    ///
+    /// 既定は `true` で、これは「条件を満たす真部分提携が 1 つでもあれば返す」という
+    /// [`Separation::violated`] の契約そのものである。一部の提携 (サンプルした提携など) だけを対象にするゲームは
+    /// `false` を返す。`false` のゲームで求めた仁・最小コア ([`crate::nucleolus::oracle`]) の保証は
+    /// [`crate::Guarantee::Approximate`] になる。
+    fn covers_all_coalitions(&self) -> bool {
+        true
+    }
 }
 
 /// 超過順に列挙できるゲームは、先頭から条件を満たすものを集めれば分離オラクルになる。
+/// 対象の提携は [`OracleGame::excess_order`] が返す提携と同じ ([`OracleGame::lists_all_coalitions`])。
 impl<G: OracleGame + ?Sized> Separation for G {
     fn violated(
         &self,
@@ -70,6 +96,10 @@ impl<G: OracleGame + ?Sized> Separation for G {
 
     fn value_scale(&self) -> f64 {
         self.scale()
+    }
+
+    fn covers_all_coalitions(&self) -> bool {
+        self.lists_all_coalitions()
     }
 }
 

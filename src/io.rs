@@ -61,7 +61,6 @@ use crate::game::exact::{self, ExactGame, Rational};
 use crate::game::oracle::OracleGame;
 use crate::game::{Coalition, ExplicitGame, MAX_PLAYERS, PlayerSet, SetFunction};
 use crate::nucleolus::NucleolusResult;
-use crate::solution::Guarantee;
 use crate::sorted::{LazySorted, by_excess_desc};
 
 /// 値の種類。
@@ -758,7 +757,8 @@ impl PartialGame {
     /// 値が分かる提携の超過だけを辞書式に最小化した配分 (分かる提携に限った仁)。
     ///
     /// 逐次 LP を有界にするため、1 人提携とその補集合の値が全て分かっている必要がある。
-    /// 結果は真のゲームの仁とは限らないので、保証は [`Guarantee::Approximate`] にする。
+    /// 結果は真のゲームの仁とは限らないので、保証は [`crate::Guarantee::Approximate`] になる
+    /// (このゲームは値が分かる提携だけを返すオラクルなので、[`crate::nucleolus::oracle`] が近似とする)。
     pub fn nucleolus(&self, domain: Domain) -> Result<NucleolusResult> {
         let n = self.players;
         let full = PlayerSet::grand(n);
@@ -780,13 +780,11 @@ impl PartialGame {
         if !self.known.contains_key(&full) {
             return Err(Error::InvalidArgument("全体提携の値がない".into()));
         }
-        let mut result = crate::nucleolus::oracle::nucleolus_with(
+        crate::nucleolus::oracle::nucleolus_with(
             self,
             domain,
             crate::nucleolus::oracle::default_tolerance(self),
-        )?;
-        result.guarantee = Guarantee::Approximate;
-        Ok(result)
+        )
     }
 }
 
@@ -818,12 +816,18 @@ impl OracleGame for PartialGame {
     fn scale(&self) -> f64 {
         self.known.values().fold(0.0, |acc, v| acc.max(v.abs()))
     }
+
+    /// 値が分かる提携だけを返すので `false`。
+    fn lists_all_coalitions(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::nucleolus;
+    use crate::solution::Guarantee;
 
     const JSON: &str = r#"{
         "players": 3,

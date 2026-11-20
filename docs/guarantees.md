@@ -15,11 +15,16 @@
 
 | 種類 | 意味 | 例 |
 |---|---|---|
-| `exact` | 定義どおりに計算した (全提携の LP・総当たり。浮動小数点の許容誤差の範囲で) | `nucleolus::nucleolus`、オラクル版の仁 |
+| `exact` | 定義どおりに計算した (全提携の LP・総当たり。浮動小数点の許容誤差の範囲で) | `nucleolus::nucleolus`、全提携について答えるオラクルでのオラクル版の仁 |
 | `proven(性質)` | 性質が分かっているゲームに、その性質のもとで正しい専用手法を使った | 破産ゲームのタルムード則 (`proven(bankruptcy)`)、凸ゲームの手法 (`proven(convex)`) |
 | `assumed(性質)` | 利用者が宣言した性質のもとで専用手法を使った。性質が成り立たなければ誤りうる | `nucleolus::convex::nucleolus(&Assume::convex(game))` |
 | `certified` | 求めた後に有理数による厳密な検証に合格した | `Unverified::verify` の結果 |
-| `approximate` | サンプリングなどの近似、または反復が収束しなかった | Shapley 値の推定、サンプルした仁 |
+| `approximate` | サンプリングなどの近似、または反復が収束しなかった | Shapley 値の推定、サンプルした仁、一部の提携だけを扱うオラクルでのオラクル版の仁 |
+
+許容誤差を指定できる関数 (`nucleolus::oracle::nucleolus_with` の `tolerance`、`nucleolus::convex::ConvexOptions::tolerance`) は、
+有限で 0 以上でない値 (NaN・負の値・無限大) を `InvalidArgument` として拒む。
+結果は指定した許容誤差の範囲で成り立つ。保証の種類は許容誤差の大きさを反映しないので、
+大きい許容誤差を指定すると、仁から離れた配分にも同じ保証が付く。
 
 ### 能力の階層 (`coopgame::game`、`coopgame::game::oracle`)
 
@@ -29,13 +34,28 @@
 | `game::oracle::Separation` | 配分 `x` で超過がしきい値を超える提携を返す (除外する提携を指定できる) | オラクル版の仁 (制約生成) |
 | `game::oracle::OracleGame` | 提携を超過の大きい順に返す | 同上。一括実装で自動的に `Separation` も満たす |
 
+オラクルは、全ての真部分提携について答えるかを `Separation::covers_all_coalitions` (`OracleGame` では `lists_all_coalitions`) で返す。
+既定は `true` で、これは「全ての真部分提携について契約どおりに答える」というトレイトの契約そのものである。
+一部の提携しか扱わないオラクル (サンプルした提携だけを持つ `nucleolus::sampled::SampledGame`、値が分かる提携だけを持つ `io::PartialGame`) は `false` を返し、
+`nucleolus::oracle` の仁・プレ仁・最小コアの保証は `approximate` になる。
+求めた配分は扱った提携に限ったゲームの仁で、元のゲームの仁とは限らないためである。
+戻り値は真偽値だけなので、オラクルの実装が保証の種類を選ぶことはできない。
+
 ### 性質の根拠 (`coopgame::properties`)
 
 | 根拠 | 型 | 証明の種類 | 性質に基づく手法の戻り値 |
 |---|---|---|---|
-| 型が構造的に持つ | `BankruptcyGame`、`InducedSubgraphGame` (重みは非負) | `Proven` | `Solution` (`proven(convex)`) |
+| 型が構造的に持つ | `BankruptcyGame`、`InducedSubgraphGame` (重みは非負)、`AirportGame` (節約ゲーム) | `Proven` | `Solution` (`proven(convex)`) |
 | 計算で確認した | `ConvexChecked::new(game)` (全提携で優モジュラ性を判定) | `Proven` | `Solution` |
 | 利用者が宣言した | `Assume::convex(game)` | `Assumed` | `Unverified<Solution>` |
+
+凸ゲームを表すトレイト `ConvexGame` と証明の種類 `ProofKind` は、クレートの外では実装できない。
+外から実装できると、凸でないゲームを `Proven` として扱って誤った配分に `proven(convex)` を付けたり、
+独自の証明の種類で検証なしに `certified` を名乗ったりできるためである。
+利用者が定義したゲーム (`SetFunction` を実装した型) を凸として扱うには、次のどちらかを使う。
+
+- `Assume::convex(game)` で包む。結果は `Unverified<Solution>` で返るので、下の `verify` で検証してから使う。
+- `ExplicitGame::tabulate(&game)` で全提携の表を作り (30 人まで)、`ConvexChecked::new` で凸であることを確かめる。
 
 `Unverified<Solution>` の中身を使うには、次のどちらかを呼ぶ必要がある。
 

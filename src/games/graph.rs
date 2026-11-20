@@ -7,7 +7,7 @@
 
 use crate::error::{Error, Result};
 use crate::game::{PlayerSet, SetFunction};
-use crate::properties::{ConvexGame, Proven};
+use crate::properties::{ConvexGame, Proven, Sealed};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct InducedSubgraphGame {
@@ -53,6 +53,8 @@ impl SetFunction for InducedSubgraphGame {
             .sum()
     }
 }
+
+impl Sealed for InducedSubgraphGame {}
 
 impl ConvexGame for InducedSubgraphGame {
     type Proof = Proven;

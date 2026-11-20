@@ -10,8 +10,22 @@
 //!   2 のべき乗による乗除は (オーバーフロー・アンダーフローしない限り) 丸め誤差を生まないので、
 //!   正規化したゲームは元のゲームと同じ値を持つ。倍率が 2 のべき乗なら、結果もちょうど同じ倍率になる。
 
+use crate::error::{Error, Result};
 use crate::game::oracle::Separation;
 use crate::game::{ExplicitGame, PlayerSet, SetFunction};
+
+/// 利用者が指定した許容誤差が、有限で 0 以上かを確かめる。
+///
+/// NaN や負の値のまま比較に使うと、どの判定も成り立たず、原因の分からない数値的な失敗になる。
+pub(crate) fn check_tolerance(tolerance: f64) -> Result<f64> {
+    if tolerance.is_finite() && tolerance >= 0.0 {
+        Ok(tolerance)
+    } else {
+        Err(Error::InvalidArgument(format!(
+            "許容誤差 {tolerance} が 0 以上の有限の数ではない"
+        )))
+    }
+}
 
 /// 値の大きさ `magnitude` (最大絶対値など) を、許容誤差の基準にする正の値にする。0 (全ての値が 0) なら 1。
 pub(crate) fn positive_scale(magnitude: f64) -> f64 {
@@ -93,6 +107,10 @@ impl<G: Separation + ?Sized> Separation for Scaled<'_, G> {
 
     fn value_scale(&self) -> f64 {
         self.game.value_scale() / self.divisor
+    }
+
+    fn covers_all_coalitions(&self) -> bool {
+        self.game.covers_all_coalitions()
     }
 }
 

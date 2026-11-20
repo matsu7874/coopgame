@@ -11,7 +11,7 @@
 //!
 //! | 根拠 | 例 | 証明の種類 ([`ProofKind`]) | 結果の保証 |
 //! |---|---|---|---|
-//! | 型が構造的に持つ | [`crate::games::bankruptcy::BankruptcyGame`]、[`crate::games::graph::InducedSubgraphGame`] | [`Proven`] | [`crate::Guarantee::Proven`] |
+//! | 型が構造的に持つ | [`crate::games::bankruptcy::BankruptcyGame`]、[`crate::games::graph::InducedSubgraphGame`]、[`crate::games::airport::AirportGame`] | [`Proven`] | [`crate::Guarantee::Proven`] |
 //! | 計算で確認した | [`ConvexChecked::new`] (全提携で優モジュラ性を判定) | [`Proven`] | [`crate::Guarantee::Proven`] |
 //! | 利用者が宣言した | [`Assume::convex`] | [`Assumed`] | [`crate::Guarantee::Assumed`] |
 //!
@@ -19,9 +19,14 @@
 //! [`Proven`] なら結果をそのまま返し、[`Assumed`] なら [`crate::Unverified`] に包んで返す。
 //! したがって、宣言しただけの性質に基づく結果を、保証付きの結果と取り違えることはない
 //! (コンパイル時に区別される)。
+//!
+//! [`ProofKind`] と [`ConvexGame`] はクレートの外では実装できない。利用者が定義したゲームを凸として扱うには、
+//! [`Assume::convex`] で包んで結果を検証するか、全提携の表を [`ConvexChecked::new`] で確かめる
+//! (例は [`ConvexGame`])。
 
 mod proof;
 
+pub(crate) use proof::Sealed;
 pub use proof::{Assume, Assumed, ConvexChecked, ConvexGame, Convexity, ProofKind, Proven};
 
 use crate::game::allocation::allocation_defect;
