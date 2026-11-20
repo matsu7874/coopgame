@@ -18,6 +18,7 @@ pub use set::{KernelPiece, KernelSet, MAX_KERNEL_SET_PLAYERS, Row, SetOptions, k
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::{allocation_defect, check_imputation_set, feasibility_violation};
+use crate::game::scale::check_tolerance;
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::solution::Guarantee;
 use crate::surplus::max_surplus_flat;
@@ -25,7 +26,8 @@ use crate::surplus::max_surplus_flat;
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct TransferOptions {
-    /// `2 * max delta_ij` がこの値以下になったら停止する。
+    /// `2 * max delta_ij` がこの値以下になったら停止する。有限で 0 以上の値にする
+    /// (そうでなければ [`kernel_point`] は [`Error::InvalidArgument`] を返す)。
     pub tolerance: f64,
     pub max_iterations: usize,
 }
@@ -109,12 +111,16 @@ pub fn equal_surplus_division(game: &ExplicitGame) -> Vec<f64> {
 ///
 /// `start` を省略すると [`equal_surplus_division`] から始める。
 /// 収束しないまま `max_iterations` に達した場合も `converged = false` で結果を返す。
+///
+/// 許容誤差が有限で 0 以上でないとき、初期配分の長さが違うか効率性・領域条件を満たさないときは
+/// [`Error::InvalidArgument`] を返す。
 pub fn kernel_point(
     game: &ExplicitGame,
     domain: Domain,
     start: Option<&[f64]>,
     options: TransferOptions,
 ) -> Result<KernelResult> {
+    check_tolerance(options.tolerance)?;
     check_imputation_set(game, domain, options.tolerance)?;
     let mut x = match start {
         Some(start) => start.to_vec(),
@@ -180,6 +186,26 @@ fn best_transfer(game: &ExplicitGame, x: &[f64], domain: Domain) -> Option<(usiz
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kernel_point_rejects_invalid_tolerance() {
+        // 無限大の許容誤差では、初期点がそのまま「収束した厳密な点」として返っていた。
+        let game = ExplicitGame::from_binary(&[0.0, 0.0, 4.0, 0.0, 3.0, 2.0, 6.0]).unwrap();
+        for tolerance in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, -1.0] {
+            let mut options = TransferOptions::for_game(&game);
+            options.tolerance = tolerance;
+            let result = kernel_point(&game, Domain::Imputation, Some(&[6.0, 0.0, 0.0]), options);
+            assert!(
+                matches!(&result, Err(Error::InvalidArgument(message)) if message.contains("許容誤差")),
+                "tolerance {tolerance}: {result:?}"
+            );
+        }
+        // 0 は受け付ける (反復の上限まで回り、収束していなければ converged = false)。
+        let mut options = TransferOptions::for_game(&game);
+        options.tolerance = 0.0;
+        options.max_iterations = 10;
+        assert!(kernel_point(&game, Domain::Imputation, None, options).is_ok());
+    }
 
     #[test]
     fn pair_game_kernel() {
