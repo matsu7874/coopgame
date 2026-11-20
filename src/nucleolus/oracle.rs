@@ -50,7 +50,7 @@ pub fn nucleolus_with<G: Separation + ?Sized>(
     let divisor = normalizer(game.value_scale());
     let normalized = Scaled::new(game, divisor);
     let result = Sequential::new(&normalized, domain, tolerance / divisor)?.run()?;
-    Ok(result.scaled_by(divisor))
+    result.scaled_by(divisor)
 }
 
 /// 最小コア。1 人ゲームの `epsilon` は `f64::NEG_INFINITY` ([`LeastCore::epsilon`])。

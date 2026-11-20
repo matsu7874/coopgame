@@ -13,6 +13,10 @@
 //! 確定した提携の特性ベクトルが張る空間が `R^n` 全体になった時点で配分は一意に決まる。
 //! 各段で次元が 1 以上増えるため、段数は高々 `n - 1`。
 //!
+//! 超過の比較には許容誤差を使うので、超過が `t*` と許容誤差以内で等しいだけの提携も確定しうる。
+//! 確定値 `c_S` は、その段の LP の解 `x` での `x(S)` にする (`v(S) - t*` にはしない)。
+//! `x` が全ての確定の等式を同時に満たすので、以後の LP は常に実行可能点 `x` を持つ。
+//!
 //! LP は絶対誤差で判定するので、値の大きさによらず同じ精度で解けるよう、ゲームの値を 2 のべき乗で割って
 //! 最大絶対値を `[1, 2)` にそろえてから解き、結果を元の大きさに戻す (許容誤差も同じ倍率で割る)。
 //! 倍率が 2 のべき乗なら、`c` 倍したゲームの結果はちょうど `c` 倍になる。
@@ -44,7 +48,8 @@ use microlp::{Problem, Solution, Variable};
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::allocation::{block_lower_bounds, coalition_sums};
+use crate::game::allocation::{block_lower_bounds, coalition_sums, excess_table};
+use crate::game::exact::{ExactGame, to_rational};
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
@@ -67,6 +72,8 @@ pub struct Options {
     pub domain: Domain,
     /// 超過の比較に使う許容誤差 (ゲームの値と同じ単位)。既定は [`default_tolerance`]。
     ///
+    /// 有限で 0 以上の値にする。NaN・無限大・負の値を渡すと、解く前に [`Error::InvalidArgument`] を返す。
+    ///
     /// 配分集合は `sum v({i}) <= v(N) + tolerance` なら空とみなさない。和が `v(N)` を許容誤差以内で
     /// 超えるときは、超えた分を人数で等分して下限 `v({i})` を下げた 1 点を配分集合とする。
     pub tolerance: f64,
@@ -83,11 +90,34 @@ impl Options {
     }
 
     /// 値を `divisor` で割ったゲームに合わせた設定 (許容誤差も割る)。
-    fn divided_by(self, divisor: f64) -> Options {
-        Options {
-            tolerance: self.tolerance / divisor,
-            ..self
+    ///
+    /// 許容誤差が有限で 0 以上でないとき、または割った許容誤差が有限でない
+    /// (ゲームの値に比べて大きすぎる) ときは [`Error::InvalidArgument`]。
+    fn divided_by(self, divisor: f64) -> Result<Options> {
+        if !(self.tolerance.is_finite() && self.tolerance >= 0.0) {
+            return Err(Error::InvalidArgument(format!(
+                "許容誤差 {} は有限で 0 以上の値にする",
+                self.tolerance
+            )));
         }
+        let tolerance = self.tolerance / divisor;
+        if !tolerance.is_finite() {
+            return Err(Error::InvalidArgument(format!(
+                "許容誤差 {} がゲームの値の大きさに比べて大きすぎる",
+                self.tolerance
+            )));
+        }
+        Ok(Options { tolerance, ..self })
+    }
+}
+
+/// 元の大きさに戻した値が全て有限かを確かめる。f64 で表せない値があれば [`Error::Numerical`]。
+fn check_representable(values: &[f64], what: &str) -> Result<()> {
+    match values.iter().find(|v| !v.is_finite()) {
+        None => Ok(()),
+        Some(value) => Err(Error::Numerical(format!(
+            "{what}を元の大きさに戻すと f64 で表せない ({value})"
+        ))),
     }
 }
 
@@ -133,11 +163,15 @@ impl NucleolusResult {
     }
 
     /// 正規化したゲームで求めた結果を、元の大きさ (`factor` 倍) に戻す。
-    pub(crate) fn scaled_by(mut self, factor: f64) -> NucleolusResult {
+    ///
+    /// 戻した配分か最大超過が f64 で表せない (有限でない) ときは [`Error::Numerical`]。
+    pub(crate) fn scaled_by(mut self, factor: f64) -> Result<NucleolusResult> {
         for value in self.allocation.iter_mut().chain(self.levels.iter_mut()) {
             *value *= factor;
         }
-        self
+        check_representable(&self.allocation, "配分")?;
+        check_representable(&self.levels, "最大超過")?;
+        Ok(self)
     }
 
     /// 手法によらない共通の結果にする (保証はこの結果のものを引き継ぐ)。
@@ -196,11 +230,18 @@ pub fn prenucleolus(game: &ExplicitGame) -> Result<NucleolusResult> {
     nucleolus_with(game, Options::new(game, Domain::Preimputation))
 }
 
+/// 設定 `options` で仁 (`Domain::Imputation`) またはプレ仁を求める。
+///
+/// # Errors
+///
+/// - `options.tolerance` が有限で 0 以上でない: [`Error::InvalidArgument`]
+/// - 配分集合が空 (`Domain::Imputation`): [`Error::EmptyImputationSet`]
+/// - LP が数値的に進まない、または結果 (配分・各段の最大超過) が f64 で表せない: [`Error::Numerical`]
 pub fn nucleolus_with(game: &ExplicitGame, options: Options) -> Result<NucleolusResult> {
     let (normalized, divisor) = game.normalized();
-    let options = options.divided_by(divisor);
+    let options = options.divided_by(divisor)?;
     let result = Sequential::new(&normalized, options)?.run()?;
-    Ok(result.scaled_by(divisor))
+    result.scaled_by(divisor)
 }
 
 /// 提携構造 `blocks` (N の分割) のもとでの仁 (`Domain::Imputation`) またはプレ仁。
@@ -214,7 +255,7 @@ pub(crate) fn nucleolus_with_structure(
     options: Options,
 ) -> Result<NucleolusResult> {
     let (normalized, divisor) = game.normalized();
-    let options = options.divided_by(divisor);
+    let options = options.divided_by(divisor)?;
     let lower = block_lower_bounds(&normalized, blocks, options.domain, options.tolerance)?;
     if blocks.iter().all(|block| block.len() == 1) {
         // 全員が単独なら x_i = v({i}) に決まる (逐次 LP は 1 段も解かない)。
@@ -227,35 +268,105 @@ pub(crate) fn nucleolus_with_structure(
         });
     }
     let result = Sequential::with_blocks(&normalized, options, blocks, lower).run()?;
-    Ok(result.scaled_by(divisor))
+    result.scaled_by(divisor)
 }
 
 /// 最小コア: 最大超過を最小化する LP を 1 回解く。
 ///
 /// 1 人ゲームでは配分は `v(N)` だけで、`epsilon` は `f64::NEG_INFINITY` ([`LeastCore::epsilon`])。
+/// `epsilon` か配分が f64 で表せない (値が f64 の上限に近く、有限でなくなる) ときは [`Error::Numerical`]。
 pub fn least_core(game: &ExplicitGame, domain: Domain) -> Result<LeastCore> {
     let (normalized, divisor) = game.normalized();
-    let options = Options::new(game, domain).divided_by(divisor);
-    let mut solver = Sequential::new(&normalized, options)?;
-    if solver.n == 1 {
+    let options = Options::new(game, domain).divided_by(divisor)?;
+    let Some((epsilon, allocation)) = normalized_least_core(&normalized, options)? else {
         return Ok(LeastCore {
             epsilon: f64::NEG_INFINITY,
             allocation: vec![game.value(game.grand())],
             guarantee: Guarantee::Exact,
         });
-    }
-    let (epsilon, allocation) = solver.minimize_max_excess()?;
+    };
+    let epsilon = epsilon * divisor;
+    let allocation: Vec<f64> = allocation.iter().map(|v| v * divisor).collect();
+    check_representable(&[epsilon], "最小コアの epsilon ")?;
+    check_representable(&allocation, "配分")?;
     Ok(LeastCore {
-        epsilon: epsilon * divisor,
-        allocation: allocation.iter().map(|v| v * divisor).collect(),
+        epsilon,
+        allocation,
         guarantee: Guarantee::Exact,
     })
 }
 
-/// コアが空でないか(最小コアの `epsilon` が 0 以下か)。
+/// 正規化したゲームで最大超過を最小化し、`(epsilon, 配分)` を返す。1 人ゲーム (真部分提携がない) は `None`。
+fn normalized_least_core(
+    normalized: &ExplicitGame,
+    options: Options,
+) -> Result<Option<(f64, Vec<f64>)>> {
+    let mut solver = Sequential::new(normalized, options)?;
+    if solver.n == 1 {
+        return Ok(None);
+    }
+    solver.minimize_max_excess().map(Some)
+}
+
+/// [`has_nonempty_core`] が、最小コアの `epsilon` の符号を有理数の LP で厳密に判定する人数の上限。
+pub const MAX_EXACT_CORE_PLAYERS: usize = 9;
+
+/// コアが空でないか (原配分集合の上の最小コアの `epsilon` ([`least_core`]) が 0 以下か)。
+///
+/// 判定の方法:
+///
+/// 1. 浮動小数点の LP で `epsilon` を求める。許容誤差 `tol` ([`default_tolerance`]) の帯の外
+///    (`epsilon < -tol` または `epsilon > tol`) なら、その符号で決める。
+/// 2. 帯の中 (`|epsilon| <= tol`) では、人数が [`MAX_EXACT_CORE_PLAYERS`] 以下なら、ゲームの値を
+///    f64 の値どおりの有理数として `epsilon` を有理数の LP ([`exact`]) で厳密に求め、
+///    入力の丸めの大きさ `4 n ε max|v|` (`ε` は [`f64::EPSILON`]) 以下かで決める。
+///    `epsilon` がちょうど 0 のゲーム (手袋ゲーム、コアが 1 点のゲームなど) はこの場合に当たる。
+///    0 ではなく丸めの大きさと比べるのは、値を 10 進数の和などで作ると、有理数では 0 のはずの
+///    `epsilon` が丸めで正になるからである (`v = (0.1, 0.2, 0.3)` の 2 人ゲームなど)。
+/// 3. [`MAX_EXACT_CORE_PLAYERS`] より多い人数では、帯の中を全て「空でない」とする
+///    (`epsilon` が `(0, tol]` に入る、コアが空のゲームでも true を返す)。
+///
+/// したがって [`MAX_EXACT_CORE_PLAYERS`] 人以下では、`epsilon` が丸めの大きさを超えて正のゲーム
+/// (値が大きい整数で `epsilon = 1/3` のゲームなど) を、値の大きさによらず空と判定する。
 pub fn has_nonempty_core(game: &ExplicitGame) -> Result<bool> {
-    let least = least_core(game, Domain::Preimputation)?;
-    Ok(least.epsilon <= default_tolerance(game))
+    let (normalized, divisor) = game.normalized();
+    // コアが空かどうかは値の大きさによらないので、正規化したゲームの epsilon の符号で判定する
+    // (元の大きさに戻すと f64 で表せない値のゲームでも判定できる)。
+    let options = Options::new(game, Domain::Preimputation).divided_by(divisor)?;
+    let Some((epsilon, x)) = normalized_least_core(&normalized, options)? else {
+        // 1 人ゲームのコアは {v(N)}。
+        return Ok(true);
+    };
+    let tolerance = options.tolerance;
+    if epsilon < -tolerance {
+        return Ok(true);
+    }
+    if epsilon > tolerance {
+        return Ok(false);
+    }
+    let n = game.players();
+    if n > MAX_EXACT_CORE_PLAYERS {
+        return Ok(true);
+    }
+    // 浮動小数点の LP で最大超過を達成した提携のうち、特性ベクトルが 1 次独立なものを最初から行に入れ、
+    // 有理数の LP の解き直しを減らす (退化したゲームでは達成する提携が多く、全てを入れると LP が重くなる)。
+    let excess = excess_table(&normalized, &x);
+    let grand = game.grand();
+    let mut span = Span::new(n);
+    span.insert_coalition(grand);
+    let mut seed = Vec::new();
+    for (mask, value) in excess.iter().enumerate().take(grand.index()).skip(1) {
+        let coalition = Coalition(mask as u64);
+        if (value - epsilon).abs() <= tolerance && !span.contains_coalition(coalition) {
+            span.insert_coalition(coalition);
+            seed.push(coalition);
+        }
+    }
+    let exact_game = ExactGame::from_explicit(game)?;
+    let epsilon = exact::least_core_epsilon(&exact_game, &seed)?;
+    // 値は浮動小数点数なので、入力の丸めの大きさに収まる正の epsilon は 0 とみなす。
+    let rounding = 4.0 * n as f64 * f64::EPSILON * game.max_abs_value();
+    Ok(epsilon <= to_rational(rounding)?)
 }
 
 /// 提携 `S` の行の形。
@@ -589,6 +700,14 @@ impl<'a> Sequential<'a> {
         Ok((solution.objective(), allocation))
     }
 
+    /// 段の最適解 `x` (最大超過 `level`) で超過が `level` と許容誤差以内で等しい提携のうち、
+    /// 最大超過が `level` 以下の配分の上で `x(S)` がそれ以上大きくなれないものを確定させる。
+    ///
+    /// 確定値は `v(S) - level` ではなく `x(S)` にする。許容誤差で候補にした提携は、最適解集合の上で
+    /// `x(S)` が `v(S) - level` に届かないことがある。`x(S)` で確定させれば、`x` が全ての確定の等式を
+    /// 同時に満たすので、`x` は同じ段の以後の LP ([`Self::maximize_coalition`]) と次の段の LP の
+    /// 実行可能点であり続け、確定の等式どうしも最大超過の制約とも矛盾しない。
+    /// 本当に超過が `level` に固定される提携では、`x(S)` は `v(S) - level` と丸めの範囲で等しい。
     fn fix_tight_coalitions(&mut self, level: f64, x: &[f64]) -> Result<()> {
         let sums = coalition_sums(x);
         let tight: Vec<Coalition> = self
@@ -610,10 +729,9 @@ impl<'a> Sequential<'a> {
                 continue;
             }
             let target = tight[k];
-            let fixed_sum = self.game.value(target) - level;
             let (max_sum, witness) = self.maximize_coalition(target, level)?;
-            if max_sum <= fixed_sum + self.tolerance() {
-                self.fixed.push((target, fixed_sum));
+            if max_sum <= self.game.value(target) - level + self.tolerance() {
+                self.fixed.push((target, sums[target.index()]));
                 self.span.insert_coalition(target);
                 progressed = true;
                 if self.span.is_full() {
@@ -708,6 +826,23 @@ mod tests {
         let game = ExplicitGame::from_lex(&[3.0, 3.0, 3.0, 6.0, 6.0, 6.0, 8.0]).unwrap();
         assert_eq!(nucleolus(&game), Err(Error::EmptyImputationSet));
         assert!(prenucleolus(&game).is_ok());
+    }
+
+    #[test]
+    fn structure_rejects_invalid_tolerance() {
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 60.0, 60.0, 60.0, 72.0]).unwrap();
+        let blocks = [Coalition(0b011), Coalition(0b100)];
+        for tolerance in [f64::NAN, f64::INFINITY, -1.0] {
+            for domain in [Domain::Imputation, Domain::Preimputation] {
+                let mut options = Options::new(&game, domain);
+                options.tolerance = tolerance;
+                let result = nucleolus_with_structure(&game, &blocks, options);
+                assert!(
+                    matches!(result, Err(Error::InvalidArgument(_))),
+                    "{tolerance} {domain:?}: {result:?}"
+                );
+            }
+        }
     }
 
     #[test]

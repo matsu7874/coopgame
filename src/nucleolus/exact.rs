@@ -36,12 +36,7 @@ pub struct ExactNucleolus {
 /// 有理数で仁 (`Domain::Imputation`) またはプレ仁を求める。
 pub fn nucleolus(game: &ExactGame, domain: Domain) -> Result<ExactNucleolus> {
     let n = game.players();
-    if n == 0 || n > MAX_EXACT_PLAYERS {
-        return Err(Error::TooManyPlayers {
-            players: n,
-            max: MAX_EXACT_PLAYERS,
-        });
-    }
+    check_players(n)?;
     let grand = Coalition::grand(n);
     if domain == Domain::Imputation {
         let lower = (0..n).fold(Rational::zero(), |acc, i| {
@@ -60,6 +55,40 @@ pub fn nucleolus(game: &ExactGame, domain: Domain) -> Result<ExactNucleolus> {
     }
     let mut solver = Solver::new(game, domain);
     solver.run()
+}
+
+/// 原配分集合の上の最小コアの `epsilon` (空でない真部分提携の最大超過の最小値) を有理数で求める。
+///
+/// 逐次 LP の第 1 段だけを解く。`seed` は最初から LP の行に入れる提携
+/// (浮動小数点の LP で最大超過を達成した提携などを渡すと、制約生成で解き直す回数が減る)。
+/// 真部分提携のない 1 人ゲームは [`Error::InvalidArgument`]。
+pub(crate) fn least_core_epsilon(game: &ExactGame, seed: &[Coalition]) -> Result<Rational> {
+    let n = game.players();
+    check_players(n)?;
+    if n < 2 {
+        return Err(Error::InvalidArgument(
+            "1 人ゲームには真部分提携がなく、最小コアの epsilon は有理数で表せない".into(),
+        ));
+    }
+    let mut solver = Solver::new(game, Domain::Preimputation);
+    let grand = Coalition::grand(n);
+    for &coalition in seed {
+        if !coalition.is_empty() && coalition != grand {
+            solver.remember(coalition);
+        }
+    }
+    let (level, _) = solver.minimize_level()?;
+    Ok(level)
+}
+
+fn check_players(n: usize) -> Result<()> {
+    if n == 0 || n > MAX_EXACT_PLAYERS {
+        return Err(Error::TooManyPlayers {
+            players: n,
+            max: MAX_EXACT_PLAYERS,
+        });
+    }
+    Ok(())
 }
 
 /// LP の種類。

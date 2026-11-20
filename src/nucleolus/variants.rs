@@ -302,7 +302,7 @@ struct Lexicographic<'a> {
     open: Vec<usize>,
     /// まだ最小化していない組 (最後の要素が次の組)。
     pending: Vec<Vec<usize>>,
-    /// 確定した不満と、その値。
+    /// 確定した不満と、確定させた `a . x` の値 (確定した段の解での値)。
     fixed: Vec<(usize, f64)>,
     span: Span,
     counter: Counter,
@@ -403,14 +403,12 @@ impl Lexicographic<'_> {
         for (a, b) in &self.feasible.constraints {
             lp::add(problem, terms(&x, a), Cmp::Ge, *b);
         }
-        for &(k, level) in &self.fixed {
-            let complaint = &self.complaints[k];
-            // c - a . x = w * level
+        for &(k, value) in &self.fixed {
             lp::add(
                 problem,
-                terms(&x, &complaint.coefficients),
+                terms(&x, &self.complaints[k].coefficients),
                 Cmp::Eq,
-                complaint.constant - complaint.weight * level,
+                value,
             );
         }
         x
@@ -522,7 +520,10 @@ impl Lexicographic<'_> {
             let fixed_value = complaint.constant - complaint.weight * level;
             let (max_value, witness) = self.maximize_direction(&complaint.coefficients, level)?;
             if max_value <= fixed_value + self.tolerance {
-                self.fixed.push((k, level));
+                // 確定値は `c - w level` ではなく、この段の解 `x` での値にする。許容誤差以内でタイトな不満は、
+                // 最適解の集合の上で `c - w level` を取れないことがあり、その値で固定すると以後の LP が
+                // 実行不可能になる。`x` での値なら、`x` 自身が全ての確定の等式を満たす実行可能点であり続ける。
+                self.fixed.push((k, dot(&complaint.coefficients, x)));
                 self.span.insert(&complaint.coefficients);
                 progressed = true;
             } else {
@@ -1179,11 +1180,14 @@ mod tests {
     fn disruption_nucleolus_solves_every_game_with_nonempty_core() {
         // v({i, j}) = 1、v(N) = 1.5 - eps。コアは eps = 0 で 1 点 (1/2, 1/2, 1/2)、eps > 0 で空になり、
         // 最小コアは eps 2/3 だけ緩めた 1 点 (1/2 - eps/3, ...) になる。
-        // has_nonempty_core が真を返すゲーム (eps が許容誤差以内) では、解を返さなければならない。
+        // has_nonempty_core が真を返すゲームでは解を返し、偽を返すゲームでは InvalidArgument を返す。
+        // eps = f64::EPSILON (v(N) が 1.5 の 1 つ下の f64) は入力の丸めの大きさに収まるので空でないと判定され、
+        // 浮動小数点の最小コアの値がわずかに正でも LP が実行可能でなければならない。
         let mut solved = 0;
-        for eps in [0.0, 1e-12, 1e-9, 5e-8, 1e-7, 1e-6, 1e-3] {
+        for eps in [0.0, f64::EPSILON, 1e-12, 1e-9, 5e-8, 1e-7, 1e-6, 1e-3] {
             let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.5 - eps]).unwrap();
             let nonempty = crate::nucleolus::has_nonempty_core(&game).unwrap();
+            assert_eq!(nonempty, eps <= f64::EPSILON, "eps {eps}");
             let result = disruption_nucleolus(&game);
             if !nonempty {
                 assert!(
@@ -1198,7 +1202,7 @@ mod tests {
             assert_close(&x, &[0.5 - eps / 3.0; 3], 1e-7);
             solved += 1;
         }
-        assert!(solved >= 3, "{solved}");
+        assert_eq!(solved, 2);
     }
 
     #[test]
