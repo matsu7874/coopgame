@@ -52,7 +52,7 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 | 関数 | 内容 |
 |---|---|
 | `Game(values, order="binary" or "lex")`, `Game.from_function(n, f)`, `Game.weighted_voting`, `Game.bankruptcy`, `Game.bnf` | 明示ベクトルのゲーム (30 人まで)。`value`, `values`, `is_convex` などのメソッドを持つ |
-| `FunctionGame(n, f)` | Python の関数で値を返すゲーム。サンプリング系の関数だけが受け付ける |
+| `FunctionGame(n, f)` | Python の関数で値を返すゲーム。受け付けるのは `shapley_sampling`・`banzhaf_sampling`・`sampled_nucleolus`・`sampled_least_core`・`convex_nucleolus(..., assume=True)`・`verify_solution` |
 | `nucleolus(game, domain="imputation", method="cg" or "full")`, `prenucleolus`, `least_core` | 仁・プレ仁・最小コア |
 | `per_capita_nucleolus`, `proportional_nucleolus`, `modiclus` | 仁の変種 |
 | `kernel_point`, `kernel_violation`, `is_in_kernel`, `kernel_set(..., merge=False)` | カーネル・プレカーネル |
@@ -61,17 +61,17 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 | `convex_nucleolus(game, assume=False, verify=True)` | 凸ゲームの手法で仁。`assume=True` は凸と仮定して試し、`verdict` に検証結果 |
 | `auto_nucleolus(game)` | 保証のある手法のうち最も速いものを選ぶ |
 | `cost_nucleolus(game)`, `airport(costs)`, `spanning_tree(costs)`, `linear_production(technology, prices, resources)` | 費用ゲームと、構造を持つ費用ゲーム (空港・最小全域木・線形生産) |
-| `uncertainty(game, relative=0.1)` / `uncertainty(lower, upper=upper)`, `influence(game)` | 値の不確かさによる配分の分布と、提携の値に対する感度 |
-| `explain(game, x, levels=3)`, `compare(game, [配分, ...])` | 配分の説明と比較 (`text` に日本語の説明)。`compare` の `rows` は入力と同じ順 |
+| `uncertainty(game, relative=0.1)` / `uncertainty(lower, upper=upper)`, `influence(game)` | 値の不確かさによる配分の分布と、提携の値に対する感度。`influence` は `(提携, 感度, 差分の取り方)` の列で、差分の取り方は `"central"`、片側のゲームが解けないときは `"forward"`・`"backward"` |
+| `explain(game, x, levels=3)`, `compare(game, [配分, ...])` | 配分の説明と比較 (`text` に日本語の説明)。`compare` の `rows` は入力と同じ順。nan・inf を含む配分は ValueError |
 | `verify_solution(game, allocation, domain)` | 配分が仁 (プレ仁) かを事後検証 (`certified`・`refuted`・`undecided`) |
-| `parse_game(text, format="json", missing="error")`, `partial_nucleolus(text, format)` | JSON・CSV の読み込み (提携はプレイヤー番号) と、値が分かる提携だけで解いた仁 |
+| `parse_game(text, format="json", missing="error")`, `partial_nucleolus(text, format)` | JSON・CSV の読み込み (提携はプレイヤー番号。同じ提携・同じキー・提携の中の同じ番号の重複は ValueError) と、値が分かる提携だけで解いた仁 (63 人まで) |
 | `aumann_dreze(game, blocks)`, `owen(game, unions)`, `structured_nucleolus(game, blocks)` | 提携構造・事前の連合のもとでの解 |
 | `plot_svg(game, kernel=True, shapley=True, points=None, title=None)` | 3-4 人の配分集合の図。`points` は配分のリスト。SVG 文字列とコアの頂点などを辞書で返す |
 | `shrink(game, predicate)` | 反例 (`predicate(game)` が真) のまま、ゲームを小さく単純にする |
 | `nucleolus_exact(values, domain, order)` | 有理数だけの逐次 LP による厳密な仁 (10 人まで) |
 | `certify_rational(values, x, domain, order)` | 有理数の値 (`Fraction`・`"8/3"`・`"0.1"`) のゲームで厳密に検証 |
 | `verify`, `certify` | Kohlberg 基準による検証 (浮動小数点、有理数) |
-| `shapley`, `banzhaf`, `normalize`, `shapley_sampling`, `banzhaf_sampling` | Shapley 値・Banzhaf 値 |
+| `shapley`, `banzhaf`, `normalize`, `shapley_sampling`, `banzhaf_sampling` | Shapley 値・Banzhaf 値。サンプリングの順列数・提携数は 1 以上 (0 なら ValueError) |
 | `disruption_nucleolus(game)` | disruption nucleolus (Littlechild & Vaidya 1976、コアが空なら ValueError)。`per_capita_nucleolus` と同じ形の辞書 |
 | `anti_prenucleolus(game)`, `anti_nucleolus(game)`, `dual(game)` | anti-prenucleolus・anti-nucleolus (双対ゲームのプレ仁・仁、Funaki & Meinhardt 2006) と双対ゲーム。anti の 2 つは `nucleolus` と同じ形の辞書 |
 | `solidarity(game)` | solidarity 値 (Nowak & Radzik 1994) |

@@ -62,8 +62,10 @@ const USAGE: &str = "\
 
   v.txt    特性関数を 1 行 1 値で書いたファイル (既定はビット順、--lex で辞書式順)。
            拡張子が .json・.csv なら提携ごとの値を書いた形式で読む (提携はプレイヤーの番号で書く)
-  --missing error|zero|ignore  JSON・CSV で値が分からない提携の扱い (既定 error、ignore は nucleolus で分かる提携だけで解く。
-           ignore で値が分からない提携があるときは --full を使えない。費用なら 1 人提携の費用が全て必要)
+  --missing error|zero|ignore  JSON・CSV で値が分からない提携の扱い (既定 error)。
+           zero は 0 とみなす (費用のゲームでは費用 0 とみなすので、その提携の節約は 1 人提携の費用の和になる)。
+           ignore は nucleolus (--exact なし) だけで使え、値が分かる提携だけで解く (63 人まで)。
+           ignore で値が分からない提携があるときは --full を使えない。費用なら 1 人提携の費用が全て必要
   --cost   値を費用 c(S) として読み、節約ゲーム s(S) = sum c({i}) - c(S) で解いて費用の分担を出す
            (nucleolus・least-core・kernel・shapley・banzhaf・compare)。compare の不満は y(S) - c(S)。
            JSON・CSV の type が cost (CSV の見出しが coalition,cost) なら --cost なしでも費用として読み、
@@ -172,6 +174,12 @@ impl Args {
                 positional.push(arg.clone());
             }
         }
+        // 同じオプションを 2 回書くと、どちらの値を使うかが曖昧になるのでエラーにする。
+        for (k, (flag, _)) in flags.iter().enumerate() {
+            if flags[..k].iter().any(|(earlier, _)| earlier == flag) {
+                return Err(format!("{flag} が 2 回以上指定されている (1 回だけ指定する)").into());
+            }
+        }
         // --missing はどのコマンドでも使える (JSON・CSV の入力で、値が分からない提携の扱い)。
         let mut missing = MissingPolicy::Error;
         if let Some(position) = flags.iter().position(|(flag, _)| flag == "--missing") {
@@ -242,6 +250,23 @@ fn run(raw: &[String]) -> CliResult<()> {
         return Err(USAGE.into());
     };
     let args = Args::parse(command, rest)?;
+    // 値が分かる提携だけで解けるのは、浮動小数点数の nucleolus だけ。
+    if args.missing == MissingPolicy::Ignore {
+        if command != "nucleolus" {
+            return Err(format!(
+                "--missing ignore は nucleolus だけで使える ({command} は全提携の値が必要。\
+                 値が分からない提携を 0 とみなすなら --missing zero)"
+            )
+            .into());
+        }
+        if args.has("--exact") {
+            return Err(
+                "--missing ignore は --exact と併用できない (--exact は全提携の値を有理数で解く。\
+                 値が分からない提携を 0 とみなすなら --missing zero)"
+                    .into(),
+            );
+        }
+    }
     match command.as_str() {
         "nucleolus" => {
             args.check_known(&["--pre", "--lex", "--full", "--cost", "--exact"])?;
@@ -787,15 +812,17 @@ fn run(raw: &[String]) -> CliResult<()> {
             let key = uncertainty::key_coalitions(&game, &x, levels)?;
             let mut rows = uncertainty::influence(&game, &key, delta, solve)?;
             rows.sort_by(|a, b| b.magnitude().total_cmp(&a.magnitude()));
-            println!("coalition\tmax|dx/dv|\tdx/dv (プレイヤー順)");
+            // difference: central (中心差分)、forward・backward (片側のゲームが解けないときの片側差分)。
+            println!("coalition\tmax|dx/dv|\tdx/dv (プレイヤー順)\tdifference");
             for row in rows {
                 let values: Vec<String> =
                     row.sensitivity.iter().map(|v| format!("{v:.4}")).collect();
                 println!(
-                    "{}\t{:.4}\t{}",
+                    "{}\t{:.4}\t{}\t{}",
                     row.coalition,
                     row.magnitude(),
-                    values.join(" ")
+                    values.join(" "),
+                    row.difference
                 );
             }
         }
@@ -826,19 +853,37 @@ fn read_values(path: &str) -> CliResult<Vec<f64>> {
 enum MissingPolicy {
     Error,
     Zero,
-    /// 値が分かる提携だけで解く (nucleolus のみ)。
+    /// 値が分かる提携だけで解く (--exact なしの nucleolus のみ。他は run がエラーにする)。
     Ignore,
 }
 
 impl MissingPolicy {
-    /// 全提携の表を作るときの扱い。ignore でも全提携の表を作れる場合は作る
-    /// (作れなければ nucleolus が分かる提携だけで解く。他のコマンドはエラー)。
+    /// 全提携の表を作るときの扱い。ignore で値が分からない提携があれば、nucleolus_known_only が
+    /// 分かる提携だけで解くので、ここに来るのは全提携の値が分かる場合だけ。
     fn table(self) -> io::Missing {
         match self {
             MissingPolicy::Zero => io::Missing::Zero,
             MissingPolicy::Error | MissingPolicy::Ignore => io::Missing::Error,
         }
     }
+}
+
+/// JSON・CSV から全提携の表を作れなかったときのエラー。値が分からない提携が原因なら、
+/// このコマンドで選べる扱い (--missing) を添える。
+fn table_error(args: &Args, path: &str, has_missing: bool, error: coopgame::Error) -> CliError {
+    let hint = match error {
+        coopgame::Error::InvalidArgument(_)
+            if has_missing && args.missing != MissingPolicy::Zero =>
+        {
+            if args.command == "nucleolus" && !args.has("--exact") {
+                " (--missing zero で 0 とみなすか、--missing ignore で値が分かる提携だけで解く)"
+            } else {
+                " (--missing zero で 0 とみなす)"
+            }
+        }
+        _ => "",
+    };
+    format!("{path}: {error}{hint}").into()
 }
 
 /// 費用のゲーム (--cost か、JSON・CSV の type が cost) を扱えるコマンド。
@@ -863,7 +908,7 @@ fn read_input(args: &Args, position: usize) -> CliResult<Input<ExplicitGame>> {
         let data = io::parse_by_extension(path, &text).map_err(|e| format!("{path}: {e}"))?;
         let game = data
             .to_explicit(args.missing.table())
-            .map_err(|e| format!("{path}: {e}"))?;
+            .map_err(|e| table_error(args, path, data.has_missing(), e))?;
         return Ok(Input {
             game,
             kind: data.kind,
@@ -945,7 +990,7 @@ fn read_exact_input(args: &Args, position: usize) -> CliResult<Input<exact::Exac
         let data = io::parse_exact_by_extension(path, &text).map_err(|e| format!("{path}: {e}"))?;
         let game = data
             .to_exact(args.missing.table())
-            .map_err(|e| format!("{path}: {e}"))?;
+            .map_err(|e| table_error(args, path, data.has_missing(), e))?;
         return Ok(Input {
             game,
             kind: data.kind,
@@ -977,6 +1022,8 @@ fn exact_savings(costs: &exact::ExactGame) -> CliResult<(exact::ExactGame, Vec<e
 }
 
 /// --missing ignore の nucleolus: 値が分からない提携があれば、分かる提携だけで解いて出す (出したら true)。
+///
+/// 分からない提携があるかは、提携を列挙せずに数で判定する (全提携の表を作れない 31 人以上でも解けるように)。
 fn nucleolus_known_only(args: &Args) -> CliResult<bool> {
     let path = args.file(0)?;
     if !is_table(path) {
@@ -984,7 +1031,7 @@ fn nucleolus_known_only(args: &Args) -> CliResult<bool> {
     }
     let mut data =
         io::parse_by_extension(path, &read_text(path)?).map_err(|e| format!("{path}: {e}"))?;
-    if data.missing().is_empty() {
+    if !data.has_missing() {
         return Ok(false);
     }
     if args.has("--full") {
@@ -999,13 +1046,17 @@ fn nucleolus_known_only(args: &Args) -> CliResult<bool> {
     // 費用なら節約ゲームに直して解き、費用の分担に戻す。
     let (known, standalone) = if data.kind == io::Kind::Cost {
         let savings = data.savings().map_err(|e| format!("{path}: {e}"))?;
-        (savings, Some(data.singleton_values()?))
+        let standalone = data
+            .singleton_values()
+            .map_err(|e| format!("{path}: {e}"))?;
+        (savings, Some(standalone))
     } else {
         (data, None)
     };
     let result = known
         .partial()
-        .and_then(|partial| partial.nucleolus(args.domain()))?;
+        .and_then(|partial| partial.nucleolus(args.domain()))
+        .map_err(|e| format!("{path}: {e}"))?;
     eprintln!(
         "guarantee={} (値が分かる {} 個の提携だけで解いた。真のゲームの仁とは限らない)",
         result.guarantee(),

@@ -132,7 +132,7 @@ fn cost_game() -> coopgame::Result<()> {
 fn missing_values() -> coopgame::Result<()> {
     println!("\n== 値が分からない提携 ==");
     let data = io::parse_json(MISSING_JSON)?;
-    let missing: Vec<String> = data.missing().iter().map(|c| c.to_string()).collect();
+    let missing: Vec<String> = data.missing()?.iter().map(|c| c.to_string()).collect();
     println!("値が分からない提携: {}", missing.join(" "));
     assert_eq!(missing, vec!["{1, 3}", "{2, 3}"]);
 
@@ -170,7 +170,7 @@ fn missing_values() -> coopgame::Result<()> {
     let mut complete = data.clone();
     complete.known.push((Coalition::from_players(&[1, 3]), 7.0));
     complete.known.push((Coalition::from_players(&[2, 3]), 9.0));
-    assert!(complete.missing().is_empty());
+    assert!(!complete.has_missing());
     let exact = nucleolus::nucleolus(&complete.to_explicit(Missing::Error)?)?;
     println!(
         "{{1, 3}} = 7、{{2, 3}} = 9 と分かった場合の仁: {:.4?} (保証 {})",

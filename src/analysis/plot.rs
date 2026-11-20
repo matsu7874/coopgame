@@ -3,6 +3,9 @@
 //! - 3 人: 配分集合 (三角形) を正三角形に描く。頂点 `i` はプレイヤー `i` が協力の余剰を全て受け取る配分。
 //! - 4 人: 配分集合 (四面体) を斜めから見た図に描く。コアは稜線で描く。
 //!
+//! コアは頂点の張る次元に合わせて描く。1 点なら円の印、線分なら太い線、平面に収まれば多角形
+//! (3 人のコアと、4 人で面に退化したコア)。凡例には `コア (1 点)`・`コア (線分)`・`コア (空)` と形を書く。
+//!
 //! 座標は配分集合の重心座標 `λ_i = (x_i - v({i})) / (v(N) - sum v({j}))` で、配分集合の外の点
 //! (準配分) も同じ式で描く (λ が負になる)。配分集合が 1 点以下 (余剰が 0 以下) のゲームは描けない。
 //!
@@ -163,19 +166,15 @@ pub fn imputation_figure(game: &ExplicitGame, options: &PlotOptions) -> Result<F
         .clone()
         .unwrap_or_else(|| format!("{n} 人ゲームの配分集合"));
 
+    let core_shape = CoreShape::of(&core_vertices);
     let mut svg = String::new();
     draw_header(&mut svg, &title);
     scene.draw_frame(&mut svg);
-    scene.draw_core(&mut svg, game, &core_vertices);
+    scene.draw_core(&mut svg, game, &core_vertices, core_shape);
     scene.draw_kernel(&mut svg, &kernel_pieces);
     scene.draw_vertex_labels(&mut svg);
     scene.draw_points(&mut svg, &points, options.shapley);
-    draw_legend(
-        &mut svg,
-        !core_vertices.is_empty(),
-        options.kernel,
-        points.len() > 1,
-    );
+    draw_legend(&mut svg, core_shape, options.kernel, points.len() > 1);
     svg.push_str("</svg>\n");
     Ok(Figure {
         svg,
@@ -290,18 +289,44 @@ impl Scene {
         }
     }
 
-    /// コア (3 人は多角形、4 人は多面体の稜線)。
-    fn draw_core(&self, svg: &mut String, game: &ExplicitGame, vertices: &[Vec<f64>]) {
-        if vertices.is_empty() {
-            return;
-        }
+    /// コア。頂点の張る次元に合わせて、1 点は点の印、線分は太い線、面は多角形、
+    /// 4 人の立体は多面体の稜線で描く。
+    fn draw_core(
+        &self,
+        svg: &mut String,
+        game: &ExplicitGame,
+        vertices: &[Vec<f64>],
+        shape: CoreShape,
+    ) {
         let mapped: Vec<(f64, f64)> = vertices.iter().map(|x| self.map(x)).collect();
-        if self.n == 3 {
-            let tooltip = format!("コア ({} 頂点)", vertices.len());
-            polygon(svg, "core", &mapped, &tooltip);
-        } else {
-            for (a, b) in core_edges(game, vertices) {
-                line(svg, "core-edge", mapped[a], mapped[b], None);
+        match shape {
+            CoreShape::Empty => {}
+            CoreShape::Point => {
+                // 仁などの点と重なることが多いので、点の印より大きい円で下に描く。
+                let (x, y) = mapped[0];
+                let _ = writeln!(
+                    svg,
+                    r#"<circle class="core-dot" cx="{x:.1}" cy="{y:.1}" r="13"><title>コア (1 点): {}</title></circle>"#,
+                    format_allocation(&vertices[0])
+                );
+            }
+            CoreShape::Segment => {
+                let (a, b) = farthest_pair(vertices);
+                let tooltip = format!(
+                    "コア (線分): {} から {}",
+                    format_allocation(&vertices[a]),
+                    format_allocation(&vertices[b])
+                );
+                line(svg, "core-segment", mapped[a], mapped[b], Some(&tooltip));
+            }
+            CoreShape::Polygon => {
+                let tooltip = format!("コア ({} 頂点)", vertices.len());
+                polygon(svg, "core", &mapped, &tooltip);
+            }
+            CoreShape::Polyhedron => {
+                for (a, b) in core_edges(game, vertices) {
+                    line(svg, "core-edge", mapped[a], mapped[b], None);
+                }
             }
         }
     }
@@ -403,7 +428,7 @@ fn place_label(px: f64, py: f64, width: f64, taken: &[Rect]) -> (f64, f64, &'sta
         .unwrap_or_else(|| with_rect(candidates[0]))
 }
 
-fn draw_legend(svg: &mut String, core: bool, kernel: bool, others: bool) {
+fn draw_legend(svg: &mut String, core: CoreShape, kernel: bool, others: bool) {
     let legend_y = HEIGHT - 28.0;
     let mut lx = 24.0;
     let mut item = |svg: &mut String, swatch: &str, text: &str| {
@@ -421,7 +446,12 @@ fn draw_legend(svg: &mut String, core: bool, kernel: bool, others: bool) {
     item(
         svg,
         r#"<rect class="core" x="0" y="-6" width="12" height="12"/>"#,
-        if core { "コア" } else { "コア (空)" },
+        match core {
+            CoreShape::Empty => "コア (空)",
+            CoreShape::Point => "コア (1 点)",
+            CoreShape::Segment => "コア (線分)",
+            CoreShape::Polygon | CoreShape::Polyhedron => "コア",
+        },
     );
     if kernel {
         item(
@@ -459,6 +489,8 @@ svg { --surface: #fcfcfb; --text-primary: #0b0b0b; --text-secondary: #52514e; --
 .frame { stroke: var(--text-secondary); stroke-width: 1; fill: none; }
 .core { fill: var(--series-1); fill-opacity: 0.12; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; }
 .core-edge { stroke: var(--series-1); stroke-width: 2; stroke-linecap: round; }
+.core-dot { fill: var(--series-1); fill-opacity: 0.25; stroke: var(--series-1); stroke-width: 2; }
+.core-segment { stroke: var(--series-1); stroke-width: 9; stroke-opacity: 0.45; stroke-linecap: round; }
 .kernel { stroke: var(--series-2); stroke-width: 3; stroke-linecap: round; }
 .kernel-area { fill: var(--series-2); fill-opacity: 0.15; stroke: var(--series-2); stroke-width: 2; }
 .kernel-dot { fill: none; stroke: var(--series-2); stroke-width: 2.5; }
@@ -646,9 +678,13 @@ pub fn core_vertices(game: &ExplicitGame) -> Vec<Vec<f64>> {
         let mut b: Vec<f64> = chosen.iter().map(|&k| constraints[k].1).collect();
         a.push(vec![1.0; n]);
         b.push(total);
-        let Some(x) = solve_square(a, b, 1e-12) else {
+        let Some(mut x) = solve_square(a, b, 1e-12) else {
             return;
         };
+        // 消去で生じる -0 を 0 にする (頂点の表に `-0` と出さないため)。
+        for value in &mut x {
+            *value += 0.0;
+        }
         let feasible = constraints.iter().all(|&(s, v)| s.sum(&x) >= v - tolerance);
         let duplicate = vertices.iter().any(|y| {
             y.iter()
@@ -660,6 +696,84 @@ pub fn core_vertices(game: &ExplicitGame) -> Vec<Vec<f64>> {
         }
     });
     vertices
+}
+
+/// コアの形 (頂点の張るアフィン部分空間の次元)。図での描き方を決める。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CoreShape {
+    Empty,
+    /// 0 次元 (1 点)。
+    Point,
+    /// 1 次元 (線分)。
+    Segment,
+    /// 2 次元 (3 人のコア、または 4 人で平面に収まるコア)。
+    Polygon,
+    /// 3 次元 (4 人のコア)。
+    Polyhedron,
+}
+
+impl CoreShape {
+    fn of(vertices: &[Vec<f64>]) -> CoreShape {
+        if vertices.is_empty() {
+            return CoreShape::Empty;
+        }
+        match affine_dimension(vertices) {
+            0 => CoreShape::Point,
+            1 => CoreShape::Segment,
+            2 => CoreShape::Polygon,
+            _ => CoreShape::Polyhedron,
+        }
+    }
+}
+
+/// 点の集合が張るアフィン部分空間の次元。
+///
+/// 最初の点からの差のベクトルを、差の長さの最大で割ってから Gram–Schmidt で直交化し、
+/// 残りの長さが `1e-7` を超えるものを独立と数える (頂点の座標の丸め誤差で次元を多く数えないため)。
+fn affine_dimension(points: &[Vec<f64>]) -> usize {
+    let Some(origin) = points.first() else {
+        return 0;
+    };
+    let norm = |v: &[f64]| v.iter().map(|a| a * a).sum::<f64>().sqrt();
+    let differences: Vec<Vec<f64>> = points[1..]
+        .iter()
+        .map(|p| p.iter().zip(origin).map(|(a, b)| a - b).collect())
+        .collect();
+    let longest = differences.iter().map(|d| norm(d)).fold(0.0, f64::max);
+    if longest == 0.0 {
+        return 0;
+    }
+    let mut basis: Vec<Vec<f64>> = Vec::new();
+    for difference in differences {
+        let mut rest: Vec<f64> = difference.iter().map(|a| a / longest).collect();
+        for unit in &basis {
+            let dot: f64 = rest.iter().zip(unit).map(|(a, b)| a * b).sum();
+            for (r, u) in rest.iter_mut().zip(unit) {
+                *r -= dot * u;
+            }
+        }
+        let length = norm(&rest);
+        if length > 1e-7 {
+            basis.push(rest.iter().map(|a| a / length).collect());
+        }
+    }
+    basis.len()
+}
+
+/// 最も離れた 2 点の位置 (線分のコアの両端)。
+fn farthest_pair(points: &[Vec<f64>]) -> (usize, usize) {
+    let distance =
+        |a: &[f64], b: &[f64]| -> f64 { a.iter().zip(b).map(|(p, q)| (p - q).powi(2)).sum() };
+    let mut best = (0, 0, f64::NEG_INFINITY);
+    for a in 0..points.len() {
+        for b in a + 1..points.len() {
+            let d = distance(&points[a], &points[b]);
+            if d > best.2 {
+                best = (a, b, d);
+            }
+        }
+    }
+    (best.0, best.1)
 }
 
 /// コアの稜線 (2 つの頂点で共通に等号が成り立つ制約が `n - 2` 本以上あり、独立なもの)。
@@ -710,7 +824,7 @@ mod tests {
         let game = ExplicitGame::from_lex(&[-1.0, 0.0, 1.0, 3.0, 4.0, 2.0, 5.0]).unwrap();
         let figure = imputation_figure(&game, &PlotOptions::default()).unwrap();
         assert!(figure.svg.starts_with("<svg"));
-        assert!(figure.svg.contains("class=\"core\""));
+        assert!(figure.svg.contains(r#"<polygon class="core""#));
         assert!(!figure.core_vertices.is_empty());
         for x in &figure.core_vertices {
             assert!((x.iter().sum::<f64>() - 5.0).abs() < 1e-9);
@@ -761,10 +875,68 @@ mod tests {
         .unwrap();
         let figure = imputation_figure(&game, &PlotOptions::default()).unwrap();
         assert!(figure.core_vertices.len() >= 4);
-        assert!(figure.svg.contains("core-edge"));
+        assert!(figure.svg.contains(r#"<line class="core-edge""#));
         for x in &figure.core_vertices {
             assert!(crate::properties::is_in_core(&game, x, 1e-7));
         }
+    }
+
+    /// コアが 1 点・線分・面に退化していても、見える形 (点の印・線分・面) で描き、凡例に形を書く。
+    #[test]
+    fn degenerate_cores_are_drawn() {
+        let draw = |game: &ExplicitGame| imputation_figure(game, &PlotOptions::default()).unwrap();
+        // 3 人の手袋ゲーム (0 が左手、1・2 が右手): コアは 1 点 (1, 0, 0)。
+        let glove = ExplicitGame::from_binary(&[0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]).unwrap();
+        let figure = draw(&glove);
+        assert_eq!(figure.core_vertices.len(), 1);
+        assert!(
+            figure.svg.contains(r#"<circle class="core-dot""#),
+            "{}",
+            figure.svg
+        );
+        assert!(!figure.svg.contains(r#"<polygon class="core""#));
+        assert!(figure.svg.contains("コア (1 点)"));
+        // v({0, 1}) = v(N) = 1: コアは (1, 0, 0) と (0, 1, 0) を結ぶ線分。
+        let pair = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0]).unwrap();
+        let figure = draw(&pair);
+        assert_eq!(figure.core_vertices.len(), 2);
+        assert_eq!(
+            figure.svg.matches(r#"<line class="core-segment""#).count(),
+            1
+        );
+        assert!(!figure.svg.contains(r#"<polygon class="core""#));
+        assert!(figure.svg.contains("コア (線分)"));
+
+        let four = |members: &[usize]| {
+            let required = Coalition::from_players(members);
+            ExplicitGame::from_fn(4, |c| if required.is_subset(c) { 1.0 } else { 0.0 }).unwrap()
+        };
+        // 4 人の手袋ゲーム (0 が左手、他は右手): コアは 1 点 (1, 0, 0, 0)。
+        let glove4 = ExplicitGame::from_fn(4, |c| {
+            if c.contains(0) && c.len() >= 2 {
+                1.0
+            } else {
+                0.0
+            }
+        })
+        .unwrap();
+        let figure = draw(&glove4);
+        assert_eq!(figure.core_vertices.len(), 1);
+        assert!(figure.svg.contains(r#"<circle class="core-dot""#));
+        assert!(figure.svg.contains("コア (1 点)"));
+        // {0, 1} を含む提携だけが 1: コアは線分。
+        let figure = draw(&four(&[0, 1]));
+        assert_eq!(
+            figure.svg.matches(r#"<line class="core-segment""#).count(),
+            1
+        );
+        assert!(figure.svg.contains("コア (線分)"));
+        // {0, 1, 2} を含む提携だけが 1: コアは x_3 = 0 の三角形 (面)。
+        let figure = draw(&four(&[0, 1, 2]));
+        assert_eq!(figure.core_vertices.len(), 3);
+        assert!(figure.svg.contains(r#"<polygon class="core""#));
+        assert!(!figure.svg.contains(r#"<line class="core-edge""#));
+        assert!(figure.svg.contains(">コア</text>"));
     }
 
     #[test]

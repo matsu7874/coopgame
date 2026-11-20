@@ -4,10 +4,13 @@
 //!
 //! - [`monte_carlo`]: `v` の分布からゲームを繰り返し引いて解き、配分の平均・標準偏差・分位点を求める。
 //! - [`IntervalGame`]: 各提携の値を区間 `[下限, 上限]` で与え、区間内の一様分布として [`monte_carlo`] に渡す。
-//! - [`influence`]: 提携 `S` の値を少し動かしたときの配分の変化率 `dx / dv(S)` (中心差分)。
+//! - [`influence`]: 提携 `S` の値を少し動かしたときの配分の変化率 `dx / dv(S)`
+//!   (中心差分。片側のゲームが解けなければ片側差分)。
 //!   仁では、超過の大きい段の提携 (配分を決めている提携) の値だけが効く。[`key_coalitions`] でその提携を選べる。
 //!
 //! 解き方 (仁・Shapley 値など) は関数として渡す。
+
+use std::fmt;
 
 use crate::analysis::explain::{self, ExplainOptions};
 use crate::error::{Error, Result};
@@ -193,13 +196,40 @@ pub fn interval_monte_carlo(
     monte_carlo(samples, seed, |rng| game.sample(rng), solve)
 }
 
+/// 感度 `dx / dv(S)` を求めた差分の取り方。`x(v)` は値 `v` のゲームを解いた配分、`δ` は動かす幅。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Difference {
+    /// 中心差分 `(x(v(S) + δ) - x(v(S) - δ)) / 2δ`。両側のゲームが解けたとき。
+    Central,
+    /// 前進差分 `(x(v(S) + δ) - x(v(S))) / δ`。`v(S) - δ` のゲームが解けなかったとき
+    /// (配分集合が 1 点のゲームで `v(N)` を下げた場合など)。
+    Forward,
+    /// 後退差分 `(x(v(S)) - x(v(S) - δ)) / δ`。`v(S) + δ` のゲームが解けなかったとき
+    /// (配分集合が 1 点のゲームで 1 人提携の値を上げた場合など)。
+    Backward,
+}
+
+impl fmt::Display for Difference {
+    /// `central`・`forward`・`backward`。
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Difference::Central => "central",
+            Difference::Forward => "forward",
+            Difference::Backward => "backward",
+        })
+    }
+}
+
 /// 提携の値に対する配分の感度。
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct Influence {
     pub coalition: Coalition,
-    /// 各プレイヤーの `dx_i / dv(S)` (中心差分)。
+    /// 各プレイヤーの `dx_i / dv(S)`。
     pub sensitivity: Vec<f64>,
+    /// `sensitivity` を求めた差分の取り方。
+    pub difference: Difference,
 }
 
 impl Influence {
@@ -209,10 +239,63 @@ impl Influence {
     }
 }
 
-/// 提携 `coalitions` の値を `±delta` 動かしたときの配分の変化率。
+/// `solve` でゲームを解く。解けなければ内側の `Err` (片側差分に切り替える判断に使う)、
+/// 解いた配分の長さが人数と異なれば外側の `Err` (`solve` の誤りなので計算を止める)。
+fn try_solve(
+    solve: &mut impl FnMut(&ExplicitGame) -> Result<Vec<f64>>,
+    game: &ExplicitGame,
+) -> Result<std::result::Result<Vec<f64>, Error>> {
+    match solve(game) {
+        Ok(x) if x.len() != game.players() => Err(Error::InvalidArgument(format!(
+            "解いた配分の長さ {} がプレイヤー数 {} と異なる",
+            x.len(),
+            game.players()
+        ))),
+        Ok(x) => Ok(Ok(x)),
+        Err(e) => Ok(Err(e)),
+    }
+}
+
+/// 片側差分に使う元のゲームの解。`base` に 1 度だけ求めて保持する。
+///
+/// `shift` は解けなかった側の動かし幅 (`+δ` か `-δ`)、`failed` はそのときのエラー (解けなければ文章に書く)。
+fn base_solution<'a>(
+    base: &'a mut Option<Vec<f64>>,
+    solve: &mut impl FnMut(&ExplicitGame) -> Result<Vec<f64>>,
+    game: &ExplicitGame,
+    coalition: Coalition,
+    shift: f64,
+    failed: &Error,
+) -> Result<&'a [f64]> {
+    if base.is_none() {
+        match try_solve(solve, game)? {
+            Ok(x) => *base = Some(x),
+            Err(e) => {
+                return Err(Error::InvalidArgument(format!(
+                    "提携 {coalition} の値を {shift:+} 動かしたゲームが解けず ({failed})、\
+                     片側差分に使う元のゲームも解けない ({e})"
+                )));
+            }
+        }
+    }
+    Ok(base.as_deref().unwrap_or_default())
+}
+
+/// 提携 `coalitions` の値を `±delta` 動かしたときの配分の変化率 `dx / dv(S)`。
+///
+/// 各提携 `S` について `v(S) + delta` と `v(S) - delta` のゲームを `solve` で解き、
+/// 中心差分 `(x(v(S) + δ) - x(v(S) - δ)) / 2δ` を求める ([`Difference::Central`])。
+/// 片側のゲームだけが解けないとき (配分集合が 1 点のゲームで `v(N)` を下げる・1 人提携の値を上げると、
+/// 配分集合が空になる) は、元のゲームの解 `x(v)` との片側差分を使い、[`Influence::difference`] に
+/// [`Difference::Forward`] か [`Difference::Backward`] を記録する。解が値の向きで形を変える点では、
+/// 中心差分は左右の変化率の平均、片側差分は解ける側の変化率になる。
 ///
 /// 提携は空でなく、プレイヤー数の範囲の番号だけからなる必要がある (空提携の値は 0 に固定のため動かせない)。
-/// `solve` が返した配分の長さがプレイヤー数と異なれば [`Error::InvalidArgument`]。
+/// 次の場合は [`Error::InvalidArgument`] を返す。
+///
+/// - `solve` が返した配分の長さがプレイヤー数と異なる。
+/// - ある提携で両側のゲームがどちらも解けない、または片側だけ解けて元のゲームが解けない
+///   (エラーの文章にその提携と、`solve` が返したエラーを書く)。
 pub fn influence(
     game: &ExplicitGame,
     coalitions: &[Coalition],
@@ -235,32 +318,40 @@ pub fn influence(
             )));
         }
     }
-    let check = |x: Vec<f64>| -> Result<Vec<f64>> {
-        if x.len() != n {
-            return Err(Error::InvalidArgument(format!(
-                "解いた配分の長さ {} がプレイヤー数 {n} と異なる",
-                x.len()
-            )));
-        }
-        Ok(x)
-    };
-    coalitions
-        .iter()
-        .map(|&coalition| {
-            let shifted =
-                |sign: f64| game.with_value(coalition, game.value(coalition) + sign * delta);
-            let plus = check(solve(&shifted(1.0)?)?)?;
-            let minus = check(solve(&shifted(-1.0)?)?)?;
-            Ok(Influence {
-                coalition,
-                sensitivity: plus
-                    .iter()
-                    .zip(&minus)
-                    .map(|(p, m)| (p - m) / (2.0 * delta))
-                    .collect(),
-            })
-        })
-        .collect()
+    // 元のゲームの解は、片側差分が必要になったときに 1 度だけ求める。
+    let mut base: Option<Vec<f64>> = None;
+    let mut rows = Vec::with_capacity(coalitions.len());
+    for &coalition in coalitions {
+        let shifted = |sign: f64| game.with_value(coalition, game.value(coalition) + sign * delta);
+        let plus = try_solve(&mut solve, &shifted(1.0)?)?;
+        let minus = try_solve(&mut solve, &shifted(-1.0)?)?;
+        let rate = |a: &[f64], b: &[f64], width: f64| -> Vec<f64> {
+            a.iter().zip(b).map(|(a, b)| (a - b) / width).collect()
+        };
+        let (sensitivity, difference) = match (plus, minus) {
+            (Ok(plus), Ok(minus)) => (rate(&plus, &minus, 2.0 * delta), Difference::Central),
+            (Ok(plus), Err(failed)) => {
+                let x = base_solution(&mut base, &mut solve, game, coalition, -delta, &failed)?;
+                (rate(&plus, x, delta), Difference::Forward)
+            }
+            (Err(failed), Ok(minus)) => {
+                let x = base_solution(&mut base, &mut solve, game, coalition, delta, &failed)?;
+                (rate(x, &minus, delta), Difference::Backward)
+            }
+            (Err(plus), Err(minus)) => {
+                return Err(Error::InvalidArgument(format!(
+                    "提携 {coalition} の値を ±{delta} 動かしたゲームがどちらも解けない \
+                     (+{delta}: {plus}、-{delta}: {minus})"
+                )));
+            }
+        };
+        rows.push(Influence {
+            coalition,
+            sensitivity,
+            difference,
+        });
+    }
+    Ok(rows)
 }
 
 /// 配分 `x` で超過が大きい上位 `levels` 段の提携 (仁ではこれが配分を決めている) と全体提携。
@@ -366,6 +457,61 @@ mod tests {
         for (a, e) in result[0].sensitivity.iter().zip(expected) {
             assert!((a - e).abs() < 1e-9, "{:?}", result[0].sensitivity);
         }
+        assert_eq!(result[0].difference, Difference::Central);
+    }
+
+    /// 配分集合が 1 点の加法的なゲーム: v(N) を下げる、1 人提携の値を上げると配分集合が空になる。
+    /// 解ける側だけで片側差分をとり、どちらの差分かを結果に残す。
+    #[test]
+    fn one_sided_difference_when_one_side_cannot_be_solved() {
+        let game = ExplicitGame::from_binary(&[1.0, 1.0, 2.0, 1.0, 2.0, 2.0, 3.0]).unwrap();
+        let x = solve_nucleolus(&game).unwrap();
+        let key = key_coalitions(&game, &x, 2).unwrap();
+        let rows = influence(&game, &key, 1e-4, solve_nucleolus).unwrap();
+        assert_eq!(rows.len(), 7);
+        for row in &rows {
+            let (difference, expected) = if row.coalition == game.grand() {
+                // v(N) を上げた分は 3 人で等分される。
+                (Difference::Forward, 1.0 / 3.0)
+            } else if row.coalition.len() == 1 {
+                (Difference::Backward, 0.0)
+            } else {
+                (Difference::Central, 0.0)
+            };
+            assert_eq!(row.difference, difference, "{}", row.coalition);
+            for s in &row.sensitivity {
+                assert!((s - expected).abs() < 1e-6, "{}: {row:?}", row.coalition);
+            }
+        }
+    }
+
+    /// 両側とも解けない提携は、その提携を示したエラーにする (入力のゲームが解けないとは書かない)。
+    #[test]
+    fn both_sides_unsolvable_names_the_coalition() {
+        let game = four_player();
+        let s = Coalition::from_players(&[1, 2]);
+        let err = influence(&game, &[s], 1e-4, |_| Err(Error::EmptyImputationSet)).unwrap_err();
+        assert!(matches!(err, Error::InvalidArgument(_)), "{err:?}");
+        let text = err.to_string();
+        assert!(
+            text.contains("{1, 2}") && text.contains("どちらも解けない"),
+            "{text}"
+        );
+        // 片側だけ解けて、片側差分に使う元のゲームが解けない場合も、提携を示す。
+        let original = game.value(s);
+        let err = influence(&game, &[s], 1e-4, |g| {
+            if g.value(s) > original {
+                solve_nucleolus(g)
+            } else {
+                Err(Error::Numerical("解けない".into()))
+            }
+        })
+        .unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("{1, 2}") && text.contains("元のゲーム"),
+            "{text}"
+        );
     }
 
     #[test]

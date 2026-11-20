@@ -210,7 +210,8 @@ impl Game {
 
 /// Python の関数 `function(coalition) -> float` で値を返すゲーム (提携はプレイヤー番号のタプル)。
 ///
-/// 全提携を列挙できない人数 (サンプリングによる推定・サンプルした提携の仁) に使う。
+/// 全提携を列挙できない人数に使う。受け付けるのは `shapley_sampling`・`banzhaf_sampling`・
+/// `sampled_nucleolus`・`sampled_least_core`・`convex_nucleolus(..., assume=True)`・`verify_solution`。
 /// `v(空集合) = 0` とし、関数は空でない提携だけで呼ぶ。
 #[pyclass(module = "coopgame", frozen)]
 struct FunctionGame {
@@ -567,6 +568,7 @@ fn certify_rational<'py>(
 
 /// 配分 `x` を説明する: 不満 (超過) の大きい提携の段、コアに属するか、最小コアの値、
 /// プレイヤーごとの最も不満な提携。`text` に日本語の説明文が入る (プレイヤーは 0 始まりの番号)。
+/// `x` の長さがプレイヤー数と異なるか、nan・inf を含めば ValueError。
 #[pyfunction]
 #[pyo3(signature = (game, x, levels = 3))]
 fn explain<'py>(
@@ -626,6 +628,7 @@ fn explain<'py>(
 
 /// 複数の配分 (配分のリスト) を安定性の指標で比べる。`text` に表が入る。
 /// `rows` は `candidates` と同じ順 (表の行も 0 始まりの番号で示す)。
+/// 長さがプレイヤー数と異なるか、nan・inf を含む配分があれば ValueError (何番目の配分かを示す)。
 #[pyfunction]
 fn compare<'py>(
     py: Python<'py>,
@@ -763,9 +766,16 @@ fn uncertainty<'py>(
     Ok(dict)
 }
 
+/// [`influence`] の 1 行: (提携のメンバー, 各プレイヤーの感度, 差分の取り方)。
+type InfluenceRow = (Vec<usize>, Vec<f64>, String);
+
 /// 提携の値を `±delta` 動かしたときの配分の変化率 `dx/dv(S)`。`coalitions` を省くと、
 /// 配分で超過が大きい上位 `levels` 段の提携 (仁ではこれが配分を決める) と全体提携を調べる。
-/// 戻り値は `(提携, 感度のリスト)` の列 (感度の大きい順)。
+/// 戻り値は `(提携, 感度のリスト, 差分の取り方)` の列 (感度の大きい順)。
+///
+/// 差分の取り方は `"central"` (中心差分)、`"forward"`・`"backward"` (片側のゲームが解けないときの片側差分。
+/// 配分集合が 1 点のゲームで v(N) を下げる・1 人提携の値を上げる場合など)。
+/// 両側とも解けない提携があれば、その提携を示した ValueError。
 #[pyfunction]
 #[pyo3(signature = (game, coalitions = None, solver = "nucleolus", levels = 2, delta = None))]
 fn influence(
@@ -774,7 +784,7 @@ fn influence(
     solver: &str,
     levels: usize,
     delta: Option<f64>,
-) -> PyResult<Vec<(Vec<usize>, Vec<f64>)>> {
+) -> PyResult<Vec<InfluenceRow>> {
     let n = game.inner.players();
     let mut solve = solver_by_name(solver)?;
     let coalitions: Vec<Coalition> = match coalitions {
@@ -793,7 +803,13 @@ fn influence(
     rows.sort_by(|a, b| b.magnitude().total_cmp(&a.magnitude()));
     Ok(rows
         .into_iter()
-        .map(|row| (row.coalition.members().collect(), row.sensitivity))
+        .map(|row| {
+            (
+                row.coalition.members().collect(),
+                row.sensitivity,
+                row.difference.to_string(),
+            )
+        })
         .collect())
 }
 
@@ -886,12 +902,22 @@ fn parse_game<'py>(
         "zero" => io_core::Missing::Zero,
         _ => return Err(PyValueError::new_err("missing は \"error\" か \"zero\"")),
     };
-    let game = data.to_explicit(policy).map_err(to_py_err)?;
+    let game = data.to_explicit(policy).map_err(|error| {
+        // 値が分からない提携が原因なら、選べる扱いを添える。
+        if matches!(error, coopgame::Error::InvalidArgument(_)) && data.has_missing() {
+            PyValueError::new_err(format!(
+                "{error} (missing=\"zero\" で 0 とみなすか、partial_nucleolus で値が分かる提携だけで解く)"
+            ))
+        } else {
+            to_py_err(error)
+        }
+    })?;
     let dict = PyDict::new(py);
     dict.set_item("game", Py::new(py, Game { inner: game })?)?;
     dict.set_item("kind", data.kind.as_str())?;
     let missing: Vec<Vec<usize>> = data
         .missing()
+        .map_err(to_py_err)?
         .iter()
         .map(|c| c.members().collect())
         .collect();
@@ -1116,7 +1142,15 @@ fn estimate_dict<'py>(py: Python<'py>, estimate: values::Estimate) -> PyResult<B
     Ok(dict)
 }
 
-/// ランダムな順列 `permutations` 個で Shapley 値を推定する (Castro et al. 2009)。
+/// 標本の数が 1 以上であることを確かめる (0 個では推定値も標準誤差も定まらない)。
+fn check_samples(name: &str, count: usize) -> PyResult<()> {
+    if count == 0 {
+        return Err(PyValueError::new_err(format!("{name} は 1 以上")));
+    }
+    Ok(())
+}
+
+/// ランダムな順列 `permutations` 個 (1 以上) で Shapley 値を推定する (Castro et al. 2009)。
 #[pyfunction]
 #[pyo3(signature = (game, permutations, seed = 0))]
 fn shapley_sampling<'py>(
@@ -1125,13 +1159,14 @@ fn shapley_sampling<'py>(
     permutations: usize,
     seed: u64,
 ) -> PyResult<Bound<'py, PyDict>> {
+    check_samples("permutations", permutations)?;
     let estimate = with_set_function(game, |g| {
         Ok(values::shapley_sampling(g, permutations, seed))
     })?;
     estimate_dict(py, estimate)
 }
 
-/// ランダムな提携 `samples` 個での限界貢献の平均で Banzhaf 値を推定する。
+/// ランダムな提携 `samples` 個 (1 以上) での限界貢献の平均で Banzhaf 値を推定する。
 #[pyfunction]
 #[pyo3(signature = (game, samples, seed = 0))]
 fn banzhaf_sampling<'py>(
@@ -1140,6 +1175,7 @@ fn banzhaf_sampling<'py>(
     samples: usize,
     seed: u64,
 ) -> PyResult<Bound<'py, PyDict>> {
+    check_samples("samples", samples)?;
     let estimate = with_set_function(game, |g| Ok(values::banzhaf_sampling(g, samples, seed)))?;
     estimate_dict(py, estimate)
 }

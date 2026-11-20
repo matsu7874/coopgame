@@ -19,6 +19,7 @@
 //! - 他のトップレベルのキーは無視する (説明などを書き添えてよい)。ただし `"tpye"` や `"Players"` のように
 //!   上の 3 つの書き間違いらしいキー (大文字小文字の違い、1 文字の違い・隣り合う 2 文字の入れ替え) はエラーにする。
 //! - 値は数で書く。[`parse_json_exact`] は数の字面を 10 進数の値どおりの有理数として読む。
+//! - 同じオブジェクトの中で同じキーを 2 回書くとエラーにする (後の値で黙って上書きしない)。
 //!
 //! # CSV
 //!
@@ -27,18 +28,30 @@
 //! 値は `8/3` の形の分数でもよい。先頭の UTF-8 の BOM は無視する。
 //! 読めない行のエラー ([`Error::Parse`]) には 1 始まりの行番号が付く。
 //!
+//! # 重複と番号の範囲 (JSON・CSV 共通)
+//!
+//! - 同じ提携の値を 2 回書くとエラーにする (`"0,1"` と `"1,0"` のように順序だけが違う書き方も同じ提携)。
+//! - 1 つの提携の中で同じ番号を 2 回書くとエラーにする (`0|0` は `0|1` の打ち間違いかもしれないので、`{0}` とは読まない)。
+//! - 番号は `players` 未満 (`players` を省いたときは 63 未満。人数は 63 人まで)。
+//!
 //! # 値が分からない提携
 //!
 //! 全ての提携の値を見積もれないことは多い。[`Missing`] で扱いを選ぶ。
 //!
 //! - [`Missing::Error`]: 分からない提携があればエラーにして一覧を示す (既定)。
-//! - [`Missing::Zero`]: 分からない提携の値を 0 とみなす。
+//! - [`Missing::Zero`]: 分からない提携の値を 0 とみなす。費用のゲームでは費用 `c(S) = 0` とみなすので、
+//!   その提携の節約 `sum_{i in S} c({i}) - c(S)` は 1 人提携の費用の和になる。
 //! - 値が分かる提携だけで解く: [`GameData::partial`] で [`PartialGame`] を作り、オラクル版の仁に渡す。
 //!   結果は「値が分かる提携の超過だけを辞書式に最小化した配分」で、真のゲームの仁とは限らない。
+//!   全提携の表を作れない 31 人以上 (63 人まで) のゲームも解ける。
+//!
+//! 分からない提携があるかは [`GameData::has_missing`] で、提携を列挙せずに確かめられる。
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt;
 
 use num_traits::Zero;
+use serde::de::{Deserialize, Deserializer, MapAccess, Visitor};
 use serde_json::Value;
 use serde_json::value::RawValue;
 
@@ -109,15 +122,23 @@ pub struct ExactGameData {
 }
 
 impl ExactGameData {
-    /// 値が分からない (空でない) 提携。
-    pub fn missing(&self) -> Vec<Coalition> {
+    /// 値が分からない (空でない) 提携の一覧 (提携の番号順)。
+    ///
+    /// 一覧を作れるのは [`MAX_PLAYERS`] 人まで (超えれば [`Error::TooManyPlayers`])。
+    /// 分からない提携があるかだけを知るには [`ExactGameData::has_missing`] を使う。
+    pub fn missing(&self) -> Result<Vec<Coalition>> {
         missing_coalitions(self.players, self.known.iter().map(|(c, _)| *c))
     }
 
-    /// 全提携の値を有理数で持つゲームにする。
+    /// 値が分からない (空でない) 提携があるか。提携を列挙せず、値が分かる提携の数で判定する。
+    pub fn has_missing(&self) -> bool {
+        has_missing_coalitions(self.players, self.known.iter().map(|(c, _)| *c))
+    }
+
+    /// 全提携の値を有理数で持つゲームにする。人数の上限と `missing` の扱いは [`GameData::to_explicit`] と同じ。
     pub fn to_exact(&self, missing: Missing) -> Result<ExactGame> {
         let n = self.players;
-        check_table(n, &self.missing(), missing)?;
+        check_table(n, self.known.iter().map(|(c, _)| *c), missing)?;
         let mut values = vec![Rational::zero(); (1usize << n) - 1];
         for (coalition, value) in &self.known {
             values[coalition.index() - 1] = value.clone();
@@ -189,28 +210,59 @@ fn rational(text: &str) -> std::result::Result<Rational, String> {
 /// 値が分かる提携と値 (提携の番号順)。
 type Known<T> = Vec<(Coalition, T)>;
 
+/// 読める人数の上限。提携を `u64` のビットで表し、全体提携 `2^n - 1` を作れる範囲。
+const MAX_FILE_PLAYERS: usize = 63;
+
+/// 提携のメンバーの番号を検査する (`limit` 未満で、重複がない)。`players` は入力に書かれた人数。
+fn check_members(
+    members: &[usize],
+    limit: usize,
+    players: Option<usize>,
+) -> std::result::Result<(), String> {
+    let mut seen: u64 = 0;
+    for &i in members {
+        if i >= limit {
+            return Err(match players {
+                Some(n) => format!("提携 {members:?} のプレイヤー番号 {i} が人数 {n} 以上"),
+                None => format!(
+                    "提携 {members:?} のプレイヤー番号 {i} が範囲外 (番号は 0 から {} まで)",
+                    MAX_FILE_PLAYERS - 1
+                ),
+            });
+        }
+        if seen >> i & 1 == 1 {
+            return Err(format!(
+                "提携 {members:?} にプレイヤー番号 {i} が 2 回以上ある"
+            ));
+        }
+        seen |= 1 << i;
+    }
+    Ok(())
+}
+
 /// 人数を決め、提携と値を検査して提携の番号順に並べる。`number` で値の字面を数にする。
 fn build<T>(
     raw: RawGame,
     number: impl Fn(&str) -> std::result::Result<T, String>,
 ) -> Result<(usize, Kind, Known<T>)> {
-    let highest = raw.entries.iter().flat_map(|e| &e.members).max();
-    let n = match (raw.players, highest) {
-        (Some(n), Some(&i)) if i >= n => {
-            return Err(parse_error(format!("プレイヤー番号 {i} が人数 {n} 以上")));
-        }
-        (Some(n), _) => n,
-        (None, Some(&i)) => i + 1,
-        (None, None) => 0,
-    };
-    if n == 0 {
-        return Err(parse_error("プレイヤーがいない"));
-    }
-    if n > 63 {
+    if let Some(n) = raw.players
+        && n > MAX_FILE_PLAYERS
+    {
         return Err(Error::TooManyPlayers {
             players: n,
-            max: 63,
+            max: MAX_FILE_PLAYERS,
         });
+    }
+    // 番号を先に検査する (人数を省いたときに、最大の番号 + 1 があふれないように)。
+    let limit = raw.players.unwrap_or(MAX_FILE_PLAYERS);
+    for entry in &raw.entries {
+        check_members(&entry.members, limit, raw.players)
+            .map_err(|message| error_at(entry.line, message))?;
+    }
+    let highest = raw.entries.iter().flat_map(|e| &e.members).max();
+    let n = raw.players.unwrap_or(highest.map_or(0, |&i| i + 1));
+    if n == 0 {
+        return Err(parse_error("プレイヤーがいない"));
     }
     let mut known: HashMap<u64, T> = HashMap::new();
     for entry in raw.entries {
@@ -274,10 +326,60 @@ fn looks_like(key: &str, known: &str) -> bool {
 
 type RawObject = BTreeMap<String, Box<RawValue>>;
 
+/// JSON のオブジェクトのメンバーを、書かれた順に重複も含めて読んだもの (値は字面のまま)。
+///
+/// `BTreeMap` などに直接読むと、同じキーを 2 回書いたときに後の値が黙って残る。
+/// 重複を検出するために、メンバーを全て保ったまま読む。
+struct RawMembers(Vec<(String, Box<RawValue>)>);
+
+impl<'de> Deserialize<'de> for RawMembers {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        struct MembersVisitor;
+
+        impl<'de> Visitor<'de> for MembersVisitor {
+            type Value = RawMembers;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("JSON のオブジェクト")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> std::result::Result<RawMembers, A::Error> {
+                let mut members = Vec::new();
+                while let Some(member) = map.next_entry::<String, Box<RawValue>>()? {
+                    members.push(member);
+                }
+                Ok(RawMembers(members))
+            }
+        }
+
+        deserializer.deserialize_map(MembersVisitor)
+    }
+}
+
+impl RawMembers {
+    /// キーが重複していなければ、キーで引ける形にする。`object` はエラーに書くオブジェクトの説明。
+    fn unique(self, object: &str) -> Result<RawObject> {
+        let mut map = RawObject::new();
+        for (key, value) in self.0 {
+            if map.contains_key(&key) {
+                return Err(parse_error(format!(
+                    "{object}のキー {key:?} が重複している"
+                )));
+            }
+            map.insert(key, value);
+        }
+        Ok(map)
+    }
+}
+
 /// JSON を、値を字面のまま読む。
 fn raw_json(text: &str) -> Result<RawGame> {
-    let root: RawObject = serde_json::from_str(strip_bom(text))
-        .map_err(|e| parse_error(format!("JSON のオブジェクトとして読めない: {e}")))?;
+    let root = serde_json::from_str::<RawMembers>(strip_bom(text))
+        .map_err(|e| parse_error(format!("JSON のオブジェクトとして読めない: {e}")))?
+        .unique("トップレベル")?;
     for key in root.keys() {
         if JSON_KEYS.contains(&key.as_str()) {
             continue;
@@ -323,9 +425,10 @@ fn raw_json(text: &str) -> Result<RawGame> {
         .unwrap_or_default();
     let mut entries = Vec::new();
     if values.starts_with('{') {
-        let map: RawObject =
+        // 同じキーを 2 回書いた場合も、同じ提携の値の重複として build がエラーにする。
+        let members: RawMembers =
             serde_json::from_str(values).map_err(|e| parse_error(format!("values: {e}")))?;
-        for (key, value) in &map {
+        for (key, value) in &members.0 {
             let members = key
                 .split(',')
                 .map(player)
@@ -338,10 +441,11 @@ fn raw_json(text: &str) -> Result<RawGame> {
             });
         }
     } else if values.starts_with('[') {
-        let list: Vec<RawObject> = serde_json::from_str(values).map_err(|_| {
+        let list: Vec<RawMembers> = serde_json::from_str(values).map_err(|_| {
             parse_error("values の各要素は {\"coalition\": [番号, ...], \"value\": 値} の形")
         })?;
-        for item in &list {
+        for (k, item) in list.into_iter().enumerate() {
+            let item = item.unique(&format!("values の {k} 番目の要素"))?;
             let members: Vec<usize> = item
                 .get("coalition")
                 .and_then(|raw| serde_json::from_str(raw.get()).ok())
@@ -473,30 +577,54 @@ pub fn parse_exact_by_extension(path: &str, text: &str) -> Result<ExactGameData>
     ExactGameData::from_raw(raw_by_extension(path, text)?)
 }
 
-/// 人数 `n` のゲームで、`known` に含まれない (空でない) 提携。
-fn missing_coalitions(n: usize, known: impl Iterator<Item = Coalition>) -> Vec<Coalition> {
-    if n > MAX_PLAYERS {
-        return Vec::new();
-    }
-    let known: std::collections::HashSet<u64> = known.map(|c| c.0).collect();
-    (1u64..(1 << n))
-        .filter(|mask| !known.contains(mask))
-        .map(Coalition)
-        .collect()
-}
-
-/// 全提携の値の表を作れるか確かめる (人数の上限と、値が分からない提携の扱い)。
-fn check_table(n: usize, absent: &[Coalition], missing: Missing) -> Result<()> {
+/// 人数 `n` のゲームで、`known` に含まれない (空でない) 提携 (提携の番号順)。
+///
+/// 一覧は最大 `2^n - 1` 個になるので、全提携の表と同じく [`MAX_PLAYERS`] 人までに限る。
+fn missing_coalitions(n: usize, known: impl Iterator<Item = Coalition>) -> Result<Vec<Coalition>> {
     if n > MAX_PLAYERS {
         return Err(Error::TooManyPlayers {
             players: n,
             max: MAX_PLAYERS,
         });
     }
-    if missing == Missing::Error && !absent.is_empty() {
+    let known: HashSet<u64> = known.map(|c| c.0).collect();
+    Ok((1u64..(1 << n))
+        .filter(|mask| !known.contains(mask))
+        .map(Coalition)
+        .collect())
+}
+
+/// 人数 `n` のゲームで、`known` に含まれない (空でない) 提携があるか。
+///
+/// 提携を列挙せず、`known` の異なる提携 (空でなく、`n` 人の全体提携に含まれるもの) の数が
+/// `2^n - 1` 未満かで判定する。値が分かる提携の数だけの時間で済む。
+fn has_missing_coalitions(n: usize, known: impl Iterator<Item = Coalition>) -> bool {
+    let inside = |c: &Coalition| !c.is_empty() && (n >= 64 || c.0 >> n == 0);
+    let distinct: HashSet<u64> = known.filter(inside).map(|c| c.0).collect();
+    let total = u32::try_from(n)
+        .ok()
+        .and_then(|n| 1u128.checked_shl(n))
+        .map_or(u128::MAX, |t| t - 1);
+    (distinct.len() as u128) < total
+}
+
+/// 全提携の値の表を作れるか確かめる (人数の上限と、値が分からない提携の扱い)。
+fn check_table(
+    n: usize,
+    known: impl Iterator<Item = Coalition> + Clone,
+    missing: Missing,
+) -> Result<()> {
+    if n > MAX_PLAYERS {
+        return Err(Error::TooManyPlayers {
+            players: n,
+            max: MAX_PLAYERS,
+        });
+    }
+    if missing == Missing::Error && has_missing_coalitions(n, known.clone()) {
+        let absent = missing_coalitions(n, known)?;
         let listed: Vec<String> = absent.iter().take(10).map(Coalition::to_string).collect();
         return Err(Error::InvalidArgument(format!(
-            "値が分からない提携が {} 個ある: {}{} (0 とみなすか、分かる提携だけで解く)",
+            "値が分からない提携が {} 個ある: {}{}",
             absent.len(),
             listed.join(" "),
             if absent.len() > 10 { " ..." } else { "" }
@@ -506,15 +634,30 @@ fn check_table(n: usize, absent: &[Coalition], missing: Missing) -> Result<()> {
 }
 
 impl GameData {
-    /// 値が分からない (空でない) 提携。
-    pub fn missing(&self) -> Vec<Coalition> {
+    /// 値が分からない (空でない) 提携の一覧 (提携の番号順)。
+    ///
+    /// 一覧を作れるのは [`MAX_PLAYERS`] 人まで (超えれば [`Error::TooManyPlayers`])。
+    /// 分からない提携があるかだけを知るには [`GameData::has_missing`] を使う。
+    pub fn missing(&self) -> Result<Vec<Coalition>> {
         missing_coalitions(self.players, self.known.iter().map(|(c, _)| *c))
     }
 
+    /// 値が分からない (空でない) 提携があるか。
+    ///
+    /// 提携を列挙せず、値が分かる提携の数が `2^n - 1` 未満かで判定するので、
+    /// 全提携の表を作れない人数 ([`MAX_PLAYERS`] 人を超える) でも使える。
+    pub fn has_missing(&self) -> bool {
+        has_missing_coalitions(self.players, self.known.iter().map(|(c, _)| *c))
+    }
+
     /// 全提携の値の表にする。
+    ///
+    /// [`MAX_PLAYERS`] 人を超えると [`Error::TooManyPlayers`]。値が分からない提携があり、`missing` が
+    /// [`Missing::Error`] なら、分からない提携 (最初の 10 個) を示した [`Error::InvalidArgument`] を返す。
+    /// 分からない値を 0 とみなすなら [`Missing::Zero`]、分かる提携だけで解くなら [`GameData::partial`] を使う。
     pub fn to_explicit(&self, missing: Missing) -> Result<ExplicitGame> {
         let n = self.players;
-        check_table(n, &self.missing(), missing)?;
+        check_table(n, self.known.iter().map(|(c, _)| *c), missing)?;
         let mut values = vec![0.0; (1usize << n) - 1];
         for (coalition, value) in &self.known {
             values[coalition.index() - 1] = *value;
@@ -715,7 +858,8 @@ mod tests {
     fn missing_values_are_reported_or_filled() {
         let csv = "coalition,value\n0,1\n1,1\n2,1\n0|1,3\n0|1|2,6\n";
         let data = parse_csv(csv).unwrap();
-        assert_eq!(data.missing().len(), 2);
+        assert_eq!(data.missing().unwrap().len(), 2);
+        assert!(data.has_missing());
         let err = data.to_explicit(Missing::Error).unwrap_err().to_string();
         assert!(err.contains("{0, 2}") && err.contains("{1, 2}"), "{err}");
         let filled = data.to_explicit(Missing::Zero).unwrap();
@@ -752,11 +896,124 @@ mod tests {
     #[test]
     fn rejects_bad_input() {
         assert!(parse_json(r#"{"players": 1, "values": {"1": 1}}"#).is_err()); // 人数の範囲外
-        assert!(parse_json(r#"{"values": {"0": 1, "0": 2}}"#).is_ok()); // JSON のキー重複は後勝ち
+        assert!(parse_json(r#"{"values": {"0": 1, "0": 2}}"#).is_err()); // JSON のキー重複
         assert!(parse_json(r#"{"values": {"A": 1}}"#).is_err()); // 番号でない
         assert!(parse_csv("coalition,value\n0,1\n0,2\n").is_err());
         assert!(parse_csv("coalition,value\n0,1\n1,1\n").is_err()); // 全体提携がない
         assert!(parse_csv("name,value\n0,1\n").is_err());
+    }
+
+    /// 同じ提携の値の重複は、JSON のキー・順序だけ違うキー・配列・CSV のどの書き方でもエラーにする。
+    #[test]
+    fn duplicate_coalitions_are_rejected_in_every_form() {
+        let inputs = [
+            parse_json(r#"{"values": {"0": 0, "1": 0, "0,1": 4, "0,1": 5}}"#),
+            parse_json(r#"{"values": {"0": 0, "1": 0, "0,1": 4, "1,0": 5}}"#),
+            parse_json(
+                r#"{"values": [{"coalition": [0], "value": 0}, {"coalition": [1], "value": 0},
+                    {"coalition": [0, 1], "value": 4}, {"coalition": [1, 0], "value": 5}]}"#,
+            ),
+            parse_csv("coalition,value\n0,0\n1,0\n0|1,4\n1|0,5\n"),
+        ];
+        for result in inputs {
+            let err = result.unwrap_err().to_string();
+            assert!(err.contains("提携 {0, 1} の値が重複している"), "{err}");
+        }
+        // 字面どおりに読む場合も同じ。
+        let err = parse_json_exact(r#"{"values": {"0": 0, "1": 0, "0,1": 4, "0,1": 5}}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("重複"), "{err}");
+    }
+
+    /// トップレベルや配列の要素の中で同じキーを 2 回書くと、後の値で上書きせずにエラーにする。
+    #[test]
+    fn duplicate_json_keys_are_rejected() {
+        let err = parse_json(r#"{"type": "cost", "type": "value", "values": {"0": 1}}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("トップレベルのキー \"type\" が重複"), "{err}");
+        let err = parse_json(r#"{"values": [{"coalition": [0], "value": 1, "value": 2}]}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("values の 0 番目の要素のキー \"value\" が重複"),
+            "{err}"
+        );
+    }
+
+    /// 1 つの提携の中の同じ番号は、`{0}` と読まずにエラーにする (`0|1` の打ち間違いを見逃さないため)。
+    #[test]
+    fn duplicate_members_are_rejected() {
+        let err = parse_csv("coalition,value\n1,0\n0|0,1\n0|1,3\n").unwrap_err();
+        assert!(matches!(err, Error::Parse { line: 3, .. }), "{err:?}");
+        assert!(
+            err.to_string()
+                .contains("提携 [0, 0] にプレイヤー番号 0 が 2 回以上ある"),
+            "{err}"
+        );
+        for text in [
+            r#"{"values": {"0,0": 1, "1": 0, "0,1": 3}}"#,
+            r#"{"values": [{"coalition": [0, 0], "value": 1}, {"coalition": [0, 1], "value": 3}]}"#,
+        ] {
+            let err = parse_json(text).unwrap_err().to_string();
+            assert!(err.contains("2 回以上ある"), "{text}: {err}");
+        }
+    }
+
+    /// 人数を省いた入力の番号が大きすぎても、あふれずに範囲外の番号として行番号つきで報告する。
+    #[test]
+    fn huge_player_index_is_out_of_range() {
+        let max = usize::MAX;
+        let err = parse_csv(&format!("coalition,value\n0,1\n{max},1\n")).unwrap_err();
+        assert!(matches!(err, Error::Parse { line: 3, .. }), "{err:?}");
+        assert!(err.to_string().contains("範囲外"), "{err}");
+        let err = parse_csv("coalition,value\n63,1\n").unwrap_err();
+        assert!(matches!(err, Error::Parse { line: 2, .. }), "{err:?}");
+        let err = parse_json(&format!(
+            r#"{{"values": [{{"coalition": [{max}], "value": 1}}]}}"#
+        ))
+        .unwrap_err();
+        assert!(err.to_string().contains("範囲外"), "{err}");
+        // 番号 62 (63 人) までは読める。
+        let grand: Vec<String> = (0..63).map(|i| i.to_string()).collect();
+        let data = parse_csv(&format!("coalition,value\n{},1\n", grand.join("|"))).unwrap();
+        assert_eq!(data.players, 63);
+        // 人数を書いた場合は人数と比べる (行番号つき)。
+        let err = parse_json(r#"{"players": 2, "values": {"0": 1, "2": 1}}"#).unwrap_err();
+        assert!(err.to_string().contains("人数 2 以上"), "{err}");
+        assert!(matches!(
+            parse_json(r#"{"players": 64, "values": {"0": 1}}"#).unwrap_err(),
+            Error::TooManyPlayers { players: 64, .. }
+        ));
+    }
+
+    /// 分からない提携があるかは、提携を列挙せずに分かる (全提携の表を作れない人数でも)。
+    #[test]
+    fn has_missing_does_not_enumerate_coalitions() {
+        let n = 40;
+        let grand: Vec<String> = (0..n).map(|i| i.to_string()).collect();
+        let data = parse_csv(&format!("coalition,value\n0,1\n{},1\n", grand.join("|"))).unwrap();
+        assert_eq!(data.players, n);
+        assert!(data.has_missing());
+        assert!(matches!(
+            data.missing(),
+            Err(Error::TooManyPlayers { players: 40, .. })
+        ));
+        assert!(matches!(
+            data.to_explicit(Missing::Zero),
+            Err(Error::TooManyPlayers { .. })
+        ));
+        let complete = parse_json(JSON).unwrap();
+        assert!(!complete.has_missing());
+        assert!(complete.missing().unwrap().is_empty());
+        // フィールドを直接書き換えた重複や範囲外の提携は数えない。
+        let mut padded = parse_csv("coalition,value\n0,1\n0|1,2\n").unwrap();
+        padded.known.push((Coalition::singleton(0), 1.0));
+        padded.known.push((Coalition::singleton(5), 1.0));
+        assert!(padded.has_missing());
+        let exact = parse_csv_exact("coalition,value\n0,1\n1,1\n0|1,2\n").unwrap();
+        assert!(!exact.has_missing());
     }
     #[test]
     fn rejects_non_string_type_and_misspelled_keys() {
