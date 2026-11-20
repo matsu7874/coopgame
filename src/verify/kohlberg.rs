@@ -28,7 +28,8 @@ pub struct KohlbergReport {
 /// - 仁: `D0(x) = { {i} : x_i = v({i}) }` を重み 0 以上で加えてよい。
 ///
 /// 超過の値の段ごとに平衡性を LP で判定する。族の階数が `n` に達して平衡なら、
-/// それ以降の段も平衡になる(`1_N` が錐の内点にあるため)ので判定を打ち切る。
+/// それ以降の段も平衡になる(`1_N` が錐の内点にあるため)ので判定を打ち切る
+/// (Lean による証明: リポジトリの `proofs/` の `PosCombination.mono_of_span_eq_top`)。
 ///
 /// 既定の許容誤差で検証する。
 pub fn kohlberg(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<KohlbergReport> {

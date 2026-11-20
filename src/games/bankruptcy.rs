@@ -173,6 +173,7 @@ impl SetFunction for BankruptcyGame {
 /// 破産ゲームは凸である。`v(S) = max(0, (E - D) + d(S))` は、加法的な `d(S)` に
 /// 凸で非減少な関数 `t -> max(0, (E - D) + t)` を合成したもので、`d_i >= 0` のときこの合成は優モジュラになる
 /// (`d(S ∪ T) + d(S ∩ T) = d(S) + d(T)` かつ `d(S ∩ T) <= d(S), d(T) <= d(S ∪ T)` と、凸関数の性質から)。
+/// Lean による証明: リポジトリの `proofs/` の `bankruptcy_supermodular`。
 impl ConvexGame for BankruptcyGame {
     type Proof = Proven;
 }

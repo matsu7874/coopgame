@@ -27,8 +27,9 @@ cargo build --release --features cli   # target/release/coopgame
 | `data/` | 文書が引用する計測 (`bench/`)・他の実装との比較 (`compare/`)・分析 (`analysis/`) のデータ。`data/SHA256SUMS` で照合する |
 | `docs/` | 利用者と、現状を理解したい人向けの文書 (チュートリアル、CLI と入力形式、性能と制約、保証の設計、他の実装との比較、文献と根拠、再現の手順)。一覧は `docs/README.md` |
 | `scripts/` | 文書の数値の照合 (`verify_claims.py`) と、他の実装との比較のスクリプト (`compare/`) |
+| `proofs/` | リポジトリ内で導いた数学的な主張の Lean 4 による証明 (構造的な凸性、Kohlberg 判定の打ち切りなど)。一覧と確かめ方は `proofs/README.md` |
 
-`data/`、`docs/`、`scripts/` は crates.io のパッケージに含めない (`Cargo.toml` の `exclude`)。
+`data/`、`docs/`、`scripts/`、`proofs/` は crates.io のパッケージに含めない (`Cargo.toml` の `exclude`)。
 
 ## モジュールの構成と依存の向き
 
@@ -74,6 +75,12 @@ debug ビルドでは、大きいゲームを解くテスト (`tests/oracle.rs` 
 RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
 cargo test --doc                        # rustdoc と README・docs/ のコード例
 cargo build --no-default-features       # feature なしでビルドできること
+```
+
+`proofs/` の定理が対象にしている式 ([proofs/README.md](proofs/README.md) の表) を変更した場合は、定理の文も合わせて直し、次を実行する。
+
+```bash
+(cd proofs && lake exe cache get && lake build)
 ```
 
 コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) の形式で書く (説明は日本語でよい)。

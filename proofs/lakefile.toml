@@ -1,0 +1,16 @@
+name = "coopgame-proofs"
+version = "0.1.0"
+defaultTargets = ["CoopgameProofs"]
+
+[leanOptions]
+pp.unicode.fun = true
+relaxedAutoImplicit = false
+maxSynthPendingDepth = 3
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.36.0"
+
+[[lean_lib]]
+name = "CoopgameProofs"
