@@ -15,7 +15,7 @@ pub(crate) mod scale;
 pub(crate) mod subsets;
 
 pub use allocation::Domain;
-pub(crate) use allocation::excess_table;
+pub(crate) use allocation::{assert_allocation_len, excess_table};
 pub use coalition::{Coalition, binary_to_lex};
 pub use player_set::{PlayerSet, SetFunction, value_scale};
 
@@ -115,7 +115,7 @@ impl ExplicitGame {
     }
 
     /// 1 行に 1 つの値を書いたテキスト(BNF 実装の `v.txt` 形式、ビット順)を読む。
-    /// 空行と `#` で始まる行は無視する。
+    /// 空行と `#` で始まる行、先頭の UTF-8 の BOM は無視する (値の読み方は [`parse_values`])。
     pub fn parse_lines(text: &str) -> Result<ExplicitGame> {
         ExplicitGame::from_binary(&parse_values(text)?)
     }
@@ -202,10 +202,17 @@ pub(super) fn check_players(players: usize) -> Result<()> {
     Ok(())
 }
 
-/// 1 行に 1 つの数値を読む。
+/// 先頭の UTF-8 の BOM (表計算ソフトやエディタが付けることがある) を取り除く。
+pub(crate) fn strip_bom(text: &str) -> &str {
+    text.strip_prefix('\u{feff}').unwrap_or(text)
+}
+
+/// 1 行に 1 つの数値を読む。空行と `#` で始まる行は無視し、先頭の UTF-8 の BOM も無視する。
+///
+/// 値は `f64` として読む。`8/3` の形の分数 ([`exact::parse_rational`] の形) は最も近い浮動小数点数にする。
 pub fn parse_values(text: &str) -> Result<Vec<f64>> {
     let mut values = Vec::new();
-    for (index, line) in text.lines().enumerate() {
+    for (index, line) in strip_bom(text).lines().enumerate() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
@@ -254,5 +261,25 @@ mod tests {
     fn reports_parse_error_line() {
         let err = ExplicitGame::parse_lines("1\nx\n3\n").unwrap_err();
         assert!(matches!(err, Error::Parse { line: 2, .. }));
+    }
+
+    #[test]
+    fn line_formats_ignore_leading_bom() {
+        assert_eq!(parse_values("\u{feff}1\n2\n3\n").unwrap(), [1.0, 2.0, 3.0]);
+        assert_eq!(parse_values("\u{feff}# v.txt\n8/4\n").unwrap(), [2.0]);
+        let game = ExplicitGame::parse_lines("\u{feff}1\n2\n3\n").unwrap();
+        assert_eq!(game.value(game.grand()), 3.0);
+        assert_eq!(
+            exact::parse_rational_values("\u{feff}1/2\n0.1\n").unwrap(),
+            [
+                exact::Rational::new(1.into(), 2.into()),
+                exact::Rational::new(1.into(), 10.into())
+            ]
+        );
+        // 先頭以外の BOM は値の一部として扱い、行番号つきのエラーにする。
+        let err = parse_values("1\n\u{feff}2\n").unwrap_err();
+        assert!(matches!(err, Error::Parse { line: 2, .. }), "{err:?}");
+        let err = exact::parse_rational_values("1\n\u{feff}2\n").unwrap_err();
+        assert!(matches!(err, Error::Parse { line: 2, .. }), "{err:?}");
     }
 }

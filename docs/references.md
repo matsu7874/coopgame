@@ -119,7 +119,7 @@
 | 文献の数値例 (仁・プレ仁) | PS2007 Example 5.5.12、Fer | `tests/literature.rs`、[literature-cases.md](literature-cases.md) | 文献の値との一致と手計算 |
 | TUGLab の仁の計算方法 | PRA1996 | `docs/comparison.md` | なし (比較対象の説明) |
 | プレカーネルが 1 点のとき、プレ仁を O(n^3) で計算できる (著者の主張) | Mei2025 (要旨) | `examples/study_prekernel.rs` の動機 | なし。本リポジトリでは前提 (プレカーネルが 1 点) の成立頻度を測った |
-| tau 値は最小の権利と理想の支払いを結ぶ線分上の効率的な点で、準平衡なゲームで定義される | Tij1981 (定義は SA2019 で確認) | `src/compromise.rs` | 手計算の例、CoopGame の `tauValue` のヘルプの例 (Stach 2011)、tucoopy 0.1.0 と 84 ゲームで一致 (準平衡でない 95 ゲームは本実装がエラー、tucoopy は値を返す) |
+| tau 値は最小の権利と理想の支払いを結ぶ線分上の効率的な点で、準平衡なゲームで定義される | Tij1981 (定義は SA2019 で確認) | `src/compromise.rs` | 手計算の例、CoopGame の `tauValue` のヘルプの例 (Stach 2011)、tucoopy 0.1.0 と 84 ゲームで一致 (準平衡でない残りの 96 ゲームは本実装がエラー、tucoopy はそのうち 95 ゲームで値を返す) |
 | Gately 点は抜ける傾向を全員で等しくする配分で、`v(N) > sum v({i})` かつ `M_i - v({i})` の符号がそろう場合に配分として一意に定まる | Gat1974、SA2019 | `src/compromise.rs` | 抜ける傾向が等しいこと、CoopGame の `gatelyValue` のヘルプの 2 例。tucoopy 0.1.0 は分子から `v(N \ {i})` を落としており一致しない |
 | solidarity 値の定義 | NR1994 | `src/values.rs` | 手計算の例、全員一致ゲーム u_{1,2} で (7/18, 7/18, 4/18)。tucoopy 0.1.0 の `solidarity_value` は Harsanyi 配当を等分する式 (Shapley 値と同じ) で一致しない |
 | Myerson 値はグラフ制限ゲームの Shapley 値 | Mye1977 | `src/communication.rs` | 完全グラフで Shapley 値に一致、手計算の例、Python の myerson パッケージの例、tucoopy 0.1.0 と 180 ゲームで一致 |

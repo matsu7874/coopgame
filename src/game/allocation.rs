@@ -30,18 +30,26 @@ pub(crate) fn coalition_sums(x: &[f64]) -> Vec<f64> {
 ///
 /// `x` の長さがプレイヤー数と異なるとパニックする (長さの違う配分で誤った表を返さないため、release でも確かめる)。
 pub(crate) fn excess_table(game: &ExplicitGame, x: &[f64]) -> Vec<f64> {
-    assert_eq!(
-        x.len(),
-        game.players(),
-        "配分の長さ {} がプレイヤー数 {} と異なる",
-        x.len(),
-        game.players()
-    );
+    assert_allocation_len(game.players(), x);
     let mut excess = coalition_sums(x);
     for (e, value) in excess.iter_mut().zip(game.values()) {
         *e = value - *e;
     }
     excess
+}
+
+/// 配分の長さがプレイヤー数 `n` と等しいことを確かめる (release でも確かめる)。
+///
+/// # Panics
+///
+/// 長さが異なるとパニックする。
+pub(crate) fn assert_allocation_len(n: usize, x: &[f64]) {
+    assert_eq!(
+        x.len(),
+        n,
+        "配分の長さ {} がプレイヤー数 {n} と異なる",
+        x.len()
+    );
 }
 
 /// 配分の長さと有限性を確かめる。不正ならその説明を返す。

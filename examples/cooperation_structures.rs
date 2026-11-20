@@ -72,7 +72,7 @@ fn structures(game: &ExplicitGame, shapley: &[f64]) -> coopgame::Result<()> {
     assert!(close(&union_sums, &quotient_shapley, 1e-6));
 
     // 全員で 1 つのグループなら、Aumann–Drèze 値も Owen 値も Shapley 値に戻る。
-    let grand = CoalitionStructure::grand(3);
+    let grand = CoalitionStructure::grand(3)?;
     assert!(close(
         &partition::aumann_dreze(game, &grand)?,
         shapley,

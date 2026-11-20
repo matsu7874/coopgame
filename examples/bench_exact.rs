@@ -17,7 +17,7 @@ use coopgame::{Domain, generators, nucleolus};
 fn parse_sizes() -> Vec<usize> {
     std::env::args()
         .nth(1)
-        .map_or("3,4,5,6".to_string(), |s| s)
+        .unwrap_or_else(|| "3,4,5,6".to_string())
         .split(',')
         .map(|s| s.parse().expect("人数"))
         .collect()

@@ -99,7 +99,7 @@ pub fn weighted_voting(weights: &[f64], quota: f64) -> Result<ExplicitGame> {
 /// 破産ゲーム: `v(S) = max(0, E - sum_{j not in S} d_j)`。仁はタルムード則と一致する。
 ///
 /// 入力の前提は [`crate::games::bankruptcy::BankruptcyGame::new`] と同じ
-/// (遺産と請求は有限かつ非負、遺産は請求の総和以下)。
+/// (遺産と請求は有限かつ非負、請求の総和も有限、遺産は請求の総和以下)。
 pub fn bankruptcy(estate: f64, claims: &[f64]) -> Result<ExplicitGame> {
     crate::games::bankruptcy::validate(&estate, claims)?;
     ExplicitGame::from_fn(claims.len(), |coalition| {

@@ -9,8 +9,8 @@ use coopgame::{Coalition, Domain, generators, nucleolus, values};
 
 fn structures(n: usize) -> Vec<CoalitionStructure> {
     vec![
-        CoalitionStructure::grand(n),
-        CoalitionStructure::singletons(n),
+        CoalitionStructure::grand(n).unwrap(),
+        CoalitionStructure::singletons(n).unwrap(),
         CoalitionStructure::new(n, &[vec![0, 1, 2], vec![3, 4], vec![5]]).unwrap(),
         CoalitionStructure::new(n, &[vec![0, 3], vec![1, 4, 5], vec![2]]).unwrap(),
     ]
@@ -24,13 +24,13 @@ fn owen_value_properties() {
         let shapley = values::shapley(&game);
         let tolerance = 1e-9 * game.max_abs_value().max(1.0);
         assert_close(
-            &owen(&game, &CoalitionStructure::grand(6)).unwrap(),
+            &owen(&game, &CoalitionStructure::grand(6).unwrap()).unwrap(),
             &shapley,
             tolerance,
             "全員 1 つ",
         );
         assert_close(
-            &owen(&game, &CoalitionStructure::singletons(6)).unwrap(),
+            &owen(&game, &CoalitionStructure::singletons(6).unwrap()).unwrap(),
             &shapley,
             tolerance,
             "全員単独",
@@ -56,13 +56,13 @@ fn aumann_dreze_value_properties() {
         let game = generators::bnf(4, 6, seed).unwrap();
         let tolerance = 1e-9 * game.max_abs_value().max(1.0);
         assert_close(
-            &aumann_dreze(&game, &CoalitionStructure::grand(6)).unwrap(),
+            &aumann_dreze(&game, &CoalitionStructure::grand(6).unwrap()).unwrap(),
             &values::shapley(&game),
             tolerance,
             "全員 1 つ",
         );
         assert_close(
-            &aumann_dreze(&game, &CoalitionStructure::singletons(6)).unwrap(),
+            &aumann_dreze(&game, &CoalitionStructure::singletons(6).unwrap()).unwrap(),
             &game.singleton_values(),
             tolerance,
             "全員単独",
@@ -84,7 +84,8 @@ fn structured_nucleolus_properties() {
         let game = generators::bnf(1, 6, seed).unwrap();
         let tolerance = 1e-6 * game.max_abs_value().max(1.0);
         for domain in [Domain::Imputation, Domain::Preimputation] {
-            let grand = partition::nucleolus(&game, &CoalitionStructure::grand(6), domain).unwrap();
+            let grand = partition::nucleolus(&game, &CoalitionStructure::grand(6).unwrap(), domain)
+                .unwrap();
             let expected =
                 nucleolus::nucleolus_with(&game, nucleolus::Options::new(&game, domain)).unwrap();
             assert_close(
@@ -94,7 +95,8 @@ fn structured_nucleolus_properties() {
                 "全員 1 つ",
             );
             let singles =
-                partition::nucleolus(&game, &CoalitionStructure::singletons(6), domain).unwrap();
+                partition::nucleolus(&game, &CoalitionStructure::singletons(6).unwrap(), domain)
+                    .unwrap();
             assert_close(
                 singles.allocation(),
                 &game.singleton_values(),
