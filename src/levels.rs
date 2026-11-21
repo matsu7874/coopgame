@@ -2,11 +2,12 @@
 //!
 //! 配分 `x` での超過 `v(S) - x(S)` を大きい順に並べ、許容誤差以内で等しいものを 1 つの段として読む。
 //! 仁 (プレ仁) では、段を上から順に合わせた提携族がどれも平衡になる (Kohlberg 基準)。
-//! 厳密な検証 ([`crate::verify`]) は読み取った段から厳密な配分を復元し、逐次 LP ([`crate::nucleolus`]) は
-//! 解いた配分の段が細かい許容誤差で読んでも整合するかを確かめる。
+//! 厳密な検証 ([`crate::verify`]) は読み取った段 ([`SortedExcess`]) から厳密な配分を復元する。
+//! 逐次 LP ([`crate::nucleolus`]) は、解いた配分が細かい許容誤差でも Kohlberg 基準を満たすかを確かめる ([`kohlberg_at`])。
 
 use crate::Domain;
 use crate::error::{Error, Result};
+use crate::game::allocation::feasibility_violation;
 use crate::game::excess_table;
 use crate::game::{Coalition, ExplicitGame};
 use crate::linalg::Span;
@@ -103,21 +104,91 @@ impl SortedExcess {
     }
 }
 
-/// `x` の超過の段を `reading_tolerance` で読んだとき、段を上から順に合わせた提携族がどれも平衡か。
+/// 浮動小数点数の Kohlberg 判定の結果 ([`kohlberg_at`])。
+pub(crate) struct KohlbergCheck {
+    pub(crate) satisfied: bool,
+    /// 不成立の場合の理由。
+    pub(crate) reason: Option<String>,
+    /// 平衡性を判定した超過の段の数。
+    pub(crate) levels_checked: usize,
+    pub(crate) lp_solves: usize,
+}
+
+/// 配分 `x` が Kohlberg 基準を満たすかを、許容誤差 `tolerance` で判定する ([`crate::verify::kohlberg`] の本体)。
 ///
-/// 仁 (プレ仁) の段はこの条件を満たす。超過の差が逐次 LP の許容誤差より小さい別の段を同じ段として確定した配分は、
-/// 細かい `reading_tolerance` で読むと段が分かれ、この条件を満たさなくなる。
-/// `x` の長さはプレイヤー数と同じで、成分は有限であること。
-pub(crate) fn levels_are_balanced_at(
+/// 和・個人合理性を `tolerance` で確かめ、超過が先頭から `tolerance` 以内の提携を同じ段として読み、
+/// 段を上から順に合わせた提携族がどれも平衡かを LP で判定する。仁では、`x_i <= v({i}) + tolerance` の
+/// 1 人提携を重み 0 以上で加えてよい。提携族の特性ベクトルが `R^n` を張った段で打ち切る
+/// (張って平衡なら、それ以降の段も平衡になる)。下限にいるプレイヤーの 1 人提携は、張る空間には数えない。
+/// `x` の長さがプレイヤー数と異なる・成分が有限でない場合は不成立にする。
+pub(crate) fn kohlberg_at(
     game: &ExplicitGame,
     x: &[f64],
     domain: Domain,
-    reading_tolerance: f64,
-) -> Result<bool> {
-    let sorted = SortedExcess::new(game, x);
-    Ok(match sorted.read(game, x, domain, reading_tolerance)? {
-        Some(reading) => sorted.levels_are_balanced(&reading, game.players()),
-        None => false,
+    tolerance: f64,
+) -> Result<KohlbergCheck> {
+    let n = game.players();
+    if let Some(reason) = feasibility_violation(game, x, domain, tolerance) {
+        return Ok(KohlbergCheck {
+            satisfied: false,
+            reason: Some(reason),
+            levels_checked: 0,
+            lp_solves: 0,
+        });
+    }
+
+    let excess = excess_table(game, x);
+    let full = (1usize << n) - 1;
+    let mut order: Vec<usize> = (1..full).collect();
+    order.sort_by(|a, b| excess[*b].total_cmp(&excess[*a]));
+
+    let at_lower_bound: Vec<Coalition> = match domain {
+        Domain::Imputation => (0..n)
+            .filter(|&i| x[i] <= game.value(Coalition::singleton(i)) + tolerance)
+            .map(Coalition::singleton)
+            .collect(),
+        Domain::Preimputation => Vec::new(),
+    };
+
+    let mut counter = Counter::default();
+    let mut collection: Vec<Coalition> = Vec::new();
+    let mut span = Span::new(n);
+    let mut levels_checked = 0;
+    let mut start = 0;
+    while start < order.len() {
+        let level = excess[order[start]];
+        let mut end = start;
+        while end < order.len() && excess[order[end]] >= level - tolerance {
+            let coalition = Coalition(order[end] as u64);
+            collection.push(coalition);
+            span.insert_coalition(coalition);
+            end += 1;
+        }
+        if end == start {
+            // 超過が NaN などで比較できず、段が 1 つも進まない (入口の検証で防いでいるが、無限ループを避ける)。
+            return Err(Error::Numerical(format!(
+                "超過 {level} の段を作れない (比較できない値がある)"
+            )));
+        }
+        levels_checked += 1;
+        if !is_balanced(&collection, &at_lower_bound, n, &mut counter)? {
+            return Ok(KohlbergCheck {
+                satisfied: false,
+                reason: Some(format!("超過 {level} 以上の提携族が平衡でない")),
+                levels_checked,
+                lp_solves: counter.solves,
+            });
+        }
+        if span.is_full() {
+            break;
+        }
+        start = end;
+    }
+    Ok(KohlbergCheck {
+        satisfied: true,
+        reason: None,
+        levels_checked,
+        lp_solves: counter.solves,
     })
 }
 
@@ -168,11 +239,6 @@ mod tests {
                 .unwrap();
             sorted.levels_are_balanced(&reading, 3)
         };
-        // 同じ判定を 1 つの関数で行う。
-        assert!(levels_are_balanced_at(&game, &[2.0, 2.0, 0.0], Domain::Imputation, 1e-9).unwrap());
-        assert!(
-            !levels_are_balanced_at(&game, &[1.0, 3.0, 0.0], Domain::Imputation, 1e-9).unwrap()
-        );
         assert!(balanced(&[2.0, 2.0, 0.0]));
         // 超過 0 の段 {3}・{1, 2} は平衡だが、次の段 {1}・{1, 3} を合わせると平衡でない。
         assert!(!balanced(&[1.0, 3.0, 0.0]));

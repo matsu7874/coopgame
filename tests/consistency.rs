@@ -144,10 +144,12 @@ fn cost_game_via_negation() {
 
 #[test]
 fn constraint_generation_matches_full_lp() {
-    use coopgame::nucleolus::{Method, Options};
+    use coopgame::nucleolus::{Method, Options, Tolerance};
     for (name, game) in random_games() {
         for domain in [Domain::Imputation, Domain::Preimputation] {
+            // 行の入れ方だけを比べるので、既定の比の許容誤差で 1 回だけ解く。
             let mut options = Options::new(domain);
+            options.tolerance = Tolerance::Relative(1e-7);
             options.method = Method::Full;
             let full = nucleolus::nucleolus_with(&game, options).unwrap();
             options.method = Method::ConstraintGeneration;

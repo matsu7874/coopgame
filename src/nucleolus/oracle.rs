@@ -47,7 +47,7 @@ pub fn prenucleolus<G: Separation + ?Sized>(game: &G) -> Result<NucleolusResult>
     nucleolus_with(game, Domain::Preimputation, default_tolerance(game))
 }
 
-/// `tolerance` はゲームの値と同じ単位。配分集合の扱いは [`crate::nucleolus::Options::tolerance`] と同じ。
+/// `tolerance` はゲームの値と同じ単位。配分集合の扱いは [`crate::nucleolus::Tolerance`] の説明と同じ。
 ///
 /// `tolerance` が有限で 0 以上でないとき、またはゲームの値の大きさで割ると有限でない (値に比べて大きすぎる) ときは
 /// [`Error::InvalidArgument`] を返す。

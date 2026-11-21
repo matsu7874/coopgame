@@ -22,7 +22,28 @@ pub(crate) fn check_tolerance(tolerance: f64) -> Result<f64> {
         Ok(tolerance)
     } else {
         Err(Error::InvalidArgument(format!(
-            "許容誤差 {tolerance} が 0 以上の有限の数ではない"
+            "許容誤差 {tolerance:e} が 0 以上の有限の数ではない"
+        )))
+    }
+}
+
+/// 利用者が指定した許容誤差の比 `ratio` を確かめ、値の大きさ `magnitude` (最大絶対値など) に掛けて、
+/// 値と同じ単位の許容誤差にする。
+///
+/// 比が有限で 0 以上でないとき、または掛けた許容誤差が有限でないときは [`Error::InvalidArgument`]
+/// (掛ける前に確かめるので、エラーには利用者が指定した比を書ける)。
+pub(crate) fn tolerance_from_ratio(ratio: f64, magnitude: f64) -> Result<f64> {
+    if !(ratio.is_finite() && ratio >= 0.0) {
+        return Err(Error::InvalidArgument(format!(
+            "許容誤差の比 {ratio:e} が 0 以上の有限の数ではない"
+        )));
+    }
+    let tolerance = ratio * positive_scale(magnitude);
+    if tolerance.is_finite() {
+        Ok(tolerance)
+    } else {
+        Err(Error::InvalidArgument(format!(
+            "許容誤差の比 {ratio:e} がゲームの値の大きさに比べて大きすぎる"
         )))
     }
 }
@@ -37,7 +58,7 @@ pub(crate) fn normalized_tolerance(tolerance: f64, divisor: f64) -> Result<f64> 
         Ok(normalized)
     } else {
         Err(Error::InvalidArgument(format!(
-            "許容誤差 {tolerance} がゲームの値の大きさに比べて大きすぎる"
+            "許容誤差 {tolerance:e} がゲームの値の大きさに比べて大きすぎる"
         )))
     }
 }

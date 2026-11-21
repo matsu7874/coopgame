@@ -2,12 +2,8 @@
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::allocation::feasibility_violation;
-use crate::game::excess_table;
-use crate::game::{Coalition, ExplicitGame, default_tolerance};
-use crate::levels::is_balanced;
-use crate::linalg::Span;
-use crate::lp::Counter;
+use crate::game::{ExplicitGame, default_tolerance};
+use crate::levels::kohlberg_at;
 
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -34,7 +30,6 @@ pub struct KohlbergReport {
 ///
 /// 既定の許容誤差で検証する。
 pub fn kohlberg(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<KohlbergReport> {
-    let tolerance = default_tolerance(game) * 10.0;
     let n = game.players();
     if x.len() != n {
         return Err(Error::InvalidArgument(format!(
@@ -42,68 +37,12 @@ pub fn kohlberg(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<Kohlbe
             x.len()
         )));
     }
-    let fail = |reason: String| KohlbergReport {
-        satisfied: false,
-        reason: Some(reason),
-        levels_checked: 0,
-        lp_solves: 0,
-    };
-    if let Some(reason) = feasibility_violation(game, x, domain, tolerance) {
-        return Ok(fail(reason));
-    }
-
-    let excess = excess_table(game, x);
-    let full = (1usize << n) - 1;
-    let mut order: Vec<usize> = (1..full).collect();
-    order.sort_by(|a, b| excess[*b].total_cmp(&excess[*a]));
-
-    let at_lower_bound: Vec<Coalition> = match domain {
-        Domain::Imputation => (0..n)
-            .filter(|&i| x[i] <= game.value(Coalition::singleton(i)) + tolerance)
-            .map(Coalition::singleton)
-            .collect(),
-        Domain::Preimputation => Vec::new(),
-    };
-
-    let mut counter = Counter::default();
-    let mut collection: Vec<Coalition> = Vec::new();
-    let mut span = Span::new(n);
-    let mut levels_checked = 0;
-    let mut start = 0;
-    while start < order.len() {
-        let level = excess[order[start]];
-        let mut end = start;
-        while end < order.len() && excess[order[end]] >= level - tolerance {
-            let coalition = Coalition(order[end] as u64);
-            collection.push(coalition);
-            span.insert_coalition(coalition);
-            end += 1;
-        }
-        if end == start {
-            // 超過が NaN などで比較できず、段が 1 つも進まない (入口の検証で防いでいるが、無限ループを避ける)。
-            return Err(Error::Numerical(format!(
-                "超過 {level} の段を作れない (比較できない値がある)"
-            )));
-        }
-        levels_checked += 1;
-        if !is_balanced(&collection, &at_lower_bound, n, &mut counter)? {
-            return Ok(KohlbergReport {
-                satisfied: false,
-                reason: Some(format!("超過 {level} 以上の提携族が平衡でない")),
-                levels_checked,
-                lp_solves: counter.solves,
-            });
-        }
-        if span.is_full() {
-            break;
-        }
-        start = end;
-    }
+    let check = kohlberg_at(game, x, domain, default_tolerance(game) * 10.0)?;
     Ok(KohlbergReport {
-        satisfied: true,
-        reason: None,
-        levels_checked,
-        lp_solves: counter.solves,
+        satisfied: check.satisfied,
+        reason: check.reason,
+        levels_checked: check.levels_checked,
+        lp_solves: check.lp_solves,
     })
 }
 

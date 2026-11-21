@@ -268,7 +268,7 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
 pub struct SetOptions {
     /// 等号・不等号の判定に使う許容誤差 (ゲームの値と同じ単位)。既定は [`default_tolerance`]。
     ///
-    /// 配分集合の扱いは [`crate::nucleolus::Options::tolerance`] と同じで、[`crate::kernel::kernel_point`] とも
+    /// 配分集合の扱いは [`crate::nucleolus::Tolerance`] の説明と同じで、[`crate::kernel::kernel_point`] とも
     /// 同じ式 (`sum v({i}) <= v(N) + tolerance`) で空かどうかを判定する。ただし既定の許容誤差は
     /// `kernel_point` ([`crate::kernel::TransferOptions::for_game`]) の方が 100 倍小さいので、
     /// 差が `0.01 * default_tolerance` を超えて `default_tolerance` 以下のゲームでは、既定値のままだと

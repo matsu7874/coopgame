@@ -9,9 +9,17 @@ mod common;
 use common::max_abs_difference;
 use coopgame::game::default_tolerance;
 use coopgame::game::exact::ExactGame;
-use coopgame::nucleolus::{self, Options, exact};
+use coopgame::nucleolus::{self, Options, Tolerance, exact};
 use coopgame::num_traits::ToPrimitive;
 use coopgame::{Domain, ExplicitGame};
+
+/// 既定の比 (`1e-7`) の許容誤差で 1 回だけ解く設定。既定の設定 (`Tolerance::Auto`) は解き直すので、
+/// 1 回の逐次 LP が近接した段でも解けることは、この設定で確かめる。
+fn single_solve(domain: Domain) -> Options {
+    let mut options = Options::new(domain);
+    options.tolerance = Tolerance::Relative(1e-7);
+    options
+}
 
 /// 有理数の逐次 LP の仁と比べる。浮動小数点の結果の誤差は許容誤差の 2 倍以内とする。
 fn assert_matches_exact(game: &ExplicitGame, domain: Domain, label: &str) {
@@ -21,7 +29,7 @@ fn assert_matches_exact(game: &ExplicitGame, domain: Domain, label: &str) {
         .iter()
         .map(|q| q.to_f64().unwrap())
         .collect::<Vec<_>>();
-    let actual = nucleolus::nucleolus_with(game, Options::new(domain))
+    let actual = nucleolus::nucleolus_with(game, single_solve(domain))
         .unwrap_or_else(|err| panic!("{label} {domain:?}: {err}"));
     let tolerance = default_tolerance(game);
     let difference = max_abs_difference(actual.allocation(), &expected);
@@ -53,7 +61,7 @@ fn coalition_whose_excess_is_within_tolerance_of_the_level() {
         2999999.0 / 3.0,
     ];
     for domain in [Domain::Imputation, Domain::Preimputation] {
-        let actual = nucleolus::nucleolus_with(&game, Options::new(domain))
+        let actual = nucleolus::nucleolus_with(&game, single_solve(domain))
             .unwrap_or_else(|err| panic!("{domain:?}: {err}"));
         let difference = max_abs_difference(actual.allocation(), &expected);
         assert!(

@@ -17,7 +17,7 @@
 //! 確定値 `c_S` は、その段の LP の解 `x` での `x(S)` にする (`v(S) - t*` にはしない)。
 //! `x` が全ての確定の等式を同時に満たすので、以後の LP は常に実行可能点 `x` を持つ。
 //! 超過の差が許容誤差より小さい別の段があるゲームでは、結果が仁から許容誤差の程度ずれる。
-//! 既定の設定 ([`Tolerance::Auto`]) は、解いた配分の超過の段を細かく読み直してこのずれを確かめ、
+//! 既定の設定 ([`Tolerance::Auto`]) は、解いた配分が Kohlberg 基準を細かい許容誤差でも満たすかでこのずれを確かめ、
 //! 必要なら許容誤差を下げて解き直すか、有理数の逐次 LP ([`exact`]) で求める ([`nucleolus_with`])。
 //! 許容誤差を指定すれば ([`Tolerance::Absolute`]・[`Tolerance::Relative`])、その値で 1 回だけ解く。
 //!
@@ -54,9 +54,11 @@ use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::{block_lower_bounds, coalition_sums, excess_table};
 use crate::game::exact::{ExactGame, to_f64, to_rational};
-use crate::game::scale::{normalized_tolerance, positive_scale, rounding_magnitude};
-use crate::game::{Coalition, ExplicitGame, default_tolerance, relative_tolerance};
-use crate::levels::levels_are_balanced_at;
+use crate::game::scale::{
+    normalized_tolerance, positive_scale, rounding_magnitude, tolerance_from_ratio,
+};
+use crate::game::{Coalition, ExplicitGame, default_tolerance};
+use crate::levels::kohlberg_at;
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
 use crate::solution::Guarantee;
@@ -86,18 +88,21 @@ pub enum Tolerance {
     Auto,
     /// ゲームの値と同じ単位の許容誤差で、1 回だけ解く。有限で 0 以上の値にする。
     Absolute(f64),
-    /// 値の最大絶対値 `max|v(S)|` に対する比の許容誤差で、1 回だけ解く ([`relative_tolerance`])。
+    /// 値の最大絶対値 `max|v(S)|` に対する比の許容誤差で、1 回だけ解く ([`crate::game::relative_tolerance`])。
     /// 有限で 0 以上の値にする。`Auto` が最初に使う比は `1e-7`。
     Relative(f64),
 }
 
 impl Tolerance {
     /// 1 回だけ解くときの許容誤差 (ゲームの値と同じ単位)。`Auto` は既定の許容誤差。
-    fn fixed(self, game: &ExplicitGame) -> f64 {
+    ///
+    /// `Relative` の比が有限で 0 以上でなければ [`Error::InvalidArgument`]
+    /// (`Absolute` の値は、解く前に [`Settings::new`] が確かめる)。
+    fn fixed(self, game: &ExplicitGame) -> Result<f64> {
         match self {
-            Tolerance::Auto => default_tolerance(game),
-            Tolerance::Absolute(tolerance) => tolerance,
-            Tolerance::Relative(ratio) => relative_tolerance(game, ratio),
+            Tolerance::Auto => Ok(default_tolerance(game)),
+            Tolerance::Absolute(tolerance) => Ok(tolerance),
+            Tolerance::Relative(ratio) => tolerance_from_ratio(ratio, game.max_abs_value()),
         }
     }
 }
@@ -131,6 +136,8 @@ struct Settings {
     /// 割ったゲームの値の単位での許容誤差。
     tolerance: f64,
     method: Method,
+    /// 制約生成で後から追加する行の数の上限。超えたら [`Error::LimitExceeded`] で打ち切る。
+    row_budget: usize,
 }
 
 impl Settings {
@@ -143,6 +150,7 @@ impl Settings {
             domain,
             tolerance: normalized_tolerance(tolerance, divisor)?,
             method,
+            row_budget: usize::MAX,
         })
     }
 }
@@ -201,7 +209,8 @@ impl NucleolusResult {
         self.tolerance
     }
 
-    /// [`Tolerance::Auto`] で、許容誤差を下げて解き直した回数。
+    /// [`Tolerance::Auto`] で、許容誤差を下げて解き直しを試みた回数 (LP が失敗した試行を含む)。
+    /// 返した配分を求めた許容誤差は [`NucleolusResult::tolerance`]。
     pub fn refinements(&self) -> usize {
         self.refinements
     }
@@ -212,8 +221,8 @@ impl NucleolusResult {
     }
 
     /// 全提携の値を持つゲームの逐次 LP ([`nucleolus`] など) では [`Guarantee::Exact`]。
-    /// ただし [`Tolerance::Auto`] で、許容誤差を下げても超過の段が整合せず、有理数の逐次 LP も使えなかった
-    /// 結果は [`Guarantee::Approximate`] ([`nucleolus_with`])。
+    /// ただし [`Tolerance::Auto`] で、許容誤差を下げても Kohlberg 基準を満たさず、有理数の逐次 LP にも
+    /// 切り替えなかった結果は [`Guarantee::Approximate`] ([`nucleolus_with`])。
     /// オラクル版 ([`oracle`]) では、オラクルが全ての真部分提携について答えれば `Exact`、
     /// 一部の提携だけなら [`Guarantee::Approximate`]。
     pub fn guarantee(&self) -> Guarantee {
@@ -311,7 +320,16 @@ pub fn prenucleolus(game: &ExplicitGame) -> Result<NucleolusResult> {
 /// [`Tolerance::Auto`] が順に試す許容誤差 (`max|v(S)|` に対する比)。
 const AUTO_TOLERANCES: [f64; 3] = [1e-7, 1e-9, 1e-11];
 
-/// [`Tolerance::Auto`] が、解いた配分の超過の段を読み直す許容誤差 (`max|v(S)|` に対する比)。
+/// [`Tolerance::Auto`] の解き直しで、制約生成が追加してよい行の数の、最初に解いたときに追加した行の数に対する倍率
+/// (少なくとも `4 n^2` 行は追加できる)。
+///
+/// 許容誤差を下げると、LP の解の誤差を違反とみなして行を足し続け、ほぼ全ての提携を行にしても終わらないことがある。
+/// 許容誤差を下げて正しい仁が求まった解では、追加した行は最初の 5.3 倍以下だった
+/// (11・14・16 人の整数ゲーム。`docs/performance.md` の「上限と既定値の根拠」)。上限を超えた解き直しは打ち切り、
+/// その許容誤差では解けなかったものとして扱う。
+const REFINEMENT_ROW_FACTOR: usize = 8;
+
+/// [`Tolerance::Auto`] が、解いた配分の Kohlberg 基準を確かめるときに超過の段を読む許容誤差 (`max|v(S)|` に対する比)。
 ///
 /// 細かいほど、間隔の小さい段をまとめた配分を見分けられるが、逐次 LP の解の誤差を別の段と読み違えやすくなる。
 /// 同点が本物のゲーム (BNF・凸・優加法的・重み付き投票の表、20 人まで) では、`1e-12` で読み違いがなく、
@@ -319,10 +337,17 @@ const AUTO_TOLERANCES: [f64; 3] = [1e-7, 1e-9, 1e-11];
 /// それより多い人数では正しい配分の保証を近似にしてしまうので、余裕を 1 桁多く取る。
 const AUTO_READING: f64 = 1e-11;
 
-/// 有理数の逐次 LP に切り替えられる人数 ([`exact::MAX_EXACT_PLAYERS`] 人以下) での [`AUTO_READING`]。
+/// 有理数の逐次 LP に切り替えられる人数 ([`MAX_AUTO_RATIONAL_PLAYERS`] 人以下) での [`AUTO_READING`]。
 const AUTO_READING_WITH_RATIONAL: f64 = 1e-12;
 
-/// [`Tolerance::Auto`] が、解いた配分の超過の段を読み直して確かめる人数の上限
+/// [`Tolerance::Auto`] が、有理数の逐次 LP ([`exact::nucleolus`]) に自動で切り替える人数の上限。
+///
+/// 有理数の逐次 LP の時間は人数とともに急に延びる。切り替えが起きる種類のゲーム (値が大きい整数のゲーム) では、
+/// 8 人で 2-10 秒、9 人で 47-133 秒だった (`docs/performance.md`)。それより多い人数で有理数の仁が要るときは、
+/// [`exact::nucleolus`] を直接使う ([`exact::MAX_EXACT_PLAYERS`] 人まで)。
+pub const MAX_AUTO_RATIONAL_PLAYERS: usize = 8;
+
+/// [`Tolerance::Auto`] が、解いた配分の Kohlberg 基準を確かめる人数の上限
 /// (全ての提携の超過を並べ、段の提携族の平衡性を LP で判定する)。
 pub const MAX_AUTO_CHECK_PLAYERS: usize = 20;
 
@@ -336,19 +361,23 @@ pub const MAX_AUTO_CHECK_PLAYERS: usize = 20;
 ///   結果は許容誤差の範囲で成り立つ。
 /// - [`Tolerance::Auto`] (既定): 仁を正しく求めることを優先し、次の順に進める。
 ///   1. `max|v(S)|` の `1e-7` 倍の許容誤差で解く。
-///   2. [`MAX_AUTO_CHECK_PLAYERS`] 人以下なら、解いた配分の超過の段を `max|v(S)|` の `1e-11` 倍
-///      ([`exact::MAX_EXACT_PLAYERS`] 人以下では `1e-12` 倍) の許容誤差で読み直し、段を上から順に合わせた
-///      提携族がどれも平衡 (Kohlberg 基準) かを確かめる。平衡ならその配分を返す。
+///   2. [`MAX_AUTO_CHECK_PLAYERS`] 人以下なら、解いた配分が Kohlberg 基準を満たすかを、`max|v(S)|` の `1e-11` 倍
+///      ([`MAX_AUTO_RATIONAL_PLAYERS`] 人以下では `1e-12` 倍) の許容誤差で確かめる: 和と個人合理性を満たし、
+///      超過の段を上から順に合わせた提携族がどれも平衡であること。満たせばその配分を返す。
 ///      別の段を同じ段として確定した配分は、細かく読むと段が分かれて平衡でなくなる。
 ///      超過の段の間隔がこの許容誤差より小さいゲームでは、見分けられないことがある。
-///   3. 平衡でなければ、許容誤差を `1e-9` 倍、`1e-11` 倍に下げて解き直し、同じ確認をする。
-///   4. どの許容誤差でも平衡にならない (または LP が数値的に失敗した) ときは、[`exact::MAX_EXACT_PLAYERS`]
+///   3. 満たさなければ、許容誤差を `1e-9` 倍、`1e-11` 倍に下げて解き直し、同じ確認をする。
+///      解き直しで制約生成が追加する行は、最初に解いたときの 8 倍 (少なくとも `4 n^2` 行) までとし、
+///      超えたらその許容誤差では解けなかったものとして扱う。
+///   4. どの許容誤差でも満たさない (または LP が数値的に失敗した) ときは、[`MAX_AUTO_RATIONAL_PLAYERS`]
 ///      人以下なら有理数の逐次 LP ([`exact::nucleolus`]) で求める。値は f64 の 2 進数の値どおりの有理数として扱う。
-///      それより多い人数では、最後に解けた配分を保証 [`Guarantee::Approximate`] で返す。
+///      それより多い人数と、有理数の逐次 LP で求められなかったときは、最後に解けた配分を保証
+///      [`Guarantee::Approximate`] で返す。
 ///
-///   解き直しと有理数の逐次 LP の分だけ時間がかかる (有理数の逐次 LP は 10 人で数分かかることがある)。
+///   解き直しと有理数の逐次 LP の分だけ時間がかかる (有理数の逐次 LP は 8 人で 10 秒ほどかかることがある)。
 ///   [`MAX_AUTO_CHECK_PLAYERS`] 人を超えるゲームは 1. だけを行う。
-///   結果の [`NucleolusResult::tolerance`]・[`NucleolusResult::refinements`]・[`NucleolusResult::is_rational`]
+///   結果の [`NucleolusResult::tolerance`] (返した配分を求めた許容誤差)・[`NucleolusResult::refinements`]
+///   (許容誤差を下げて解き直しを試みた回数。失敗した試行を含む)・[`NucleolusResult::is_rational`]
 ///   で、どう求めたかが分かる。
 ///
 /// # Errors
@@ -361,7 +390,7 @@ pub const MAX_AUTO_CHECK_PLAYERS: usize = 20;
 pub fn nucleolus_with(game: &ExplicitGame, options: Options) -> Result<NucleolusResult> {
     match options.tolerance {
         Tolerance::Auto => solve_auto(game, options.domain, options.method, true),
-        fixed => solve_once(game, options.domain, options.method, fixed.fixed(game)),
+        fixed => solve_once(game, options.domain, options.method, fixed.fixed(game)?),
     }
 }
 
@@ -386,6 +415,9 @@ fn solve_once(
 }
 
 /// [`Tolerance::Auto`] の手順 ([`nucleolus_with`])。`rational_fallback` が偽なら、有理数の逐次 LP に切り替えない。
+///
+/// 逐次 LP と確認は、値を 2 のべき乗で割ったゲームの上で行う (値が f64 の上限に近いゲームや非正規化数のゲームでも、
+/// 超過が溢れたり潰れたりしない)。
 fn solve_auto(
     game: &ExplicitGame,
     domain: Domain,
@@ -393,46 +425,66 @@ fn solve_auto(
     rational_fallback: bool,
 ) -> Result<NucleolusResult> {
     let n = game.players();
-    let scale = positive_scale(game.max_abs_value());
-    let rational_fallback = rational_fallback && n <= exact::MAX_EXACT_PLAYERS;
-    let reading = if rational_fallback {
-        AUTO_READING_WITH_RATIONAL
-    } else {
-        AUTO_READING
+    let (normalized, divisor) = game.normalized();
+    // 割ったゲームの値の最大絶対値 (`[1, 2)`。全ての値が 0 なら 1)。
+    let scale = positive_scale(normalized.max_abs_value());
+    let rational_fallback = rational_fallback && n <= MAX_AUTO_RATIONAL_PLAYERS;
+    let reading = scale
+        * if rational_fallback {
+            AUTO_READING_WITH_RATIONAL
+        } else {
+            AUTO_READING
+        };
+    // 元の大きさの結果にする。`refinements` は、許容誤差を下げて解き直しを試みた回数。
+    let finish = |mut result: NucleolusResult, refinements: usize| {
+        result.refinements = refinements;
+        result.scaled_by(divisor)
     };
     let mut solved: Option<NucleolusResult> = None;
     let mut failure: Option<Error> = None;
-    let mut refinements = 0;
-    for (attempt, ratio) in AUTO_TOLERANCES.iter().enumerate() {
-        refinements = attempt;
-        let mut result = match solve_once(game, domain, method, ratio * scale) {
-            Ok(result) => result,
-            // LP の数値的な失敗は、有理数の逐次 LP で解けることがある。それ以外 (入力の誤り、配分集合が空) は
-            // 解き直しても変わらない。
-            Err(error @ Error::Numerical(_)) => {
-                failure = Some(error);
-                break;
-            }
-            Err(error) => return Err(error),
+    let mut attempts = 0;
+    // 解き直しで追加してよい行の数。最初に解いたときに追加した行の数から決める。
+    let mut row_budget = usize::MAX;
+    for ratio in AUTO_TOLERANCES {
+        attempts += 1;
+        let settings = Settings {
+            domain,
+            tolerance: ratio * scale,
+            method,
+            row_budget,
         };
-        result.refinements = attempt;
+        let result =
+            match Sequential::new(&normalized, settings).and_then(|mut solver| solver.run()) {
+                Ok(result) => result,
+                // LP の数値的な失敗と、解き直しの行の上限は、有理数の逐次 LP で解けることがある。
+                // それ以外 (入力の誤り、配分集合が空) は解き直しても変わらない。
+                Err(error @ (Error::Numerical(_) | Error::Lp(_) | Error::LimitExceeded(_))) => {
+                    failure = Some(error);
+                    break;
+                }
+                Err(error) => return Err(error),
+            };
+        if attempts == 1 {
+            row_budget = (REFINEMENT_ROW_FACTOR * result.rows_added).max(4 * n * n);
+        }
         // LP を解かずに決まった配分 (1 人ゲーム、配分集合が 1 点) には、確かめる段がない。
         if result.lp_solves == 0
             || n > MAX_AUTO_CHECK_PLAYERS
-            || levels_are_balanced_at(game, &result.allocation, domain, reading * scale)
-                .unwrap_or(false)
+            || kohlberg_at(&normalized, &result.allocation, domain, reading)
+                .is_ok_and(|check| check.satisfied)
         {
-            return Ok(result);
+            return finish(result, attempts - 1);
         }
         solved = Some(result);
     }
+    let refinements = attempts - 1;
     if rational_fallback && let Ok(result) = solve_rationally(game, domain, refinements) {
         return Ok(result);
     }
     match (solved, failure) {
         (Some(mut result), _) => {
             result.guarantee = Guarantee::Approximate;
-            Ok(result)
+            finish(result, refinements)
         }
         (None, Some(error)) => Err(error),
         (None, None) => unreachable!("解けたか、失敗を記録したかのどちらか"),
@@ -465,18 +517,18 @@ fn solve_rationally(
 /// 提携構造 `blocks` (N の分割) のもとでの仁 (`Domain::Imputation`) またはプレ仁。
 ///
 /// 各ブロック `B` で `x(B) = v(B)` を課し、その中で超過ベクトルを辞書式に最小化する
-/// (Aumann & Drèze 1974 の提携構造つきの仁)。ブロックが N だけなら [`nucleolus_with`] と同じ。
+/// (Aumann & Drèze 1974 の提携構造つきの仁)。ブロックが N だけなら、同じ許容誤差で 1 回だけ解いた [`nucleolus_with`] と同じ。
 /// 分割になっているかは呼び出し側 ([`crate::partition::CoalitionStructure`]) で確かめる。
 ///
 /// 1 回だけ解く。[`Tolerance::Auto`] は既定の許容誤差 ([`default_tolerance`]) で解く
-/// (超過の段を読み直す確認は、提携構造のない仁だけが行う)。
+/// (Kohlberg 基準の確認は、提携構造のない仁だけが行う)。
 pub(crate) fn nucleolus_with_structure(
     game: &ExplicitGame,
     blocks: &[Coalition],
     options: Options,
 ) -> Result<NucleolusResult> {
     let (normalized, divisor) = game.normalized();
-    let tolerance = options.tolerance.fixed(game);
+    let tolerance = options.tolerance.fixed(game)?;
     let settings = Settings::new(options.domain, options.method, tolerance, divisor)?;
     let lower = block_lower_bounds(&normalized, blocks, settings.domain, settings.tolerance)?;
     if blocks.iter().all(|block| block.len() == 1) {
@@ -886,6 +938,13 @@ impl<'a> Sequential<'a> {
                 self.remember(coalition);
                 self.rows_added += 1;
             }
+            if self.rows_added > self.options.row_budget {
+                return Err(Error::LimitExceeded(format!(
+                    "制約生成で追加した行が上限 {} を超えた (許容誤差 {})",
+                    self.options.row_budget,
+                    self.tolerance()
+                )));
+            }
         }
     }
 
@@ -1066,6 +1125,33 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// 制約生成が追加する行に上限を置くと、超えたところで `LimitExceeded` を返す
+    /// (既定の手順の解き直しが、この失敗をその許容誤差では解けなかったものとして扱う)。
+    #[test]
+    fn row_budget_stops_constraint_generation() {
+        let game = generators::bnf(1, 8, 0).unwrap();
+        let (normalized, divisor) = game.normalized();
+        let tolerance = default_tolerance(&game);
+        let solve = |row_budget: usize| {
+            let mut settings = Settings::new(
+                Domain::Imputation,
+                Method::ConstraintGeneration,
+                tolerance,
+                divisor,
+            )
+            .unwrap();
+            settings.row_budget = row_budget;
+            Sequential::new(&normalized, settings).and_then(|mut solver| solver.run())
+        };
+        let unlimited = solve(usize::MAX).unwrap();
+        assert!(unlimited.rows_added > 1, "{}", unlimited.rows_added);
+        // ちょうどの上限では解け、1 行少ない上限では打ち切る。
+        let exact = solve(unlimited.rows_added).unwrap();
+        assert_eq!(exact.allocation, unlimited.allocation);
+        let result = solve(unlimited.rows_added - 1);
+        assert!(matches!(result, Err(Error::LimitExceeded(_))), "{result:?}");
     }
 
     #[test]

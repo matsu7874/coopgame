@@ -1,9 +1,10 @@
 //! 逐次 LP の許容誤差の決め方 (`nucleolus::Tolerance`) を確かめる。
 //!
-//! - 既定 (`Tolerance::Auto`) は、値が大きい整数のゲームでも有理数の仁と一致する配分を返す。
-//!   必要なら許容誤差を下げて解き直し、それでも超過の段が整合しなければ有理数の逐次 LP で求める。
+//! - 既定 (`Tolerance::Auto`) は、解いた配分が Kohlberg 基準を細かい許容誤差でも満たすかを確かめる。
+//!   満たさなければ許容誤差を下げて解き直し、それでも満たさなければ、8 人以下は有理数の逐次 LP で求め、
+//!   9 人以上は保証を `approximate` にする。値が 1e9 程度までの整数のゲームで、有理数の仁と一致する。
 //! - 許容誤差を指定すると (`Absolute`・`Relative`)、その許容誤差で 1 回だけ解く。
-//! - 超過の段が整合するゲームでは、既定でも 1 回だけ解く。
+//! - 最初に解いた配分が Kohlberg 基準を細かい許容誤差でも満たすゲームでは、既定でも 1 回だけ解く。
 
 mod common;
 
@@ -85,7 +86,7 @@ fn default_matches_rational_nucleolus_of_large_integer_games() {
     }
 }
 
-/// 超過の段が整合するゲームでは、既定でも比 1e-7 の許容誤差で 1 回だけ解き、指定した場合と同じ結果を返す。
+/// 最初に解いた配分が Kohlberg 基準を満たすゲームでは、既定でも比 1e-7 の許容誤差で 1 回だけ解き、指定した場合と同じ結果を返す。
 #[test]
 fn default_solves_once_when_levels_are_consistent() {
     for seed in 0..12u64 {
@@ -104,7 +105,8 @@ fn default_solves_once_when_levels_are_consistent() {
 }
 
 /// 値が 1e12 程度の整数ゲームは、逐次 LP の許容誤差を下げても超過の段を分けられない。
-/// 既定は、10 人以下なら有理数の逐次 LP に切り替えて求める。
+/// 既定は、解いた配分が Kohlberg 基準を満たさないと分かれば、8 人以下では有理数の逐次 LP に切り替えて求める
+/// (段の間隔が確認の許容誤差より小さく、満たさないと分からないゲームもある。その場合は切り替えない)。
 #[test]
 fn default_switches_to_rational_solver_when_lp_cannot_separate_levels() {
     let mut switched = 0;
@@ -121,7 +123,7 @@ fn default_switches_to_rational_solver_when_lp_cannot_separate_levels() {
     assert!(switched >= 5, "{switched}");
 }
 
-/// 有理数の逐次 LP に切り替えられない人数 (11 人以上) で超過の段が整合しなければ、最後に解けた配分を
+/// 有理数の逐次 LP に自動では切り替えない人数 (9 人以上) で Kohlberg 基準を満たさなければ、最後に解けた配分を
 /// 保証 `approximate` で返す。許容誤差を指定した場合は、確かめずに `exact` のまま返す。
 #[test]
 fn default_reports_approximate_when_levels_stay_inconsistent() {
@@ -164,4 +166,122 @@ fn fixed_tolerance_is_absolute_or_relative() {
             "{tolerance:?}: {result:?}"
         );
     }
+}
+
+/// 値が `scale * |S| + 0..6` で、1 人提携の値も `scale + 0..6`、全体提携の値が 1 人提携の値の和より
+/// `1..6` だけ大きい整数ゲーム。仁では多くのプレイヤーが下限 `x_i = v({i})` の近くにいる。
+fn games_near_lower_bounds(
+    scale: f64,
+    sizes: &[usize],
+    count: usize,
+    seed: u64,
+) -> Vec<ExplicitGame> {
+    let mut state = seed;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    (0..count)
+        .map(|case| {
+            let n = sizes[case % sizes.len()];
+            let full = (1usize << n) - 1;
+            let mut values: Vec<f64> = (1..=full)
+                .map(|mask| scale * mask.count_ones() as f64 + (next() % 7) as f64)
+                .collect();
+            let singles: f64 = (0..n).map(|i| values[(1 << i) - 1]).sum();
+            values[full - 1] = singles + (1 + next() % 6) as f64;
+            ExplicitGame::from_binary(&values).unwrap()
+        })
+        .collect()
+}
+
+/// 仁で多くのプレイヤーが下限 `x_i = v({i})` にいるゲームでも、既定は有理数の仁と一致する。
+/// 下限にいるプレイヤーの 1 人提携だけでは、Kohlberg 基準を満たすことにならない。
+#[test]
+fn default_matches_rational_nucleolus_when_players_sit_at_lower_bounds() {
+    // 2 人: v({0}) = v({1}) = 1e10、v(N) = 2e10 + 1。仁は余りの 1 を等分する。
+    let game = ExplicitGame::from_binary(&[1e10, 1e10, 2e10 + 1.0]).unwrap();
+    let auto = nucleolus::nucleolus(&game).unwrap();
+    assert_eq!(auto.allocation(), [1e10 + 0.5, 1e10 + 0.5], "{auto:?}");
+    assert_eq!(auto.guarantee(), Guarantee::Exact);
+
+    // 対称なゲーム v(S) = s|S| (S != N)、v(N) = s n + 1。仁は等分 s + 1/n。
+    let scale = 3e9;
+    for n in [3usize, 6, 8] {
+        let full = (1usize << n) - 1;
+        let values: Vec<f64> = (1..=full)
+            .map(|mask| {
+                let size = mask.count_ones() as f64;
+                if mask == full {
+                    scale * size + 1.0
+                } else {
+                    scale * size
+                }
+            })
+            .collect();
+        let game = ExplicitGame::from_binary(&values).unwrap();
+        let auto = nucleolus::nucleolus(&game).unwrap();
+        let truth = rational_nucleolus(&game);
+        let rounding = 4.0 * n as f64 * f64::EPSILON * game.max_abs_value();
+        assert!(
+            max_abs_difference(auto.allocation(), &truth) <= rounding,
+            "n={n}: {auto:?} / {truth:?}"
+        );
+        assert_eq!(auto.guarantee(), Guarantee::Exact, "n={n}");
+    }
+
+    for scale in [1e7, 1e9] {
+        for (case, game) in games_near_lower_bounds(scale, &[3, 4, 5, 6], 24, 7)
+            .iter()
+            .enumerate()
+        {
+            let n = game.players();
+            let auto = nucleolus::nucleolus(game).unwrap();
+            let truth = rational_nucleolus(game);
+            let rounding = 4.0 * n as f64 * f64::EPSILON * game.max_abs_value();
+            assert!(
+                max_abs_difference(auto.allocation(), &truth) <= rounding,
+                "{scale:e} case {case}: {auto:?} / {truth:?}"
+            );
+            // 個人合理性を丸めの範囲で満たす。
+            for (i, share) in auto.allocation().iter().enumerate() {
+                let lower = game.value(coopgame::Coalition::singleton(i));
+                assert!(*share >= lower - rounding, "{scale:e} case {case}: x_{i}");
+            }
+        }
+    }
+}
+
+/// 有理数の逐次 LP に自動では切り替えない人数 (9 人以上) で、下限にいるプレイヤーが多い配分が
+/// Kohlberg 基準を満たさなければ、保証を `approximate` にする (等分が仁の対称なゲームで、1 人に余りを寄せた配分を
+/// `exact` と名乗らない)。
+#[test]
+fn default_does_not_call_inconsistent_levels_exact_beyond_rational_limit() {
+    let (n, scale) = (nucleolus::MAX_AUTO_RATIONAL_PLAYERS + 1, 3e9);
+    let full = (1usize << n) - 1;
+    let values: Vec<f64> = (1..=full)
+        .map(|mask| {
+            let size = mask.count_ones() as f64;
+            if mask == full {
+                scale * size + 1.0
+            } else {
+                scale * size
+            }
+        })
+        .collect();
+    let game = ExplicitGame::from_binary(&values).unwrap();
+    let auto = nucleolus::nucleolus(&game).unwrap();
+    assert!(!auto.is_rational(), "{auto:?}");
+    let equal_split = scale + 1.0 / n as f64;
+    let rounding = 4.0 * n as f64 * f64::EPSILON * game.max_abs_value();
+    let is_equal_split = auto
+        .allocation()
+        .iter()
+        .all(|share| (share - equal_split).abs() <= rounding);
+    assert!(
+        is_equal_split || auto.guarantee() == Guarantee::Approximate,
+        "{auto:?}"
+    );
 }
