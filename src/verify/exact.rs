@@ -66,7 +66,7 @@ impl ExactReport {
 ///   (浮動小数点数の LP で判定) のときだけ、復元と判定に進む。仁の段はこの条件 (Kohlberg 基準) を満たすので、
 ///   満たさない読み取りは仁の段ではない。仁でない `x` について、有理数の計算を繰り返さないためである。
 ///   このため、仁ではないが仁から `T` 以内にある `x` は、`T` での読み取りから仁を復元できなければ不合格になる
-///   ([`crate::verify::check`] は逐次 LP の仁からも復元するので、そのような `x` も合格にする)。
+///   ([`crate::verify::check`] は基準の仁からも厳密な配分を求めるので、基準の仁が求まれば、そのような `x` も合格にする)。
 ///
 /// どの読み取りでも合格しなければ不合格 (`satisfied = false`) にする。`allocation` と `reason` には、
 /// 判定に合格した `x*` が `x` から離れていた場合はその `x*` と差を、そうでなければ最も大きい許容誤差の読み取りで
@@ -197,8 +197,8 @@ fn check_allocation(n: usize, x: &[f64]) -> Result<()> {
 
 /// 浮動小数点の配分 `x` の超過の段から、厳密な配分を復元する。一意に定まらなければ `None`。
 ///
-/// 未知数は `x_1..x_n` と各段の超過 `alpha_k`。超過の大きい段から順に、段の提携を全て方程式
-/// `x(S) + alpha_k = v(S)` として加え、提携の特性ベクトルが `R^n` を張った段で止める。
+/// 未知数は `x_1..x_n`。超過の大きい段から順に、段の提携の超過が等しいこと (段の先頭の提携 `S_0` との差の方程式
+/// `x(S) - x(S_0) = v(S) - v(S_0)`) と `x(N) = v(N)` を加え、提携の特性ベクトルが `R^n` を張った段で止める。
 /// 段の先頭の超過から `tolerance` 以内の提携を同じ段とし、仁 ([`Domain::Imputation`]) では
 /// `|x_i - v({i})| <= tolerance` のプレイヤーを下限に張り付いたとみなして `x_i = v({i})` も加える。
 ///
@@ -234,50 +234,53 @@ pub fn recover_allocation(
 }
 
 /// 読み取った段の連立一次方程式を有理数で解き、配分を返す。矛盾するか一意に定まらなければ `None`。
+///
+/// 段 `k` の提携 `S` の式は `x(S) + alpha_k = v(S)` である。未知数 `alpha_k` は持たず、段の最初の提携 `S_0` との差
+/// `x(S) - x(S_0) = v(S) - v(S_0)` を加える (`alpha_k = v(S_0) - x(S_0)` は `x` から決まるので、`x` の解の集合は同じ)。
+/// 未知数が人数だけになり、段が多い読み取り (仁でない配分を粗い許容誤差で読んだ場合など) でも行が長くならない。
 fn solve(sorted: &SortedExcess, exact: &ExactGame, reading: &Reading) -> Option<Vec<Rational>> {
     let n = exact.players();
-    // 未知数 (x_1..x_n, alpha_1..alpha_K) と右辺からなる行を加える。
-    let unknowns = n + reading.ends.len();
+    // 未知数 x_1..x_n と右辺からなる行を加える。
     let mut echelon = ExactEchelon::default();
     let mut push = |mut row: Vec<Rational>, rhs: Rational| -> bool {
         row.push(rhs);
-        !matches!(echelon.insert(row, unknowns), Inserted::Inconsistent)
+        !matches!(echelon.insert(row, n), Inserted::Inconsistent)
     };
     let grand = Coalition::grand(n);
-    let mut efficiency = indicator(grand, n);
-    efficiency.resize(unknowns, Rational::zero());
-    if !push(efficiency, exact.value(grand).clone()) {
+    if !push(indicator(grand, n), exact.value(grand).clone()) {
         return None;
     }
     for &i in &reading.lower_bound {
-        let mut row = vec![Rational::zero(); unknowns];
-        row[i] = Rational::one();
-        if !push(row, exact.value(Coalition::singleton(i)).clone()) {
+        let single = Coalition::singleton(i);
+        if !push(indicator(single, n), exact.value(single).clone()) {
             return None;
         }
     }
     let mut start = 0;
-    for (k, &end) in reading.ends.iter().enumerate() {
-        for &mask in &sorted.order[start..end] {
+    for &end in &reading.ends {
+        let first = Coalition(sorted.order[start] as u64);
+        let first_row = indicator(first, n);
+        for &mask in &sorted.order[start + 1..end] {
             let coalition = Coalition(mask as u64);
-            let mut row = indicator(coalition, n);
-            row.resize(unknowns, Rational::zero());
-            row[n + k] = Rational::one();
-            if !push(row, exact.value(coalition).clone()) {
+            let row: Vec<Rational> = indicator(coalition, n)
+                .iter()
+                .zip(&first_row)
+                .map(|(a, b)| a - b)
+                .collect();
+            if !push(row, exact.value(coalition) - exact.value(first)) {
                 return None;
             }
         }
         start = end;
     }
-    if echelon.rank() != unknowns {
+    if echelon.rank() != n {
         return None;
     }
     // 全ての列がピボットなので、既約な行階段形の右辺が解になる。
-    let mut solution = vec![Rational::zero(); unknowns];
+    let mut solution = vec![Rational::zero(); n];
     for (pivot, row) in &echelon.rows {
-        solution[*pivot] = row[unknowns].clone();
+        solution[*pivot] = row[n].clone();
     }
-    solution.truncate(n);
     Some(solution)
 }
 
@@ -450,6 +453,93 @@ mod tests {
         let report = certify(&game, &x, Domain::Imputation).unwrap();
         assert!(report.satisfied, "{report:?}");
         assert_eq!(report.allocation, vec![r(8, 3), r(2, 3), r(5, 3)]);
+    }
+
+    /// 段ごとの最大超過 `alpha_k` を未知数に持つ解き方 ([`solve`] と同じ解を返すことを確かめるための参照実装)。
+    fn solve_with_level_unknowns(
+        sorted: &SortedExcess,
+        exact: &ExactGame,
+        reading: &Reading,
+    ) -> Option<Vec<Rational>> {
+        let n = exact.players();
+        // 未知数 (x_1..x_n, alpha_1..alpha_K) と右辺からなる行を加える。
+        let unknowns = n + reading.ends.len();
+        let mut echelon = ExactEchelon::default();
+        let mut push = |mut row: Vec<Rational>, rhs: Rational| -> bool {
+            row.push(rhs);
+            !matches!(echelon.insert(row, unknowns), Inserted::Inconsistent)
+        };
+        let grand = Coalition::grand(n);
+        let mut efficiency = indicator(grand, n);
+        efficiency.resize(unknowns, Rational::zero());
+        if !push(efficiency, exact.value(grand).clone()) {
+            return None;
+        }
+        for &i in &reading.lower_bound {
+            let mut row = vec![Rational::zero(); unknowns];
+            row[i] = Rational::one();
+            if !push(row, exact.value(Coalition::singleton(i)).clone()) {
+                return None;
+            }
+        }
+        let mut start = 0;
+        for (k, &end) in reading.ends.iter().enumerate() {
+            for &mask in &sorted.order[start..end] {
+                let coalition = Coalition(mask as u64);
+                let mut row = indicator(coalition, n);
+                row.resize(unknowns, Rational::zero());
+                row[n + k] = Rational::one();
+                if !push(row, exact.value(coalition).clone()) {
+                    return None;
+                }
+            }
+            start = end;
+        }
+        if echelon.rank() != unknowns {
+            return None;
+        }
+        // 全ての列がピボットなので、既約な行階段形の右辺が解になる。
+        let mut solution = vec![Rational::zero(); unknowns];
+        for (pivot, row) in &echelon.rows {
+            solution[*pivot] = row[unknowns].clone();
+        }
+        solution.truncate(n);
+        Some(solution)
+    }
+
+    /// 段の差の式で解いた配分は、段ごとの未知数を持つ解き方と一致する (解けない場合も一致する)。
+    #[test]
+    fn solving_by_differences_matches_solving_with_level_unknowns() {
+        let mut solved = 0;
+        for seed in 0..40u64 {
+            let n = 3 + (seed % 4) as usize;
+            let game = crate::generators::bnf(1 + (seed % 4) as u8, n, seed)
+                .or_else(|_| crate::generators::bnf(1, n, seed))
+                .unwrap();
+            let exact = ExactGame::from_explicit(&game).unwrap();
+            let nucleolus = nucleolus::nucleolus(&game).unwrap().allocation;
+            let shapley = crate::values::shapley(&game);
+            for x in [&nucleolus, &shapley] {
+                let sorted = SortedExcess::new(&game, x);
+                for tolerance in [1e-9, 1e-3, 0.5, 5.0, 50.0] {
+                    for domain in [Domain::Imputation, Domain::Preimputation] {
+                        let Some(reading) = sorted.read(&game, x, domain, tolerance).unwrap()
+                        else {
+                            continue;
+                        };
+                        let by_differences = solve(&sorted, &exact, &reading);
+                        let reference = solve_with_level_unknowns(&sorted, &exact, &reading);
+                        assert_eq!(
+                            by_differences, reference,
+                            "seed {seed} tolerance {tolerance}"
+                        );
+                        solved += usize::from(by_differences.is_some());
+                    }
+                }
+            }
+        }
+        // 一意に解ける読み取りを含む (なければ、解の一致を確かめていない)。
+        assert!(solved >= 40, "{solved}");
     }
 
     #[test]

@@ -10,8 +10,9 @@
 //!   ([`crate::verify::certify`]) で検証する。合格すれば [`Guarantee::Certified`] に昇格する。
 //!   不合格なら、基準の仁と比べる。基準は逐次 LP で求めた仁で、それが厳密な検証に合格しなければ、
 //!   設定 ([`Reference`]) に応じて有理数の逐次 LP で求め直す。基準の仁が厳密な検証に合格し、候補との差が
-//!   許容誤差以下ならその厳密な仁で合格とし、離れていれば否定 (誤り) と確定する。基準の仁を求められないなど、
-//!   検証自体が成り立たないときは未決とする。
+//!   許容誤差以下ならその厳密な仁で合格とし、離れていれば否定 (誤り) と確定する。逐次 LP の仁が厳密な検証に
+//!   合格しなくても、浮動小数点の Kohlberg 判定に合格していれば、そこから許容誤差の 100 倍を超えて離れた候補は否定する。
+//!   基準の仁を求められないなど、検証自体が成り立たないときは未決とする。
 //! - それより多い人数 ([`MAX_PAIR_CHECK_PLAYERS`] まで): 仁はカーネルに、プレ仁はプレカーネルに属する
 //!   (Davis & Maschler 1965、Maschler, Peleg & Shapley 1979) ので、ランダムに選んだ組 `(i, j)` について
 //!   最大余剰 `s_ij`, `s_ji` を総当たりで (`2^(n-2)` 個の提携で) 求め、カーネル条件を確かめる。
@@ -56,7 +57,7 @@ pub const MAX_PAIR_CHECK_PLAYERS: usize = 26;
 
 /// 候補が厳密な検証に合格しないときに比べる、基準の仁の求め方 ([`MAX_CERTIFY_PLAYERS`] 人以下の検証で使う)。
 ///
-/// どちらも、まず逐次 LP の仁 (超過の段が整合しなければ、許容誤差を下げて解き直したもの) を基準にする。
+/// どれも、まず逐次 LP の仁 (解いた配分が Kohlberg 基準を細かい許容誤差で満たさなければ、許容誤差を下げて解き直したもの) を基準にする。
 /// 逐次 LP の仁は、超過の段の間隔が小さいゲーム (値が `1e9` 以上の整数のゲームなど) では厳密な仁からずれ、
 /// 厳密な配分を復元できないことがある。そのときに有理数の逐次 LP で基準を求め直すかどうかを選ぶ。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -65,13 +66,14 @@ pub enum Reference {
     /// 逐次 LP の仁だけを使う。逐次 LP の仁が厳密な検証に合格しなければ、浮動小数点の検証で比べる
     /// (差が小さければ未決になる)。
     Lp,
-    /// 逐次 LP の仁が厳密な検証に合格しなければ、有理数の逐次 LP で求め直す (既定)。
-    ///
-    /// 求め直すのは [`nucleolus::exact::MAX_EXACT_PLAYERS`] 人まで (それより多い人数では [`Reference::Lp`] と同じ)。
-    /// 有理数の逐次 LP の時間は人数とともに急に延びる (計測では 8 人で最大 2.5 秒、9 人で 23 秒、10 人で 153 秒。
-    /// `docs/performance.md`)。
-    #[default]
+    /// 逐次 LP の仁が厳密な検証に合格しなければ、有理数の逐次 LP で求め直す
+    /// ([`nucleolus::exact::MAX_EXACT_PLAYERS`] 人まで。それより多い人数では [`Reference::Lp`] と同じ)。
+    /// 9・10 人では数分かかることがある (`docs/performance.md`)。
     Exact,
+    /// 逐次 LP の仁が厳密な検証に合格しなければ、[`nucleolus::MAX_AUTO_RATIONAL_PLAYERS`] 人以下のときだけ
+    /// 有理数の逐次 LP で求め直す (既定。仁の既定の手順が有理数に切り替える上限と同じ)。
+    #[default]
+    Auto,
 }
 
 impl Reference {
@@ -80,6 +82,7 @@ impl Reference {
         match self {
             Reference::Lp => 0,
             Reference::Exact => nucleolus::exact::MAX_EXACT_PLAYERS,
+            Reference::Auto => nucleolus::MAX_AUTO_RATIONAL_PLAYERS,
         }
     }
 }
@@ -90,7 +93,7 @@ pub struct VerifyOptions {
     /// 多人数のときに調べる組の数。
     pub pairs: usize,
     pub seed: u64,
-    /// 基準の仁の求め方。既定は [`Reference::Exact`]。
+    /// 基準の仁の求め方。既定は [`Reference::Auto`]。
     pub reference: Reference,
 }
 
@@ -99,7 +102,7 @@ impl Default for VerifyOptions {
         VerifyOptions {
             pairs: 8,
             seed: 0,
-            reference: Reference::Exact,
+            reference: Reference::Auto,
         }
     }
 }
@@ -380,6 +383,19 @@ fn certify_small(
     {
         return against_exact(exact_reference.allocation);
     }
+    // LP の仁が浮動小数点の Kohlberg 判定に合格していれば、数値誤差より十分大きい差 (`100 * tolerance`) で
+    // 離れた候補は、有理数の基準を待たずに否定できる (値が浮動小数点の和で作られていると、有理数では
+    // 等しくない超過が近接して、LP の仁から厳密な配分を復元できないことがある)。
+    let float_reference = lp.as_ref().ok().map(|lp| {
+        kohlberg(explicit, lp, domain).map(|report| (report.satisfied, max_abs_difference(lp, x)))
+    });
+    if let Some(Ok((true, distance))) = float_reference
+        && distance > 100.0 * tolerance
+    {
+        return Check::Refuted(format!(
+            "浮動小数点で検証した仁との差が {distance:e} ある ({reason})"
+        ));
+    }
     // 基準 2: 有理数の逐次 LP の仁 (求め方が許す人数まで)。有理数の Kohlberg 判定に合格したものだけを使う。
     if explicit.players() <= reference.exact_players()
         && let Ok(solved) = nucleolus::exact::nucleolus(exact_game, domain)
@@ -387,35 +403,18 @@ fn certify_small(
     {
         return against_exact(solved.allocation);
     }
-    let lp = match lp {
-        Ok(lp) => lp,
-        Err(error) => {
-            return Check::Undecided(format!(
-                "候補は厳密な検証に合格せず ({reason})、比べる基準の仁も求められない: {error}"
-            ));
-        }
-    };
-    // 値が浮動小数点の和で作られていると、有理数では等しくない超過が近接して厳密な検証が
-    // 成り立たないことがある。その場合は浮動小数点の Kohlberg 判定に合格した LP の仁を基準にし、
-    // 数値誤差より十分大きい差 (`100 * tolerance`) があるときだけ否定する。
-    match kohlberg(explicit, &lp, domain) {
-        Ok(kohlberg_report) if kohlberg_report.satisfied => {
-            let distance = max_abs_difference(&lp, x);
-            if distance > 100.0 * tolerance {
-                Check::Refuted(format!(
-                    "浮動小数点で検証した仁との差が {distance:e} ある ({reason})"
-                ))
-            } else {
-                Check::Undecided(format!(
-                    "浮動小数点で検証した仁との差 {distance:e} は否定できる大きさ (許容誤差の 100 倍) 以下だが、\
-                     候補は厳密な検証に合格しない ({reason})"
-                ))
-            }
-        }
-        Ok(_) => Check::Undecided(format!("候補も基準の仁も検証に合格しない ({reason})")),
-        Err(error) => Check::Undecided(format!(
+    match (lp, float_reference) {
+        (Err(error), _) => Check::Undecided(format!(
+            "候補は厳密な検証に合格せず ({reason})、比べる基準の仁も求められない: {error}"
+        )),
+        (Ok(_), Some(Ok((true, distance)))) => Check::Undecided(format!(
+            "浮動小数点で検証した仁との差 {distance:e} は否定できる大きさ (許容誤差の 100 倍) 以下だが、\
+             候補は厳密な検証に合格しない ({reason})"
+        )),
+        (Ok(_), Some(Err(error))) => Check::Undecided(format!(
             "候補は厳密な検証に合格せず ({reason})、基準の仁の検証も続行できない: {error}"
         )),
+        (Ok(_), _) => Check::Undecided(format!("候補も基準の仁も検証に合格しない ({reason})")),
     }
 }
 

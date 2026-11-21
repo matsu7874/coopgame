@@ -215,14 +215,10 @@ fn nucleoli_of_random_large_integer_games_are_certified() {
         let truth = nucleolus::exact::nucleolus(&exact, Domain::Imputation)
             .unwrap()
             .allocation;
-        let check = verify::check_exact(
-            &exact,
-            &to_f64(&truth),
-            Domain::Imputation,
-            VerifyOptions::default(),
-        )
-        .unwrap();
-        assert_eq!(check, Check::Certified { exact: truth }, "case {case}");
+        // 候補自身の超過の段から復元できること (基準の仁に頼らない) を確かめる。
+        let report = verify::certify_exact(&exact, &to_f64(&truth), Domain::Imputation).unwrap();
+        assert!(report.satisfied, "case {case}: {report:?}");
+        assert_eq!(report.allocation, truth, "case {case}");
     }
 }
 
@@ -280,9 +276,10 @@ fn nucleoli_of_integer_games_near_rounding_limit_are_certified() {
             continue;
         }
         separable += 1;
-        let check =
-            verify::check_exact(&exact, &x, Domain::Imputation, VerifyOptions::default()).unwrap();
-        assert_eq!(check, Check::Certified { exact: truth }, "case {case}");
+        // 候補自身の超過の段から復元できること (基準の仁に頼らない) を確かめる。
+        let report = verify::certify_exact(&exact, &x, Domain::Imputation).unwrap();
+        assert!(report.satisfied, "case {case}: {report:?}");
+        assert_eq!(report.allocation, truth, "case {case}");
     }
     // 半数以上のゲームは段の間隔が目安の 2 倍を超える (条件を満たすゲームがなければ、何も確かめていない)。
     assert!(separable >= 12, "{separable}");
@@ -392,7 +389,7 @@ fn point_is_judged_against_float_verified_reference() {
 ///
 /// `v({1}) = -M`、`v({2}) = v({3}) = M`、他の提携は `-M` (`M = 1.5e308`) のゲームのプレ仁は
 /// `(-5M/3, M/3, M/3)` で、`-5M/3` は f64 で表せない。逐次 LP は [`Error::Numerical`] を返す。
-/// 既定 (`Reference::Exact`) では有理数の逐次 LP がプレ仁を求め、離れた点を否定する。
+/// 既定 (`Reference::Auto`) では有理数の逐次 LP がプレ仁を求め、離れた点を否定する。
 #[test]
 fn failure_of_reference_lp_is_undecided() {
     let m = 1.5e308;
@@ -431,7 +428,7 @@ fn failure_of_reference_lp_is_undecided() {
 
 /// 値が 1e9 程度の整数ゲームでは、逐次 LP の仁は厳密な仁から値の単位で数個ずれ、厳密な配分を復元できない。
 /// 基準を逐次 LP の仁だけにすると未決になるゲームがあるが、有理数の逐次 LP で基準を求め直せば、
-/// 厳密な仁との差で結論が出る (既定の `Reference::Exact`。10 人まで求め直す)。
+/// 厳密な仁との差で結論が出る (既定の `Reference::Auto` は 8 人以下、`Reference::Exact` は 10 人以下で求め直す)。
 #[test]
 fn rational_reference_decides_what_lp_reference_cannot() {
     let mut state = 5u64;
@@ -446,7 +443,7 @@ fn rational_reference_decides_what_lp_reference_cannot() {
         options.reference = reference;
         options
     };
-    assert_eq!(VerifyOptions::default().reference, Reference::Exact);
+    assert_eq!(VerifyOptions::default().reference, Reference::Auto);
     let mut undecided_by_lp = 0;
     for case in 0..40 {
         let n = 3 + case % 4;
@@ -484,20 +481,17 @@ fn rational_reference_decides_what_lp_reference_cannot() {
         if matches!(by_lp, Check::Undecided(_)) {
             undecided_by_lp += 1;
         }
-        let check = verify::check(
-            &game,
-            &near,
-            Domain::Imputation,
-            with_reference(Reference::Exact),
-        )
-        .unwrap();
-        assert_eq!(
-            check,
-            Check::Certified {
-                exact: truth.clone()
-            },
-            "case {case}"
-        );
+        for reference in [Reference::Auto, Reference::Exact] {
+            let check =
+                verify::check(&game, &near, Domain::Imputation, with_reference(reference)).unwrap();
+            assert_eq!(
+                check,
+                Check::Certified {
+                    exact: truth.clone()
+                },
+                "case {case} {reference:?}"
+            );
+        }
         // 許容誤差を超えて離れた点は、厳密な仁との差で否定する。
         let mut far = to_f64(&truth);
         far[0] += 1e5;
