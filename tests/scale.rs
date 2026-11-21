@@ -516,3 +516,66 @@ fn partial_game_nucleolus_of_tiny_game_is_exact() {
     let expected = exact_nucleolus(&game, Domain::Imputation);
     assert_close(&x, &expected, 1e-9 * game.max_abs_value(), "partial");
 }
+
+/// 値の大きさで割ると f64 の範囲を超える許容誤差 (値に比べて大きすぎる) は、値を正規化して解くどの関数でも
+/// `InvalidArgument` になる。
+#[test]
+fn tolerance_too_large_for_the_values_is_rejected() {
+    // v(S) = |S|^2 * 1e-300 (凸ゲーム)。
+    let game = scaled(
+        &ExplicitGame::from_lex(&[1.0, 1.0, 1.0, 4.0, 4.0, 4.0, 9.0]).unwrap(),
+        1e-300,
+    );
+    let huge = 1e10;
+    let rejected = |result: Result<(), Error>, what: &str| match result {
+        Err(Error::InvalidArgument(message)) => {
+            assert!(message.contains("大きすぎる"), "{what}: {message}");
+        }
+        other => panic!("{what}: {other:?}"),
+    };
+
+    let mut options = Options::new(&game, Domain::Imputation);
+    options.tolerance = huge;
+    rejected(
+        nucleolus::nucleolus_with(&game, options).map(|_| ()),
+        "nucleolus_with",
+    );
+    rejected(
+        oracle::nucleolus_with(&game, Domain::Imputation, huge).map(|_| ()),
+        "oracle::nucleolus_with",
+    );
+    let checked = ConvexChecked::new(game.clone()).expect("凸ゲーム");
+    let mut convex_options = convex::ConvexOptions::default();
+    convex_options.tolerance = Some(huge);
+    rejected(
+        convex::nucleolus_with(&checked, convex_options).map(|_| ()),
+        "convex::nucleolus_with",
+    );
+    let mut set_options = SetOptions::for_game(&game);
+    set_options.tolerance = huge;
+    rejected(
+        kernel::kernel_set(&game, Domain::Imputation, set_options).map(|_| ()),
+        "kernel_set",
+    );
+    let feasible = variants::Feasible {
+        total: 9e-300,
+        lower: None,
+        constraints: Vec::new(),
+    };
+    let complaints = [
+        variants::Complaint {
+            coefficients: vec![1.0, 0.0, 0.0],
+            constant: 1e-300,
+            weight: 1.0,
+        },
+        variants::Complaint {
+            coefficients: vec![0.0, 1.0, 1.0],
+            constant: 4e-300,
+            weight: 1.0,
+        },
+    ];
+    rejected(
+        variants::lexicographic_minimum(3, &feasible, &complaints, huge).map(|_| ()),
+        "lexicographic_minimum",
+    );
+}

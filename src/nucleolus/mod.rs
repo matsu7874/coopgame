@@ -50,7 +50,7 @@ use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::{block_lower_bounds, coalition_sums, excess_table};
 use crate::game::exact::{ExactGame, to_rational};
-use crate::game::scale::{check_tolerance, rounding_magnitude};
+use crate::game::scale::{normalized_tolerance, rounding_magnitude};
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
@@ -95,13 +95,7 @@ impl Options {
     /// 許容誤差が有限で 0 以上でないとき、または割った許容誤差が有限でない
     /// (ゲームの値に比べて大きすぎる) ときは [`Error::InvalidArgument`]。
     fn divided_by(self, divisor: f64) -> Result<Options> {
-        let tolerance = check_tolerance(self.tolerance)? / divisor;
-        if !tolerance.is_finite() {
-            return Err(Error::InvalidArgument(format!(
-                "許容誤差 {} がゲームの値の大きさに比べて大きすぎる",
-                self.tolerance
-            )));
-        }
+        let tolerance = normalized_tolerance(self.tolerance, divisor)?;
         Ok(Options { tolerance, ..self })
     }
 }
@@ -229,7 +223,8 @@ pub fn prenucleolus(game: &ExplicitGame) -> Result<NucleolusResult> {
 ///
 /// # Errors
 ///
-/// - `options.tolerance` が有限で 0 以上でない: [`Error::InvalidArgument`]
+/// - `options.tolerance` が有限で 0 以上でない、またはゲームの値の大きさで割ると有限でない
+///   (値に比べて大きすぎる): [`Error::InvalidArgument`]
 /// - 配分集合が空 (`Domain::Imputation`): [`Error::EmptyImputationSet`]
 /// - LP が数値的に進まない、または結果 (配分・各段の最大超過) が f64 で表せない: [`Error::Numerical`]
 pub fn nucleolus_with(game: &ExplicitGame, options: Options) -> Result<NucleolusResult> {

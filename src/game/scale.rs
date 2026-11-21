@@ -27,6 +27,21 @@ pub(crate) fn check_tolerance(tolerance: f64) -> Result<f64> {
     }
 }
 
+/// 利用者が指定した許容誤差を確かめ、値を `divisor` で割ったゲームに合わせて割る。
+///
+/// [`check_tolerance`] の条件に加えて、割った許容誤差が有限でない (ゲームの値の大きさに比べて大きすぎる) ときも
+/// [`Error::InvalidArgument`] を返す。無限大の許容誤差のまま解くと、どの判定も成り立ってしまう。
+pub(crate) fn normalized_tolerance(tolerance: f64, divisor: f64) -> Result<f64> {
+    let normalized = check_tolerance(tolerance)? / divisor;
+    if normalized.is_finite() {
+        Ok(normalized)
+    } else {
+        Err(Error::InvalidArgument(format!(
+            "許容誤差 {tolerance} がゲームの値の大きさに比べて大きすぎる"
+        )))
+    }
+}
+
 /// `players` 人のゲームで、最大絶対値が `magnitude` の値から和や差を作ったときの丸め誤差の目安
 /// `4 n ε magnitude` (`ε` は [`f64::EPSILON`])。
 ///

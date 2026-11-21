@@ -25,7 +25,7 @@ use crate::error::{Error, Result};
 use crate::game::PlayerSet;
 use crate::game::allocation::lower_bounds;
 use crate::game::oracle::Separation;
-use crate::game::scale::{Scaled, check_tolerance, normalizer, positive_scale};
+use crate::game::scale::{Scaled, normalized_tolerance, normalizer, positive_scale};
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
 use crate::nucleolus::{LeastCore, NucleolusResult};
@@ -49,7 +49,8 @@ pub fn prenucleolus<G: Separation + ?Sized>(game: &G) -> Result<NucleolusResult>
 
 /// `tolerance` はゲームの値と同じ単位。配分集合の扱いは [`crate::nucleolus::Options::tolerance`] と同じ。
 ///
-/// `tolerance` が有限で 0 以上でなければ [`Error::InvalidArgument`] を返す。
+/// `tolerance` が有限で 0 以上でないとき、またはゲームの値の大きさで割ると有限でない (値に比べて大きすぎる) ときは
+/// [`Error::InvalidArgument`] を返す。
 /// 結果は許容誤差の範囲で成り立つ。保証の種類 ([`nucleolus`] と同じ) は許容誤差の大きさを反映しない。
 ///
 /// 配分や各段の最大超過が `f64` の範囲を超える (値が `f64` の上限に近い) ときは [`Error::Numerical`] を返す。
@@ -58,10 +59,10 @@ pub fn nucleolus_with<G: Separation + ?Sized>(
     domain: Domain,
     tolerance: f64,
 ) -> Result<NucleolusResult> {
-    let tolerance = check_tolerance(tolerance)?;
     let divisor = normalizer(game.value_scale());
+    let tolerance = normalized_tolerance(tolerance, divisor)?;
     let normalized = Scaled::new(game, divisor);
-    Sequential::new(&normalized, domain, tolerance / divisor)?
+    Sequential::new(&normalized, domain, tolerance)?
         .run()?
         .scaled_by(divisor)
 }

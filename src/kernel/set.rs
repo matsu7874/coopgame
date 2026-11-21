@@ -5,7 +5,7 @@ use microlp::Variable;
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::{allocation_defect, lower_bounds};
-use crate::game::scale::check_tolerance;
+use crate::game::scale::{check_tolerance, normalized_tolerance};
 use crate::game::{Coalition, ExplicitGame, PlayerSet, default_tolerance};
 use crate::linalg::{Span, for_each_combination, solve_square};
 use crate::lp::{self, Cmp, Counter};
@@ -314,7 +314,8 @@ impl SetOptions {
 /// LP は絶対誤差で判定するので、ゲームの値を 2 のべき乗で割って最大絶対値を `[1, 2)` にそろえてから求め、
 /// 多面体を元の大きさに戻す (値を `c` 倍すると、多面体も `c` 倍になる)。
 ///
-/// [`SetOptions::tolerance`] が有限で 0 以上でなければ [`Error::InvalidArgument`] を返す。
+/// [`SetOptions::tolerance`] が有限で 0 以上でないとき、またはゲームの値の大きさで割ると有限でない
+/// (値に比べて大きすぎる) ときは [`Error::InvalidArgument`] を返す。
 pub fn kernel_set(game: &ExplicitGame, domain: Domain, options: SetOptions) -> Result<KernelSet> {
     let n = game.players();
     if n > MAX_KERNEL_SET_PLAYERS {
@@ -323,10 +324,9 @@ pub fn kernel_set(game: &ExplicitGame, domain: Domain, options: SetOptions) -> R
             max: MAX_KERNEL_SET_PLAYERS,
         });
     }
-    check_tolerance(options.tolerance)?;
     let (normalized, divisor) = game.normalized();
     let options = SetOptions {
-        tolerance: options.tolerance / divisor,
+        tolerance: normalized_tolerance(options.tolerance, divisor)?,
         ..options
     };
     let mut set = normalized_kernel_set(&normalized, domain, options)?;

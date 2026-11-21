@@ -23,8 +23,11 @@ per capita 仁・比例仁・disruption nucleolus・交渉集合の判定の上�
 
 - 浮動小数点で計算する。許容誤差は `1e-7 * max |v(S)|` (全ての値が 0 なら `1e-7`) を基準にし、transfer scheme はその 1/100 で止める。
 - 仁・最小コアの許容誤差 (`nucleolus::Options::tolerance`) は有限で 0 以上の値にする。NaN・無限大・負の値は `Error::InvalidArgument` になる。
-  許容誤差を引数に取る判定 (`kernel::is_in_kernel`・`properties::is_in_core`・`KernelSet::contains`・`KernelPiece::contains`) と、
-  `kernel::kernel_point`・`KernelSet::merge_collinear_segments` も同じである。
+  許容誤差を受け取る他の関数も同じである (`kernel::is_in_kernel`・`properties::is_in_core`・`KernelSet::contains`・`KernelPiece::contains`・
+  `kernel::kernel_point`・`kernel::kernel_set`・`KernelSet::merge_collinear_segments`・`bargaining::check`・`nucleolus::oracle::nucleolus_with`・
+  `nucleolus::convex::nucleolus_with`・`nucleolus::variants::lexicographic_minimum`・`verify::recover_allocation`)。
+  値を正規化して解く関数 (`nucleolus::nucleolus_with`・`oracle::nucleolus_with`・`convex::nucleolus_with`・`kernel_set`・`lexicographic_minimum`) は、
+  値の大きさで割った許容誤差が有限でない (値に比べて大きすぎる) ときも `Error::InvalidArgument` を返す。
 - 値が f64 の上限に近く、元の大きさに戻した配分・各段の最大超過・最小コアの `epsilon` が f64 で表せない (有限でない) ときは、`Error::Numerical` を返す。
 - 逐次 LP は、超過が最大超過と許容誤差以内で等しい提携を確定させうる。そのため超過の差が許容誤差より小さい提携があるゲームでは、
   結果が厳密な仁から許容誤差の程度ずれることがある。

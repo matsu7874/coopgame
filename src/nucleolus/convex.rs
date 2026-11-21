@@ -28,7 +28,7 @@ use std::cell::Cell;
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::scale::{Scaled, check_tolerance, normalizer};
+use crate::game::scale::{Scaled, normalized_tolerance, normalizer};
 use crate::game::{PlayerSet, SetFunction, value_scale};
 use crate::properties::{ConvexGame, ProofKind};
 use crate::solution::{Property, Solution};
@@ -78,7 +78,8 @@ pub fn nucleolus<G: ConvexGame + ?Sized>(
     Ok(nucleolus_with(game, ConvexOptions::default())?.0)
 }
 
-/// 設定を指定した [`nucleolus`]。`options.tolerance` が有限で 0 以上でなければ [`Error::InvalidArgument`] を返す。
+/// 設定を指定した [`nucleolus`]。`options.tolerance` が有限で 0 以上でないとき、またはゲームの値の大きさで割ると
+/// 有限でない (値に比べて大きすぎる) ときは [`Error::InvalidArgument`] を返す。
 pub fn nucleolus_with<G: ConvexGame + ?Sized>(
     game: &G,
     options: ConvexOptions,
@@ -127,12 +128,9 @@ fn prekernel_point<G: SetFunction + ?Sized>(
 ) -> Result<(Vec<f64>, ConvexStats)> {
     let scale = value_scale(game);
     let divisor = normalizer(scale);
-    let tolerance = match options.tolerance {
-        Some(tolerance) => check_tolerance(tolerance)?,
-        None => 1e-9 * scale,
-    };
+    let tolerance = normalized_tolerance(options.tolerance.unwrap_or(1e-9 * scale), divisor)?;
     let options = ConvexOptions {
-        tolerance: Some(tolerance / divisor),
+        tolerance: Some(tolerance),
         ..options
     };
     let (mut x, stats) = normalized_prekernel_point(&Scaled::new(game, divisor), options)?;

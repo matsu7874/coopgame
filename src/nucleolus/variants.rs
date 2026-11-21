@@ -61,7 +61,7 @@ use microlp::{Problem, Variable};
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::lower_bounds;
-use crate::game::scale::{check_tolerance, normalizer, rounding_magnitude};
+use crate::game::scale::{check_tolerance, normalized_tolerance, normalizer, rounding_magnitude};
 use crate::game::{Coalition, ExplicitGame, PlayerSet, default_tolerance};
 use crate::linalg::{Span, indicator};
 use crate::lp::{self, Cmp, Counter};
@@ -146,7 +146,7 @@ impl LexicographicResult {
 /// - `players` が 0、または `feasible.lower`・各制約の係数・各不満の係数の長さが `players` と異なる
 /// - `feasible.total`・`feasible.lower`・制約の係数と右辺・不満の係数と定数・重みのいずれかが有限でない
 /// - 重みが正でない
-/// - `tolerance` が有限で 0 以上でない
+/// - `tolerance` が有限で 0 以上でない、または定数の大きさで割ると有限でない (定数に比べて大きすぎる)
 pub fn lexicographic_minimum(
     players: usize,
     feasible: &Feasible,
@@ -224,7 +224,7 @@ fn lexicographic_minimum_in_order(
         n: players,
         feasible: &normalized_feasible,
         complaints: &normalized_complaints,
-        tolerance: tolerance / value_divisor,
+        tolerance: normalized_tolerance(tolerance, value_divisor)?,
         open: pending.pop().unwrap_or_default(),
         pending,
         fixed: Vec::new(),
