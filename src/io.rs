@@ -743,6 +743,28 @@ impl GameData {
         Ok(PartialGame { players: n, known })
     }
 
+    /// 値が分かる提携だけで仁 (`Domain::Imputation`) またはプレ仁を求め、入力の値の種類で配分を返す。
+    ///
+    /// 価値のゲームは [`GameData::partial`] のゲームを解く。費用のゲームは節約ゲーム ([`GameData::savings`])
+    /// を解き、費用の分担 `c({i}) - x_i` に直す。必要な値は [`PartialGame::nucleolus`] と同じで、
+    /// 費用のゲームでは 1 人提携の費用も全て必要。
+    pub fn partial_nucleolus(&self, domain: Domain) -> Result<PartialNucleolus> {
+        let (game, standalone) = match self.kind {
+            Kind::Value => (self.partial()?, None),
+            Kind::Cost => (self.savings()?.partial()?, Some(self.singleton_values()?)),
+        };
+        let solved = game.nucleolus(domain)?;
+        let allocation = match standalone {
+            Some(costs) => costs
+                .iter()
+                .zip(solved.allocation())
+                .map(|(cost, saving)| cost - saving)
+                .collect(),
+            None => solved.allocation().to_vec(),
+        };
+        Ok(PartialNucleolus { allocation, solved })
+    }
+
     /// JSON に書く (値の種類と、値が分かる全ての提携)。
     pub fn to_json(&self) -> String {
         let values: serde_json::Map<String, Value> = self
@@ -764,6 +786,16 @@ impl GameData {
         });
         serde_json::to_string_pretty(&root).expect("JSON に書ける")
     }
+}
+
+/// 値が分かる提携だけで解いた仁 ([`GameData::partial_nucleolus`] の結果)。
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct PartialNucleolus {
+    /// 入力の値の種類での配分。価値のゲームなら配分、費用のゲームなら費用の分担。
+    pub allocation: Vec<f64>,
+    /// 解いたゲーム (費用のゲームでは節約ゲーム) での逐次 LP の結果。段の値と保証はこのゲームでのもの。
+    pub solved: NucleolusResult,
 }
 
 /// 値が分かる提携だけを持つゲーム。分からない提携の値は NaN を返す。
@@ -923,6 +955,34 @@ mod tests {
                 .nucleolus(Domain::Imputation)
                 .is_err()
         );
+    }
+
+    /// 値が分かる提携だけで解く仁は、価値のゲームでは配分、費用のゲームでは節約ゲームで解いた費用の分担を返す。
+    #[test]
+    fn partial_nucleolus_follows_the_kind_of_values() {
+        // 2 人提携の値がない 4 人ゲーム。
+        let rows = "0,5\n1,7\n2,6\n3,4\n0|1|2,15\n0|1|3,13\n0|2|3,12\n1|2|3,14\n0|1|2|3,18\n";
+        // 費用として読むと、節約ゲームは 3 人提携が全て 3、全体が 4 で対称なので、節約は 1 ずつ。
+        let cost = parse_csv(&format!("coalition,cost\n{rows}")).unwrap();
+        let solved = cost.partial_nucleolus(Domain::Imputation).unwrap();
+        for (share, expected) in solved.allocation.iter().zip([4.0, 6.0, 5.0, 3.0]) {
+            assert!((share - expected).abs() < 1e-7, "{solved:?}");
+        }
+        for saving in solved.solved.allocation() {
+            assert!((saving - 1.0).abs() < 1e-7, "{solved:?}");
+        }
+        assert_eq!(solved.solved.guarantee(), Guarantee::Approximate);
+        // 価値として読むと、PartialGame::nucleolus と同じ結果を返す
+        // (1 人提携の値の和が全体の値を超えて配分集合が空なので、プレ仁で比べる)。
+        let value = parse_csv(&format!("coalition,value\n{rows}")).unwrap();
+        let solved = value.partial_nucleolus(Domain::Preimputation).unwrap();
+        let direct = value
+            .partial()
+            .unwrap()
+            .nucleolus(Domain::Preimputation)
+            .unwrap();
+        assert_eq!(solved.allocation, direct.allocation);
+        assert_eq!(solved.solved, direct);
     }
 
     #[test]

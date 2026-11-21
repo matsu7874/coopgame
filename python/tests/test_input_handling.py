@@ -119,13 +119,30 @@ def test_parse_game_suggests_how_to_handle_missing_values():
         coopgame.parse_game(partial, format="csv")
     loaded = coopgame.parse_game(partial, format="csv", missing="zero")
     assert loaded["missing"] == [[0, 2], [1, 2]]
-    # partial_nucleolus は価値のゲームに限るので、費用のゲームには案内しない。
+    # 費用のゲームにも同じ案内をする (partial_nucleolus は費用のゲームも解く)。
     cost = partial.replace("coalition,value", "coalition,cost")
-    with pytest.raises(ValueError, match='missing="zero"') as raised:
+    with pytest.raises(ValueError, match="partial_nucleolus"):
         coopgame.parse_game(cost, format="csv")
-    assert "partial_nucleolus" not in str(raised.value)
-    with pytest.raises(ValueError, match="価値のゲーム"):
-        coopgame.partial_nucleolus(cost, format="csv")
+
+
+def test_partial_nucleolus_of_cost_game_returns_cost_shares():
+    # 2 人提携の値がない 4 人ゲーム。費用として読むと、節約ゲームは対称で節約が 1 ずつになる。
+    rows = "0,5\n1,7\n2,6\n3,4\n0|1|2,15\n0|1|3,13\n0|2|3,12\n1|2|3,14\n0|1|2|3,18\n"
+    cost = coopgame.partial_nucleolus("coalition,cost\n" + rows, format="csv")
+    assert cost["kind"] == "cost" and cost["known"] == 9
+    assert cost["allocation"] == pytest.approx([4, 6, 5, 3])
+    assert cost["guarantee"] == "approximate"
+    # JSON の type でも同じ。
+    values = {"0": 5, "1": 7, "2": 6, "3": 4, "0,1,2": 15, "0,1,3": 13, "0,2,3": 12, "1,2,3": 14, "0,1,2,3": 18}
+    as_json = coopgame.partial_nucleolus(json.dumps({"type": "cost", "values": values}))
+    assert as_json["allocation"] == pytest.approx([4, 6, 5, 3])
+    # 価値のゲームでは kind が "value" で、allocation は配分
+    # (この値では 1 人提携の値の和が全体の値を超えるので、プレ仁で確かめる)。
+    value = coopgame.partial_nucleolus(
+        "coalition,value\n" + rows, format="csv", domain="preimputation"
+    )
+    assert value["kind"] == "value"
+    assert sum(value["allocation"]) == pytest.approx(18)
 
 
 def test_partial_nucleolus_with_all_values_is_still_approximate():

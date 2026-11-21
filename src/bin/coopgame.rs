@@ -1064,34 +1064,16 @@ fn nucleolus_known_only(args: &Args) -> CliResult<bool> {
     if args.has("--cost") {
         data.kind = io::Kind::Cost;
     }
-    // 費用なら節約ゲームに直して解き、費用の分担に戻す。
-    let (known, standalone) = if data.kind == io::Kind::Cost {
-        let savings = data.savings().map_err(|e| format!("{path}: {e}"))?;
-        let standalone = data
-            .singleton_values()
-            .map_err(|e| format!("{path}: {e}"))?;
-        (savings, Some(standalone))
-    } else {
-        (data, None)
-    };
-    let result = known
-        .partial()
-        .and_then(|partial| partial.nucleolus(args.domain()))
+    // 費用なら節約ゲームで解き、費用の分担で出す (io::GameData::partial_nucleolus)。
+    let result = data
+        .partial_nucleolus(args.domain())
         .map_err(|e| format!("{path}: {e}"))?;
     eprintln!(
         "guarantee={} (値が分かる {} 個の提携だけで解いた。真のゲームの仁とは限らない)",
-        result.guarantee(),
-        known.known.len()
+        result.solved.guarantee(),
+        data.known.len()
     );
-    match standalone {
-        Some(c) => print_allocation(
-            &c.iter()
-                .zip(result.allocation())
-                .map(|(c, x)| c - x)
-                .collect::<Vec<_>>(),
-        ),
-        None => print_allocation(result.allocation()),
-    }
+    print_allocation(&result.allocation);
     Ok(true)
 }
 

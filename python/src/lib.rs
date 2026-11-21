@@ -902,13 +902,9 @@ fn parse_game<'py>(
     let game = data.to_explicit(policy).map_err(|error| {
         // 値が分からない提携が原因なら、選べる扱いを添える。
         if matches!(error, coopgame::Error::InvalidArgument(_)) && data.has_missing() {
-            // partial_nucleolus は価値のゲームに限る。
-            let hint = if data.kind == io_core::Kind::Value {
-                "missing=\"zero\" で 0 とみなすか、partial_nucleolus で値が分かる提携だけで解く"
-            } else {
-                "missing=\"zero\" で 0 とみなす"
-            };
-            PyValueError::new_err(format!("{error} ({hint})"))
+            PyValueError::new_err(format!(
+                "{error} (missing=\"zero\" で 0 とみなすか、partial_nucleolus で値が分かる提携だけで解く)"
+            ))
         } else {
             to_py_err(error)
         }
@@ -926,8 +922,11 @@ fn parse_game<'py>(
     Ok(dict)
 }
 
-/// 値が分かる提携だけで解いた仁 (JSON か CSV のテキストから)。価値のゲーム (`type` が `value`) に限る。
-/// 1 人提携とその補集合の値が全て必要。真のゲームの仁とは限らないので `guarantee` は `"approximate"`。
+/// 値が分かる提携だけで解いた仁 (JSON か CSV のテキストから)。1 人提携とその補集合の値が全て必要。
+/// 真のゲームの仁とは限らないので `guarantee` は `"approximate"`。
+///
+/// 費用のゲーム (`type` が `cost`) は節約ゲームで解き、`allocation` に費用の分担 `c({i}) - x_i` を返す
+/// (`levels` は節約ゲームでの各段の最大超過)。`kind` に入力の値の種類 (`"value"` か `"cost"`) を返す。
 #[pyfunction]
 #[pyo3(signature = (text, format = "json", domain = "imputation"))]
 fn partial_nucleolus<'py>(
@@ -938,11 +937,10 @@ fn partial_nucleolus<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let data = parse_game_data(text, format)?;
     let domain = parse_domain(domain)?;
-    let result = data
-        .partial()
-        .and_then(|partial| partial.nucleolus(domain))
-        .map_err(to_py_err)?;
-    let dict = nucleolus_dict(py, result)?;
+    let result = data.partial_nucleolus(domain).map_err(to_py_err)?;
+    let dict = nucleolus_dict(py, result.solved)?;
+    dict.set_item("allocation", result.allocation)?;
+    dict.set_item("kind", data.kind.as_str())?;
     dict.set_item("known", data.known.len())?;
     Ok(dict)
 }
