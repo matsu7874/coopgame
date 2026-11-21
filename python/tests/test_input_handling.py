@@ -119,6 +119,22 @@ def test_parse_game_suggests_how_to_handle_missing_values():
         coopgame.parse_game(partial, format="csv")
     loaded = coopgame.parse_game(partial, format="csv", missing="zero")
     assert loaded["missing"] == [[0, 2], [1, 2]]
+    # partial_nucleolus は価値のゲームに限るので、費用のゲームには案内しない。
+    cost = partial.replace("coalition,value", "coalition,cost")
+    with pytest.raises(ValueError, match='missing="zero"') as raised:
+        coopgame.parse_game(cost, format="csv")
+    assert "partial_nucleolus" not in str(raised.value)
+    with pytest.raises(ValueError, match="価値のゲーム"):
+        coopgame.partial_nucleolus(cost, format="csv")
+
+
+def test_partial_nucleolus_with_all_values_is_exact():
+    # 全ての提携の値があれば、全提携の表から求めた仁と同じ保証になる。
+    full = "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|2,3\n1|2,2\n0|1|2,6\n"
+    result = coopgame.partial_nucleolus(full, format="csv")
+    game = coopgame.parse_game(full, format="csv")["game"]
+    assert result["guarantee"] == "exact" and result["known"] == 7
+    assert result["allocation"] == pytest.approx(coopgame.nucleolus(game)["allocation"])
 
 
 def test_partial_nucleolus_beyond_table_limit():

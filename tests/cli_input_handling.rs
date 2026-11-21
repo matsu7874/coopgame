@@ -121,9 +121,19 @@ fn missing_ignore_solves_games_beyond_table_limit() {
         "{}",
         run.stderr
     );
-    // 既定 (--missing error) では、人数の上限を示す。
+    // 既定 (--missing error) では、人数の上限と、値が分かる提携だけで解く方法を示す。
     let stderr = cli.run(&["nucleolus", "p31.json"]).error().to_string();
     assert!(stderr.contains("上限 30"), "{stderr}");
+    assert!(stderr.contains("--missing ignore"), "{stderr}");
+    // 値が分かる提携だけでは解けないコマンドには、--missing ignore を案内しない。
+    for args in [
+        &["nucleolus", "p31.json", "--full"][..],
+        &["shapley", "p31.json"],
+    ] {
+        let stderr = cli.run(args).error().to_string();
+        assert!(stderr.contains("上限 30"), "{args:?}: {stderr}");
+        assert!(!stderr.contains("ignore"), "{args:?}: {stderr}");
+    }
 }
 
 /// 加法的なゲームは配分集合が 1 点で、v(N) を下げる・1 人提携の値を上げると解けない。
@@ -263,6 +273,7 @@ fn missing_option_conflicts_are_reported() {
     );
     for args in [
         &["nucleolus", "partial.csv", "--exact"][..],
+        &["nucleolus", "partial.csv", "--full"],
         &["shapley", "partial.csv"],
     ] {
         let stderr = cli.run(args).error().to_string();
@@ -270,11 +281,41 @@ fn missing_option_conflicts_are_reported() {
         assert!(!stderr.contains("ignore"), "{args:?}: {stderr}");
         assert!(!stderr.contains("分かる提携だけ"), "{args:?}: {stderr}");
     }
+    // コマンドの綴りの誤りは、--missing ignore があっても未知のコマンドとして報告する。
+    let stderr = cli
+        .run(&["nucleous", "partial.csv", "--missing", "ignore"])
+        .error()
+        .to_string();
+    assert!(stderr.contains("未知のコマンド"), "{stderr}");
+    assert!(!stderr.contains("nucleolus だけで使える"), "{stderr}");
+    // help は --missing があっても使い方を出す。
+    let run = cli.run(&["help", "--missing", "ignore"]);
+    assert!(run.success, "{}", run.stderr);
     // --missing zero で 0 とみなせば解ける。
     assert_eq!(
         cli.run(&["nucleolus", "partial.csv", "--missing", "zero"])
             .values()
             .len(),
         3
+    );
+}
+
+/// compare は、計算できない解 (人数の上限を超える modiclus など) を省き、省いた解と理由を標準エラーに出す。
+#[test]
+fn compare_reports_solutions_it_omits() {
+    let cli = Cli::new("compare_omits");
+    // 8 人の加法的でないゲーム (v(S) = |S|^2)。modiclus は 7 人まで。
+    let values: Vec<String> = (1u32..1 << 8)
+        .map(|mask| (mask.count_ones() * mask.count_ones()).to_string())
+        .collect();
+    cli.file("v8.txt", &values.join("\n"));
+    let run = cli.run(&["compare", "v8.txt"]);
+    assert!(run.success, "{}", run.stderr);
+    assert!(run.stdout.contains("per capita 仁"), "{}", run.stdout);
+    assert!(!run.stdout.contains("modiclus"), "{}", run.stdout);
+    assert!(
+        run.stderr.contains("modiclus は計算できないので省く") && run.stderr.contains("上限 7"),
+        "{}",
+        run.stderr
     );
 }

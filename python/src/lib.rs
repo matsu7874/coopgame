@@ -902,9 +902,13 @@ fn parse_game<'py>(
     let game = data.to_explicit(policy).map_err(|error| {
         // 値が分からない提携が原因なら、選べる扱いを添える。
         if matches!(error, coopgame::Error::InvalidArgument(_)) && data.has_missing() {
-            PyValueError::new_err(format!(
-                "{error} (missing=\"zero\" で 0 とみなすか、partial_nucleolus で値が分かる提携だけで解く)"
-            ))
+            // partial_nucleolus は価値のゲームに限る。
+            let hint = if data.kind == io_core::Kind::Value {
+                "missing=\"zero\" で 0 とみなすか、partial_nucleolus で値が分かる提携だけで解く"
+            } else {
+                "missing=\"zero\" で 0 とみなす"
+            };
+            PyValueError::new_err(format!("{error} ({hint})"))
         } else {
             to_py_err(error)
         }
@@ -922,8 +926,9 @@ fn parse_game<'py>(
     Ok(dict)
 }
 
-/// 値が分かる提携だけで解いた仁 (JSON か CSV のテキストから)。1 人提携とその補集合の値が全て必要。
-/// 真のゲームの仁とは限らないので `guarantee` は `"approximate"`。
+/// 値が分かる提携だけで解いた仁 (JSON か CSV のテキストから)。価値のゲーム (`type` が `value`) に限る。
+/// 1 人提携とその補集合の値が全て必要。値のない提携があれば、真のゲームの仁とは限らないので `guarantee` は
+/// `"approximate"`。全ての提携の値があれば `"exact"`。
 #[pyfunction]
 #[pyo3(signature = (text, format = "json", domain = "imputation"))]
 fn partial_nucleolus<'py>(

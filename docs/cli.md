@@ -161,6 +161,10 @@ coalition	max|dx/dv|	dx/dv (プレイヤー順)	difference
 {1}	0.0000	0.0000 0.0000 -0.0000	central
 ```
 
+`compare` は、計算できない解を省き、省いた解と理由を標準エラーに出す。
+省くのは、配分集合が空のゲームの仁と per capita 仁、18 人以上の per capita 仁、8 人以上の modiclus である
+(人数の上限は [性能と制約](performance.md))。解の番号は、省いた解を詰めて振る。
+
 `influence` は提携の値を `±delta` 動かしたゲームを解き、`difference` の列に差分の取り方を書く。
 `central` は中心差分 `(x(v(S) + δ) - x(v(S) - δ)) / 2δ` である。
 片側のゲームが解けないときは、元のゲームの解との片側差分にする。

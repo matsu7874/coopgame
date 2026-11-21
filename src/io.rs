@@ -125,6 +125,7 @@ impl ExactGameData {
     /// 値が分からない (空でない) 提携の一覧 (提携の番号順)。
     ///
     /// 一覧を作れるのは [`MAX_PLAYERS`] 人まで (超えれば [`Error::TooManyPlayers`])。
+    /// 一覧は分からない提携の数に比例するメモリを使う (30 人で値がほとんどなければ約 8.6 GB)。
     /// 分からない提携があるかだけを知るには [`ExactGameData::has_missing`] を使う。
     pub fn missing(&self) -> Result<Vec<Coalition>> {
         missing_coalitions(self.players, self.known.iter().map(|(c, _)| *c))
@@ -603,27 +604,50 @@ fn has_missing_coalitions(n: usize, known: impl Iterator<Item = Coalition>) -> b
     (distinct.len() as u128) < total
 }
 
-/// 全提携の値の表を作れるか確かめる (人数の上限と、値が分からない提携の扱い)。
-fn check_table(
+/// 値が分からない (空でない) 提携の数と、その最初の `limit` 個 (ビット表現の小さい順)。
+///
+/// 数は `2^n - 1` から値が分かる提携の数を引いて求め、提携は `limit` 個見つけた時点で列挙をやめる
+/// (30 人で値がほとんどないゲームでも、`2^30` 個の提携を並べない)。`n` は [`MAX_PLAYERS`] 以下であること。
+fn missing_summary(
     n: usize,
-    known: impl Iterator<Item = Coalition> + Clone,
-    missing: Missing,
-) -> Result<()> {
+    known: impl Iterator<Item = Coalition>,
+    limit: usize,
+) -> (u64, Vec<Coalition>) {
+    let total = (1u64 << n) - 1;
+    let known: HashSet<u64> = known
+        .map(|c| c.0)
+        .filter(|mask| (1..=total).contains(mask))
+        .collect();
+    let first = (1..=total)
+        .filter(|mask| !known.contains(mask))
+        .take(limit)
+        .map(Coalition)
+        .collect();
+    (total - known.len() as u64, first)
+}
+
+/// 全提携の値の表を作れるか確かめる (人数の上限と、値が分からない提携の扱い)。
+fn check_table(n: usize, known: impl Iterator<Item = Coalition>, missing: Missing) -> Result<()> {
     if n > MAX_PLAYERS {
         return Err(Error::TooManyPlayers {
             players: n,
             max: MAX_PLAYERS,
         });
     }
-    if missing == Missing::Error && has_missing_coalitions(n, known.clone()) {
-        let absent = missing_coalitions(n, known)?;
-        let listed: Vec<String> = absent.iter().take(10).map(Coalition::to_string).collect();
-        return Err(Error::InvalidArgument(format!(
-            "値が分からない提携が {} 個ある: {}{}",
-            absent.len(),
-            listed.join(" "),
-            if absent.len() > 10 { " ..." } else { "" }
-        )));
+    if missing == Missing::Error {
+        let (count, first) = missing_summary(n, known, 10);
+        if count > 0 {
+            let listed: Vec<String> = first.iter().map(Coalition::to_string).collect();
+            return Err(Error::InvalidArgument(format!(
+                "値が分からない提携が {count} 個ある: {}{}",
+                listed.join(" "),
+                if count > first.len() as u64 {
+                    " ..."
+                } else {
+                    ""
+                }
+            )));
+        }
     }
     Ok(())
 }
@@ -632,6 +656,7 @@ impl GameData {
     /// 値が分からない (空でない) 提携の一覧 (提携の番号順)。
     ///
     /// 一覧を作れるのは [`MAX_PLAYERS`] 人まで (超えれば [`Error::TooManyPlayers`])。
+    /// 一覧は分からない提携の数に比例するメモリを使う (30 人で値がほとんどなければ約 8.6 GB)。
     /// 分からない提携があるかだけを知るには [`GameData::has_missing`] を使う。
     pub fn missing(&self) -> Result<Vec<Coalition>> {
         missing_coalitions(self.players, self.known.iter().map(|(c, _)| *c))
@@ -1024,6 +1049,31 @@ mod tests {
         let exact = parse_csv_exact("coalition,value\n0,1\n1,1\n0|1,2\n").unwrap();
         assert!(!exact.has_missing());
     }
+
+    /// 値が分からない提携のエラーは、提携を全て並べずに数と最初の 10 個を示す (30 人でもすぐに返る)。
+    #[test]
+    fn missing_error_counts_without_enumerating_coalitions() {
+        let n = MAX_PLAYERS;
+        let grand: Vec<String> = (0..n).map(|i| i.to_string()).collect();
+        let data = parse_csv(&format!("coalition,value\n1,1\n{},1\n", grand.join("|"))).unwrap();
+        let error = data.to_explicit(Missing::Error).unwrap_err().to_string();
+        let count = (1u64 << n) - 3;
+        assert!(
+            error.contains(&format!(
+                "値が分からない提携が {count} 個ある: {{0}} {{0, 1}} {{2}}"
+            )),
+            "{error}"
+        );
+        assert!(error.ends_with(" ..."), "{error}");
+        // 分からない提携が 10 個以下なら、全て示して省略の印を付けない。
+        let data = parse_csv("coalition,value\n0,1\n1,1\n0|1|2,6\n").unwrap();
+        let error = data.to_explicit(Missing::Error).unwrap_err().to_string();
+        assert!(
+            error.ends_with("値が分からない提携が 4 個ある: {0, 1} {2} {0, 2} {1, 2}"),
+            "{error}"
+        );
+    }
+
     #[test]
     fn rejects_non_string_type_and_misspelled_keys() {
         let err = parse_json(r#"{"type": 1, "values": {"0": 1}}"#).unwrap_err();
