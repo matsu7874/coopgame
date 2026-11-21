@@ -21,9 +21,9 @@ coopgame がリポジトリ内で導いて使っている数学的な主張の�
 | 確定した提携の張る空間が全空間でなければ、未確定の 1 人提携とその補集合があり、段の値は下に有界 | `src/nucleolus/mod.rs`・`exact.rs`・`oracle.rs` (逐次 LP の有界性) | `exists_single_not_mem`、`mem_of_compl_mem`、`level_lower_bound` (`SequentialLp.lean`) |
 | 破産ゲームの超過は `max(-x(S), (E - D) + Σ_{i ∈ S} (d_i - x_i))` | `src/games/bankruptcy.rs` (オラクル) | `bankruptcy_excess` (`Identities.lean`) |
 | 節約ゲームの超過は、費用の分担 `y_i = c_i - x_i` が提携の費用を超える額 `y(S) - c(S)` に等しい | `src/games/cost.rs` | `savings_excess_eq`、`savings_efficient_iff` (`Identities.lean`) |
-| Gately 点の閉じた形は効率的で、抜ける傾向が全員で等しい | `src/compromise.rs` | `gately_efficient`、`gately_numerator`、`gately_propensity` (`Identities.lean`) |
+| Gately 点の閉じた形は効率的で、抜ける傾向は `M_i ≠ v({i})` のプレイヤーの間で等しい (`(1 - t) / t`) | `src/compromise.rs` | `gately_efficient`、`gately_numerator`、`gately_propensity` (`Identities.lean`) |
 | 効率的な配分では、双対ゲームの超過は補集合の超過の符号を変えたもの。modiclus の bi-excess の 2 つの書き方は等しい | `src/nucleolus/variants.rs` (`anti_prenucleolus`、`modiclus`) | `dual_excess`、`bi_excess_eq` (`Identities.lean`) |
-| 抜ける傾向は不満 `f = e(S, x) / b(S)` の狭義単調増加な関数 `-1/f - 1` | `src/nucleolus/variants.rs` (`disruption_nucleolus`) | `disruption_eq`、`disruption_strictMono` (`Identities.lean`) |
+| 抜ける傾向は、不満 `f = e(S, x) / b(S)` を使って `-1/f - 1` と書ける (`x(S) ≠ v(S)` のとき)。この関数は `f < 0` で狭義単調増加 | `src/nucleolus/variants.rs` (`disruption_nucleolus`) | `disruption_eq`、`disruption_strictMono` (`Identities.lean`) |
 
 定理は全て名前空間 `Coopgame` にある。
 Kohlberg 判定の 2 つの定理では、ベクトル `a i` が提携の特性ベクトル、`b` が `1_N` (仁の場合は、下限に張り付いた単集合に非負の重みを付けた分を引いたもの) に当たる。
@@ -31,6 +31,7 @@ Kohlberg 判定の 2 つの定理では、ベクトル `a i` が提携の特性�
 ## 証明の対象にしていないこと
 
 - 逐次 LP の各段で、確定する提携が必ず見つかること (LP の双対と相補性による)。
+- 不満に狭義単調増加な変換を掛けても、辞書式最小化の解が変わらないこと (disruption nucleolus の書き換えが使う)。
 - 文献の定理: Kohlberg 基準と仁・プレ仁の同値、凸ゲームのカーネルが仁の 1 点であること、transfer scheme の収束、タルムード則と破産ゲームの仁の一致、貪欲法が基多面体の頂点を与えること (Edmonds) など。
 - 浮動小数点数の丸めと許容誤差。定理は実数上の主張である。
 - Rust のコードが定理の式どおりに計算していること。コードと式の対応はテストで確かめている。

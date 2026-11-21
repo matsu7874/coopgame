@@ -73,7 +73,7 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 | `verify`, `certify` | Kohlberg 基準による検証 (浮動小数点、有理数) |
 | `shapley`, `banzhaf`, `normalize`, `shapley_sampling`, `banzhaf_sampling` | Shapley 値・Banzhaf 値。サンプリングの順列数・提携数は 1 以上 (0 なら ValueError) |
 | `disruption_nucleolus(game)` | disruption nucleolus (Littlechild & Vaidya 1976、コアが空なら ValueError、16 人まで)。`per_capita_nucleolus` と同じ形の辞書 |
-| `anti_prenucleolus(game)`, `anti_nucleolus(game)`, `dual(game)` | anti-prenucleolus・anti-nucleolus (双対ゲームのプレ仁・仁、Funaki & Meinhardt 2006) と双対ゲーム (値が有限でなければ ValueError)。anti の 2 つは `nucleolus` と同じ形の辞書 |
+| `anti_prenucleolus(game)`, `anti_nucleolus(game)`, `dual(game)` | anti-prenucleolus・anti-nucleolus (双対ゲームのプレ仁・仁、Funaki & Meinhardt 2006) と双対ゲーム (双対ゲームの値 `v(N) - v(N \ S)` が f64 で表せなければ ValueError)。anti の 2 つは `nucleolus` と同じ形の辞書 |
 | `solidarity(game)` | solidarity 値 (Nowak & Radzik 1994) |
 | `tau_value(game)`, `utopia_payoffs(game)` | tau 値 (Tijs 1981、準平衡でなければ ValueError)。理想の支払いと最小の権利 |
 | `gately_point(game)` | Gately 点 (Gately 1974) |

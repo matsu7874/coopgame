@@ -1,8 +1,8 @@
 /-
 Kohlberg 基準の判定 (src/verify/kohlberg.rs, src/verify/exact.rs) が使う 2 つの変形の証明。
 
-* `PosCombination.union_of_mem_span` : 族が空間を張って平衡なら、提携を足した族も平衡である。
-  判定はこれを根拠に、族の階数が n に達した段で打ち切る。
+* `PosCombination.mono_of_span_eq_top` : 族が全空間を張って平衡なら、それを含むどの族も平衡である
+  (`PosCombination.union_of_mem_span` から導く)。判定はこれを根拠に、族の階数が n に達した段で打ち切る。
 * `posCombination_iff_ge_one`        : 「正の重みで b を表せる」ことは、
   「1 以上の重みで b の正数倍を表せる」ことと同値である。`is_balanced` はこの形を LP で判定する。
 

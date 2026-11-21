@@ -29,7 +29,7 @@ cargo build --release --features cli   # target/release/coopgame
 | `scripts/` | 文書の数値の照合 (`verify_claims.py`) と、他の実装との比較のスクリプト (`compare/`) |
 | `proofs/` | リポジトリ内で導いた数学的な主張の Lean 4 による証明 (構造的な凸性、Kohlberg 判定の打ち切りなど)。一覧と確かめ方は `proofs/README.md` |
 
-`data/`、`docs/`、`scripts/`、`proofs/` は crates.io のパッケージに含めない (`Cargo.toml` の `exclude`)。
+`python/`、`data/`、`docs/`、`scripts/`、`proofs/` は crates.io のパッケージに含めない (`Cargo.toml` の `exclude`)。
 
 ## モジュールの構成と依存の向き
 
@@ -107,7 +107,7 @@ cargo build --no-default-features       # feature なしでビルドできるこ
 - per capita 仁が文献の例と一致し、modiclus が定和ゲームでプレ仁に一致し凸ゲームでコアに属すること (Sudhölter 1997)、
   仁・カーネルの点が交渉集合に属し、凸ゲームで交渉集合がコアに一致すること (`tests/variants.rs`)
 - modiclus が文献の数値例と一致し、双対被覆ゲームのプレ仁の射影と一致し、bi-excess の族の平衡性を満たすこと (`tests/modiclus.rs`)
-- per capita 仁 (weak nucleolus)・比例仁・disruption nucleolus が Young, Okada & Hashimoto (1982) と Lemaire (1984) の数値例と一致すること (`tests/variant_literature.rs`)
+- per capita 仁 (weak nucleolus)・比例仁・disruption nucleolus を Young, Okada & Hashimoto (1982) と Lemaire (1984) の数値例と比べる (`tests/variant_literature.rs`)。論文の値と異なる 2 例 (6 自治体の比例仁、Lemaire の例 3 の仁) は、辞書式の順序を直接比べて確かめる ([docs/literature-cases.md](docs/literature-cases.md))
 - Owen 値・Aumann–Drèze 値・提携構造つきの仁を、Shapley 値・仁・商ゲームとの関係で確かめる (`tests/partition.rs`)
 - 費用ゲーム・空港ゲーム・最小全域木ゲーム・線形生産ゲームを、明示ゲームの計算とコアの定理で確かめる (`tests/cost_games.rs`)
 - 保証の種類・分離オラクル・性質の宣言・凸ゲームの手法・事後検証・有理数で構築したゲーム (`tests/guarantees.rs`)

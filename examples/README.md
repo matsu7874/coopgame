@@ -48,7 +48,7 @@ cargo run --example io --features io     # io は feature `io` が要る
 | `bench_oracle` | オラクル版の仁の計測 (破産・多数決・重み付き投票) |
 | `bench_convex` | 凸ゲームの手法の計測 |
 | `bench_auto_threshold` | 逐次 LP と凸ゲームの手法の時間の比較 (`auto` の切り替えの境目の根拠) |
-| `bench_limits` | 仁の変種と交渉集合の判定の時間と最大メモリ (プレイヤー数の上限 `MAX_*_PLAYERS` の根拠) |
+| `bench_limits` | 仁の変種と交渉集合の判定の時間と最大メモリ (プレイヤー数の上限 `nucleolus::variants::MAX_*_PLAYERS` と `bargaining::MAX_BARGAINING_SET_PLAYERS` の根拠) |
 | `study_assumption` | 凸と仮定した手法を一般のゲームに使い、事後検証で分類する |
 | `study_counterexamples` | 反例の探索と縮小の実例 |
 | `study_data_valuation` | サンプリングした仁の収束と、データ評価への応用 |
