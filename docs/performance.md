@@ -19,10 +19,65 @@ per capita 仁・比例仁・disruption nucleolus・交渉集合の判定の上�
 上限を超えるゲームには `Error::TooManyPlayers` を返す (上限は `nucleolus::variants::MAX_*_PLAYERS` と
 `bargaining::MAX_BARGAINING_SET_PLAYERS`)。
 
+## 仁の許容誤差の決め方 (`nucleolus::Tolerance`)
+
+全提携の表の仁・プレ仁は、許容誤差の決め方を選べる。目的がある場合は指定し、指定しなければ正しい仁を返すことを優先する。
+
+| 使い方 | ライブラリ (`Options::tolerance`) | CLI (`nucleolus`) | Python (`nucleolus`) | 動作 |
+|---|---|---|---|---|
+| 指定しない (既定) | `Tolerance::Auto` | (オプションなし) | (引数なし) | 下の手順。解く回数と時間は入力で変わる |
+| 値の単位で精度を決める | `Tolerance::Absolute(t)` | `--tolerance t` | `tolerance=t` | その許容誤差で 1 回だけ解く |
+| 値の大きさに対する比で決める | `Tolerance::Relative(r)` | `--rel-tolerance r` | `rel_tolerance=r` | `r * max|v(S)|` の許容誤差で 1 回だけ解く |
+| 有理数で解く (10 人まで) | `nucleolus::exact::nucleolus` | `--exact` | `nucleolus_exact` | 許容誤差を使わない |
+
+既定の手順は次のとおり。
+
+1. `max|v(S)|` の `1e-7` 倍の許容誤差で解く。
+2. 20 人以下なら、解いた配分の超過の段を `max|v(S)|` の `1e-11` 倍 (10 人以下では `1e-12` 倍) の許容誤差で読み直し、
+   段を上から順に合わせた提携族がどれも平衡 (Kohlberg 基準) かを確かめる。平衡ならその配分を返す。
+3. 平衡でなければ、許容誤差を `1e-9` 倍、`1e-11` 倍に下げて解き直し、同じ確認をする。
+4. どの許容誤差でも平衡にならなければ、10 人以下は有理数の逐次 LP で求める (9 人で最大 23 秒、10 人で最大 153 秒かかった。下の「有理数による厳密な計算」)。
+   11 人以上は、最後に解けた配分を保証 `approximate` で返す。
+
+結果の `tolerance` (使った許容誤差)・`refinements` (解き直した回数)・`is_rational` (有理数の逐次 LP で求めたか) で、どう求めたかが分かる
+(CLI は標準エラーの `solver=`・`tolerance=`・`refinements=`・`guarantee=`)。
+21 人以上のゲームは 1. だけを行う。
+
+既定の手順と、比 `1e-7` の許容誤差で 1 回だけ解く場合を比べた (`cargo run --release --example study_tolerance`、`data/analysis/tolerance-study.csv`)。
+整数ゲームは、値が `scale * |S| + 0..6` (1 人提携は 0) で、超過の段の間隔が 1 以下になる。
+「正しい」は、3-6 人では有理数の逐次 LP の仁との差が丸めの大きさ `4 n ε max|v|` 以下、7 人以上では厳密な検証 (`verify::certify`) に合格したものである。
+
+| ゲーム | 人数 | ゲーム数 | 1 回だけ解く: 正しい数 | 既定: 正しい数 | 既定で解き直した数 | 有理数に切り替えた数 | `approximate` の数 |
+|---|---|---|---|---|---|---|---|
+| 整数 (scale = 1・1e5) | 3-6 | 各 200 | 200 | 200 | 0 | 0 | 0 |
+| 整数 (scale = 1e6) | 3-6 | 200 | 166 | 200 | 34 | 0 | 0 |
+| 整数 (scale = 1e7) | 3-6 | 200 | 84 | 200 | 116 | 0 | 0 |
+| 整数 (scale = 1e8) | 3-6 | 200 | 91 | 200 | 109 | 1 | 0 |
+| 整数 (scale = 1e9) | 3-6 | 200 | 79 | 200 | 121 | 50 | 0 |
+| 整数 (scale = 1e12) | 3-6 | 200 | 50 | 120 | 70 | 70 | 0 |
+| 整数 (scale = 1e7) | 7-8 | 20 | 12 | 20 | 8 | 0 | 0 |
+| 整数 (scale = 1e9) | 7-8 | 10 | 4 | 10 | 6 | 6 | 0 |
+| 整数 (scale = 1e6) | 11-14 | 40 | 15 | 40 | 25 | 0 | 0 |
+| 整数 (scale = 1e7) | 11-14 | 40 | 14 | 37 | 25 | 0 | 3 |
+| 整数 (scale = 1e8) | 11-14 | 40 | 13 | 16 | 23 | 0 | 24 |
+| 整数 (scale = 1e9) | 11-14 | 40 | 4 | 5 | 14 | 0 | 35 |
+| BNF タイプ 1・2・4 | 3-6、11-14、16-20 | 各 200、40、9 | 全て | 全て | 0 | 0 | 0 |
+| 凸 | 11-14、16-20 | 40、9 | 全て | 全て | 0 | 0 | 0 |
+
+- 超過の段が整合するゲーム (BNF・凸・値の小さい整数) では、既定の手順は解き直さず、確認の分だけ時間が増える (16-20 人の 9 ゲームの合計で 11-13%)。
+- 11 人以上で正しくなかった配分は、全て保証が `approximate` になった (scale = 1e7 で 3、1e8 で 24、1e9 で 35)。
+- 値が `1e12` 程度の整数ゲームでは、超過の段の間隔 (`max|v(S)|` の `1e-13` 倍程度) が読み直しの許容誤差より小さく、
+  200 個のうち 80 個のずれを見分けられなかった。この大きさの値を 1 単位まで正しく求めるには、有理数の逐次 LP (`--exact`) を使う。
+- 有理数に切り替えたゲームは時間がかかる (scale = 1e9 の 7-8 人では、10 ゲームの合計が 0.02 秒から 34 秒になった)。
+
+既定の許容誤差そのものは小さくしていない。同じ超過の提携が多いゲームでは、許容誤差を小さくすると行の追加が増える。
+40 人の重み付き投票ゲーム (`examples/large_games.rs` と同じゲーム) のオラクル版の仁は、比 `1e-7` では 0.25 秒で解け、
+比 `1e-8` (`oracle::nucleolus_with(&game, Domain::Imputation, 1e-8)`) では 180 秒で終わらなかった。
+
 ## 制約
 
 - 浮動小数点で計算する。許容誤差は `1e-7 * max |v(S)|` (全ての値が 0 なら `1e-7`) を基準にし、transfer scheme はその 1/100 で止める。
-- 仁・最小コアの許容誤差 (`nucleolus::Options::tolerance`) は有限で 0 以上の値にする。NaN・無限大・負の値は `Error::InvalidArgument` になる。
+- 仁の許容誤差を指定するとき (`nucleolus::Tolerance::Absolute`・`Relative`) は、有限で 0 以上の値にする。NaN・無限大・負の値は `Error::InvalidArgument` になる。
   許容誤差を受け取る他の関数も同じである (`kernel::is_in_kernel`・`properties::is_in_core`・`KernelSet::contains`・`KernelPiece::contains`・
   `kernel::kernel_point`・`kernel::kernel_set`・`KernelSet::merge_collinear_segments`・`bargaining::check`・`nucleolus::oracle::nucleolus_with`・
   `nucleolus::convex::nucleolus_with`・`nucleolus::variants::lexicographic_minimum`・`verify::recover_allocation`)。
@@ -30,7 +85,8 @@ per capita 仁・比例仁・disruption nucleolus・交渉集合の判定の上�
   値の大きさで割った許容誤差が有限でない (値に比べて大きすぎる) ときも `Error::InvalidArgument` を返す。
 - 値が f64 の上限に近く、元の大きさに戻した配分・各段の最大超過・最小コアの `epsilon` が f64 で表せない (有限でない) ときは、`Error::Numerical` を返す。
 - 逐次 LP は、超過が最大超過と許容誤差以内で等しい提携を確定させうる。そのため超過の差が許容誤差より小さい提携があるゲームでは、
-  結果が厳密な仁から許容誤差の程度ずれることがある。
+  結果が厳密な仁から許容誤差の程度ずれることがある。全提携の表の仁 (`nucleolus::nucleolus`) は、既定でこのずれを確かめて解き直す
+  (下の「仁の許容誤差の決め方」)。オラクル版・最小コア・仁の変種・提携構造つきの仁は、既定の許容誤差で 1 回だけ解く。
 - `nucleolus::has_nonempty_core` は、浮動小数点の LP で求めた最小コアの `epsilon` が許容誤差の帯 `[-tol, tol]` の外ならその符号で判定する。
   帯の中では、9 人までは値を f64 の値どおりの有理数として `epsilon` を有理数の LP で求め、入力の丸めの大きさ `4 n ε max|v|` 以下なら空でないとする。
   それより多い人数では、帯の中を空でないとする。

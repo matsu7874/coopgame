@@ -87,7 +87,7 @@ fn structured_nucleolus_properties() {
             let grand = partition::nucleolus(&game, &CoalitionStructure::grand(6).unwrap(), domain)
                 .unwrap();
             let expected =
-                nucleolus::nucleolus_with(&game, nucleolus::Options::new(&game, domain)).unwrap();
+                nucleolus::nucleolus_with(&game, nucleolus::Options::new(domain)).unwrap();
             assert_close(
                 grand.allocation(),
                 expected.allocation(),

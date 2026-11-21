@@ -10,7 +10,7 @@ use coopgame::games::airport::AirportGame;
 use coopgame::games::{bankruptcy, cost};
 use coopgame::kernel::{self, SetOptions, TransferOptions};
 use coopgame::nucleolus::convex::{self, ConvexOptions};
-use coopgame::nucleolus::{Method, Options, variants};
+use coopgame::nucleolus::{Method, Options, Tolerance, variants};
 use coopgame::properties::{Assume, ConvexChecked};
 use coopgame::verify::{self, Check, Reference, Verified, VerifyOptions};
 use coopgame::{
@@ -20,7 +20,7 @@ use coopgame::{
 
 const USAGE: &str = "\
 使い方:
-  coopgame nucleolus  <v.txt> [--pre] [--lex] [--full] [--cost] [--exact]
+  coopgame nucleolus  <v.txt> [--pre] [--lex] [--full] [--cost] [--exact] [--tolerance T | --rel-tolerance R]
                       --cost: v.txt を費用として読み、費用の分担を出す (下の --cost)
                       --exact: 値を 10 進数・分数の値どおりの有理数として読み、有理数だけで解いて分数で出す (10 人まで)。
                                JSON・CSV の数も字面どおりに読む。--full とは併用できない
@@ -75,6 +75,11 @@ const USAGE: &str = "\
   sol.txt  検証する配分を 1 行 1 値で書いたファイル
   --pre    プレ仁・プレカーネル(個人合理性を課さない)
   --full   仁の LP に全提携の行を最初から入れる(既定は制約生成)
+  --tolerance T      仁の逐次 LP の許容誤差 (値の単位) を指定し、1 回だけ解く
+  --rel-tolerance R  仁の逐次 LP の許容誤差を max|v(S)| に対する比で指定し、1 回だけ解く (最初に使う比は 1e-7)。
+           どちらも指定しなければ、仁を正しく求めることを優先する: 解いた配分の超過の段を細かく読み直して確かめ、
+           整合しなければ許容誤差を下げて解き直し、それでも整合しなければ 10 人以下は有理数の逐次 LP で求める
+           (時間がかかることがある。11 人以上は guarantee=approximate で返す)。確認は 20 人まで
   --samples N  Shapley 値・Banzhaf 値をサンプリングで推定する (順列数・提携数、1 以上)。省略すると厳密計算
   --merge  カーネル全体で、同じ直線上でつながる線分を 1 本にまとめる
   --rational  certify で v.txt の値を 10 進数・分数 (8/3) の値どおりの有理数として読む (JSON・CSV の数も字面どおり)
@@ -278,8 +283,23 @@ fn run(raw: &[String]) -> CliResult<()> {
     let args = Args::parse(command, rest)?;
     match command.as_str() {
         "nucleolus" => {
-            args.check_options(&["--pre", "--lex", "--full", "--cost", "--exact"])?;
+            args.check_options(&[
+                "--pre",
+                "--lex",
+                "--full",
+                "--cost",
+                "--exact",
+                "--tolerance",
+                "--rel-tolerance",
+            ])?;
+            let tolerance = tolerance(&args)?;
             if args.has("--exact") {
+                if tolerance != Tolerance::Auto {
+                    return Err(
+                        "--exact は許容誤差を使わない (--tolerance・--rel-tolerance と併用できない)"
+                            .into(),
+                    );
+                }
                 if args.missing == MissingPolicy::Ignore {
                     return Err(
                         "--missing ignore は --exact と併用できない (--exact は全提携の値を有理数で解く。\
@@ -321,21 +341,30 @@ fn run(raw: &[String]) -> CliResult<()> {
                 return Ok(());
             }
             // 値が分からない提携があれば、分かる提携だけで解く。
-            if args.missing == MissingPolicy::Ignore && nucleolus_known_only(&args)? {
+            if args.missing == MissingPolicy::Ignore && nucleolus_known_only(&args, tolerance)? {
                 return Ok(());
             }
             let prepared = read_prepared(&args, 0)?;
             let started = Instant::now();
-            let mut options = Options::new(&prepared.game, args.domain());
+            let mut options = Options::new(args.domain());
+            options.tolerance = tolerance;
             if args.has("--full") {
                 options.method = Method::Full;
             }
             let result = nucleolus::nucleolus_with(&prepared.game, options)?;
             eprintln!(
-                "time={:.6}s lp_solves={} rows_added={} levels={:?}",
+                "time={:.6}s lp_solves={} rows_added={} solver={} tolerance={:e} refinements={} guarantee={} levels={:?}",
                 started.elapsed().as_secs_f64(),
                 result.lp_solves(),
                 result.rows_added(),
+                if result.is_rational() {
+                    "rational"
+                } else {
+                    "lp"
+                },
+                result.tolerance(),
+                result.refinements(),
+                result.guarantee(),
                 result.levels()
             );
             print_allocation(&prepared.output(result.allocation()));
@@ -929,6 +958,28 @@ impl MissingPolicy {
     }
 }
 
+/// 逐次 LP の許容誤差の決め方。`--tolerance` (値の単位) か `--rel-tolerance` (max|v| に対する比) の
+/// どちらかを指定すると、その許容誤差で 1 回だけ解く。指定がなければ既定の手順 (Tolerance::Auto)。
+fn tolerance(args: &Args) -> CliResult<Tolerance> {
+    let number = |name: &str| -> CliResult<Option<f64>> {
+        match args.value(name)? {
+            None => Ok(None),
+            Some(text) => text
+                .parse()
+                .map(Some)
+                .map_err(|_| format!("{name} の値 {text:?} が不正").into()),
+        }
+    };
+    match (number("--tolerance")?, number("--rel-tolerance")?) {
+        (None, None) => Ok(Tolerance::Auto),
+        (Some(tolerance), None) => Ok(Tolerance::Absolute(tolerance)),
+        (None, Some(ratio)) => Ok(Tolerance::Relative(ratio)),
+        (Some(_), Some(_)) => {
+            Err("--tolerance と --rel-tolerance は、どちらか一方だけを指定する".into())
+        }
+    }
+}
+
 /// 検証の設定。`--reference` で基準の仁の求め方を選ぶ (既定は auto)。
 fn verify_options(args: &Args) -> CliResult<VerifyOptions> {
     let mut options = VerifyOptions::default();
@@ -1103,7 +1154,7 @@ fn exact_savings(costs: &exact::ExactGame) -> CliResult<(exact::ExactGame, Vec<e
 /// --missing ignore の nucleolus: 値が分からない提携があれば、分かる提携だけで解いて出す (出したら true)。
 ///
 /// 分からない提携があるかは、提携を列挙せずに数で判定する (全提携の表を作れない 31 人以上でも解けるように)。
-fn nucleolus_known_only(args: &Args) -> CliResult<bool> {
+fn nucleolus_known_only(args: &Args, tolerance: Tolerance) -> CliResult<bool> {
     let path = args.file(0)?;
     if !is_table(path) {
         return Ok(false);
@@ -1124,7 +1175,7 @@ fn nucleolus_known_only(args: &Args) -> CliResult<bool> {
     }
     // 費用なら節約ゲームで解き、費用の分担で出す (io::GameData::partial_nucleolus)。
     let result = data
-        .partial_nucleolus(args.domain())
+        .partial_nucleolus_with(args.domain(), tolerance)
         .map_err(|e| format!("{path}: {e}"))?;
     eprintln!(
         "guarantee={} (値が分かる {} 個の提携だけで解いた。真のゲームの仁とは限らない)",
@@ -1229,7 +1280,9 @@ fn bench_one(game: &ExplicitGame, method: &str) -> CliResult<String> {
         "prekernel" => (Domain::Preimputation, true),
         other => return Err(format!("未知の手法 {other:?}").into()),
     };
-    let mut options = Options::new(game, domain);
+    let mut options = Options::new(domain);
+    // 逐次 LP そのものの時間を測るので、既定の比の許容誤差で 1 回だけ解く。
+    options.tolerance = Tolerance::Relative(1e-7);
     if method.ends_with("-full") {
         options.method = Method::Full;
     }

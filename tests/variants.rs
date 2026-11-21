@@ -111,7 +111,7 @@ fn kernel_points_lie_in_bargaining_set() {
             for seed in 0..3 {
                 let game = generators::bnf(kind, n, seed).unwrap();
                 for domain in [Domain::Imputation, Domain::Preimputation] {
-                    let options = nucleolus::Options::new(&game, domain);
+                    let options = nucleolus::Options::new(domain);
                     let Ok(result) = nucleolus::nucleolus_with(&game, options) else {
                         continue;
                     };

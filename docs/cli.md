@@ -29,7 +29,7 @@ cargo install coopgame --features cli
 
 ```console
 $ coopgame nucleolus v.txt > sol.txt
-time=0.000166s lp_solves=3 rows_added=0 levels=[-1.0]
+time=0.000166s lp_solves=3 rows_added=0 solver=lp tolerance=6e-7 refinements=0 guarantee=exact levels=[-1.0]
 $ cat sol.txt
 3
 2
@@ -91,7 +91,31 @@ coopgame convex-nucleolus v.txt             # 凸ゲームの手法で仁 (凸�
 | `--cost` | 費用ゲームとして読み、仁による費用の分担を出す (JSON・CSV の `type` が `cost` なら付けなくてよい) |
 | `--exact` | 値を有理数として読み、有理数だけで仁を求めて分数で出す (JSON・CSV の数も字面どおり。`--full` とは併用できない) |
 | `--full` | 全提携の行を最初から入れる LP で解く (制約生成との比較用) |
+| `--tolerance T` | 逐次 LP の許容誤差を値の単位で指定し、1 回だけ解く (`--exact` とは併用できない) |
+| `--rel-tolerance R` | 逐次 LP の許容誤差を `max|v(S)|` に対する比で指定し、1 回だけ解く (`--tolerance` とはどちらか一方) |
 | `--missing zero\|ignore` | 値が分からない提携の扱い ([入力形式](input-format.md#値が分からない提携))。`ignore` は `nucleolus` (`--exact` なし) だけで使える |
+
+`--tolerance`・`--rel-tolerance` を指定しなければ、正しい仁を返すことを優先する。
+解いた配分の超過の段を細かく読み直して確かめ、整合しなければ許容誤差を下げて解き直し、
+それでも整合しなければ 10 人以下は有理数の逐次 LP で求める (時間がかかることがある)。
+11 人以上で整合しないままなら、保証を `approximate` にして返す
+(手順と計測は [性能と制約](performance.md) の「仁の許容誤差の決め方」)。
+標準エラーの統計に、どう求めたかを出す。
+
+```console
+$ coopgame nucleolus v.txt
+time=0.000167s lp_solves=3 rows_added=0 solver=lp tolerance=6e-7 refinements=0 guarantee=exact levels=[-1.0]
+3
+2
+1
+```
+
+| 項目 | 内容 |
+|---|---|
+| `solver` | `lp` (逐次 LP)、`rational` (有理数の逐次 LP に切り替えた) |
+| `tolerance` | 使った許容誤差 (値の単位。`rational` では 0) |
+| `refinements` | 許容誤差を下げて解き直した回数 |
+| `guarantee` | `exact`、または超過の段が整合しないまま返した `approximate` |
 
 `least-core`・`kernel`・`shapley`・`banzhaf`・`compare` も `--cost` で費用ゲームを扱う ([費用ゲーム](input-format.md#費用ゲーム))。
 他のコマンドに費用のゲーム (`type` が `cost`) を渡すとエラーにする。

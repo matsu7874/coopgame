@@ -15,16 +15,18 @@
 
 | 種類 | 意味 | 例 |
 |---|---|---|
-| `exact` | 定義どおりに計算した (全提携の LP・総当たり。浮動小数点の許容誤差の範囲で) | `nucleolus::nucleolus`、全提携について答えるオラクルでのオラクル版の仁 |
+| `exact` | 定義どおりに計算した (全提携の LP・総当たり。浮動小数点の許容誤差の範囲で) | `nucleolus::nucleolus` (既定では超過の段が整合することを確かめ、整合しなければ解き直すか有理数で解く)、全提携について答えるオラクルでのオラクル版の仁 |
 | `proven(性質)` | 性質が分かっているゲームに、その性質のもとで正しい専用手法を使った | 破産ゲームのタルムード則 (`proven(bankruptcy)`)、凸ゲームの手法 (`proven(convex)`) |
 | `assumed(性質)` | 利用者が宣言した性質のもとで専用手法を使った。性質が成り立たなければ誤りうる | `nucleolus::convex::nucleolus(&Assume::convex(game))` |
 | `certified` | 求めた後に有理数による厳密な検証に合格した | `Unverified::verify` の結果 |
-| `approximate` | サンプリングなどの近似、または反復が収束しなかった | Shapley 値の推定、サンプルした仁、一部の提携だけを扱うオラクルでのオラクル版の仁 |
+| `approximate` | サンプリングなどの近似、または反復が収束しなかった | Shapley 値の推定、サンプルした仁、一部の提携だけを扱うオラクルでのオラクル版の仁、既定の設定の `nucleolus::nucleolus` が許容誤差を下げても超過の段が整合せず、有理数でも解けなかった仁 (11-20 人) |
 
-許容誤差を指定できる関数 (`nucleolus::oracle::nucleolus_with` の `tolerance`、`nucleolus::convex::ConvexOptions::tolerance`) は、
-有限で 0 以上でない値 (NaN・負の値・無限大) を `InvalidArgument` として拒む。
+許容誤差を指定できる関数 (`nucleolus::Options::tolerance` の `Tolerance::Absolute`・`Relative`、`nucleolus::oracle::nucleolus_with` の `tolerance`、
+`nucleolus::convex::ConvexOptions::tolerance`) は、有限で 0 以上でない値 (NaN・負の値・無限大) を `InvalidArgument` として拒む。
 結果は指定した許容誤差の範囲で成り立つ。保証の種類は許容誤差の大きさを反映しないので、
 大きい許容誤差を指定すると、仁から離れた配分にも同じ保証が付く。
+許容誤差を指定しない `nucleolus::nucleolus` (`Tolerance::Auto`) だけは、解いた配分の超過の段を確かめた結果で保証を決める
+([性能と制約](performance.md) の「仁の許容誤差の決め方」)。
 
 ### 能力の階層 (`coopgame::game`、`coopgame::game::oracle`)
 

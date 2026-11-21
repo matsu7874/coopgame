@@ -10,8 +10,9 @@
 use std::time::Instant;
 
 use coopgame::game::exact::ExactGame;
+use coopgame::nucleolus::{self, Options, Tolerance};
 use coopgame::verify;
-use coopgame::{Domain, generators, nucleolus};
+use coopgame::{Domain, generators};
 
 /// コマンドライン引数 `[人数,...]` を読む。省略したら 3,4,5,6 にする。
 fn parse_sizes() -> Vec<usize> {
@@ -33,7 +34,13 @@ fn main() {
             let started = Instant::now();
             let result = nucleolus::exact::nucleolus(&exact_game, Domain::Imputation).unwrap();
             let seconds = started.elapsed().as_secs_f64();
-            let float = nucleolus::nucleolus(&game).unwrap().into_allocation();
+            // 浮動小数点の逐次 LP の解と比べるので、既定の比の許容誤差で 1 回だけ解く
+            // (既定の設定は有理数の逐次 LP に切り替えることがある)。
+            let mut options = Options::new(Domain::Imputation);
+            options.tolerance = Tolerance::Relative(1e-7);
+            let float = nucleolus::nucleolus_with(&game, options)
+                .unwrap()
+                .into_allocation();
             let certified = verify::certify(&game, &float, Domain::Imputation).unwrap();
             let matches = certified.satisfied && certified.allocation == result.allocation;
             println!(

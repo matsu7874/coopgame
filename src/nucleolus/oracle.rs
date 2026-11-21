@@ -161,22 +161,18 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
 
     fn run(&mut self) -> Result<NucleolusResult> {
         if self.n == 1 {
-            return Ok(NucleolusResult {
-                allocation: vec![self.game.value(&PlayerSet::grand(1))],
-                levels: Vec::new(),
-                lp_solves: 0,
-                rows_added: 0,
-                guarantee: self.guarantee,
-            });
+            return Ok(NucleolusResult::without_lp(
+                vec![self.game.value(&PlayerSet::grand(1))],
+                self.guarantee,
+                self.tolerance,
+            ));
         }
         if let Some(point) = self.single_point() {
-            return Ok(NucleolusResult {
-                allocation: point,
-                levels: Vec::new(),
-                lp_solves: 0,
-                rows_added: 0,
-                guarantee: self.guarantee,
-            });
+            return Ok(NucleolusResult::without_lp(
+                point,
+                self.guarantee,
+                self.tolerance,
+            ));
         }
         let mut levels = Vec::new();
         let mut allocation = Vec::new();
@@ -192,6 +188,9 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
             lp_solves: self.counter.solves,
             rows_added: self.rows_added,
             guarantee: self.guarantee,
+            tolerance: self.tolerance,
+            refinements: 0,
+            rational: false,
         })
     }
 
@@ -409,7 +408,7 @@ mod tests {
                     for domain in [Domain::Imputation, Domain::Preimputation] {
                         let expected = crate::nucleolus::nucleolus_with(
                             &game,
-                            crate::nucleolus::Options::new(&game, domain),
+                            crate::nucleolus::Options::new(domain),
                         )
                         .unwrap()
                         .allocation;

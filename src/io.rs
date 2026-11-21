@@ -61,7 +61,7 @@ use crate::game::exact::{self, ExactGame, Rational};
 use crate::game::oracle::OracleGame;
 use crate::game::scale::difference_or_zero;
 use crate::game::{Coalition, ExplicitGame, MAX_PLAYERS, PlayerSet, SetFunction, strip_bom};
-use crate::nucleolus::NucleolusResult;
+use crate::nucleolus::{NucleolusResult, Tolerance};
 use crate::sorted::{LazySorted, by_excess_desc};
 
 /// 値の種類。
@@ -749,11 +749,21 @@ impl GameData {
     /// を解き、費用の分担 `c({i}) - x_i` に直す。必要な値は [`PartialGame::nucleolus`] と同じで、
     /// 費用のゲームでは 1 人提携の費用も全て必要。
     pub fn partial_nucleolus(&self, domain: Domain) -> Result<PartialNucleolus> {
+        self.partial_nucleolus_with(domain, Tolerance::Auto)
+    }
+
+    /// 許容誤差の決め方を指定した [`GameData::partial_nucleolus`] ([`PartialGame::nucleolus_with`])。
+    /// 費用のゲームでは、許容誤差は節約ゲームの値の単位で指定する。
+    pub fn partial_nucleolus_with(
+        &self,
+        domain: Domain,
+        tolerance: Tolerance,
+    ) -> Result<PartialNucleolus> {
         let (game, standalone) = match self.kind {
             Kind::Value => (self.partial()?, None),
             Kind::Cost => (self.savings()?.partial()?, Some(self.singleton_values()?)),
         };
-        let solved = game.nucleolus(domain)?;
+        let solved = game.nucleolus_with(domain, tolerance)?;
         let allocation = match standalone {
             Some(costs) => costs
                 .iter()
@@ -817,6 +827,14 @@ impl PartialGame {
     /// (このゲームは値が分かる提携だけを返すオラクルなので、[`crate::nucleolus::oracle`] が近似とする)。
     /// 全ての提携の値が分かっていれば配分は全提携の表から求めた仁と一致するが、保証は変えない。
     pub fn nucleolus(&self, domain: Domain) -> Result<NucleolusResult> {
+        self.nucleolus_with(domain, Tolerance::Auto)
+    }
+
+    /// 許容誤差の決め方を指定した [`PartialGame::nucleolus`]。
+    ///
+    /// [`Tolerance::Relative`] は値が分かる提携の値の最大絶対値に対する比。[`Tolerance::Auto`] は既定の許容誤差
+    /// (比 `1e-7`) で 1 回だけ解く (値が分かる提携だけでは超過の段を確かめられないので、解き直しはしない)。
+    pub fn nucleolus_with(&self, domain: Domain, tolerance: Tolerance) -> Result<NucleolusResult> {
         let n = self.players;
         let full = PlayerSet::grand(n);
         let mut absent = Vec::new();
@@ -837,11 +855,15 @@ impl PartialGame {
         if !self.known.contains_key(&full) {
             return Err(Error::InvalidArgument("全体提携の値がない".into()));
         }
-        crate::nucleolus::oracle::nucleolus_with(
-            self,
-            domain,
-            crate::nucleolus::oracle::default_tolerance(self),
-        )
+        let tolerance = match tolerance {
+            Tolerance::Absolute(tolerance) => tolerance,
+            Tolerance::Relative(ratio) => {
+                ratio * crate::game::scale::positive_scale(OracleGame::scale(self))
+            }
+            // 値が分かる提携だけでは超過の段を確かめられないので、既定の許容誤差で 1 回だけ解く。
+            _ => crate::nucleolus::oracle::default_tolerance(self),
+        };
+        crate::nucleolus::oracle::nucleolus_with(self, domain, tolerance)
     }
 }
 

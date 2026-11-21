@@ -9,7 +9,7 @@ mod common;
 use common::{assert_close, max_abs_difference};
 use coopgame::game::exact::ExactGame;
 use coopgame::kernel::{self, SetOptions, TransferOptions};
-use coopgame::nucleolus::{self, Method, Options, convex, exact, oracle, variants};
+use coopgame::nucleolus::{self, Method, Options, Tolerance, convex, exact, oracle, variants};
 use coopgame::num_traits::ToPrimitive;
 use coopgame::properties::ConvexChecked;
 use coopgame::verify::{self, Check, VerifyOptions};
@@ -30,7 +30,7 @@ fn exact_nucleolus(game: &ExplicitGame, domain: Domain) -> Vec<f64> {
 }
 
 fn with_method(game: &ExplicitGame, domain: Domain, method: Method) -> Vec<f64> {
-    let mut options = Options::new(game, domain);
+    let mut options = Options::new(domain);
     options.method = method;
     nucleolus::nucleolus_with(game, options)
         .unwrap_or_else(|err| panic!("{method:?} {domain:?}: {err}"))
@@ -103,14 +103,13 @@ fn power_of_two_scaling_gives_identical_results() {
                 let factor = 2f64.powi(exponent);
                 let game = scaled(&base, factor);
                 for domain in [Domain::Imputation, Domain::Preimputation] {
-                    let Ok(expected) =
-                        nucleolus::nucleolus_with(&base, Options::new(&base, domain))
+                    let Ok(expected) = nucleolus::nucleolus_with(&base, Options::new(domain))
                     else {
                         continue;
                     };
                     let expected: Vec<f64> =
                         expected.allocation().iter().map(|v| v * factor).collect();
-                    let actual = nucleolus::nucleolus_with(&game, Options::new(&game, domain))
+                    let actual = nucleolus::nucleolus_with(&game, Options::new(domain))
                         .unwrap()
                         .into_allocation();
                     assert_eq!(actual, expected, "bnf{kind} seed {seed} 2^{exponent}");
@@ -534,8 +533,8 @@ fn tolerance_too_large_for_the_values_is_rejected() {
         other => panic!("{what}: {other:?}"),
     };
 
-    let mut options = Options::new(&game, Domain::Imputation);
-    options.tolerance = huge;
+    let mut options = Options::new(Domain::Imputation);
+    options.tolerance = Tolerance::Absolute(huge);
     rejected(
         nucleolus::nucleolus_with(&game, options).map(|_| ()),
         "nucleolus_with",

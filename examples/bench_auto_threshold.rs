@@ -7,10 +7,10 @@
 
 use std::time::Instant;
 
-use coopgame::generators;
-use coopgame::nucleolus;
 use coopgame::nucleolus::convex;
+use coopgame::nucleolus::{self, Options, Tolerance};
 use coopgame::properties::ConvexChecked;
+use coopgame::{Domain, generators};
 
 #[path = "../tests/common/mod.rs"]
 mod common;
@@ -41,8 +41,13 @@ fn main() {
         for seed in 0..seeds {
             let game = ConvexChecked::new(generators::random_convex(n, seed).unwrap())
                 .expect("凸ゲームを生成する");
+            // 逐次 LP そのものの時間を測るので、既定の比の許容誤差で 1 回だけ解く。
+            let mut options = Options::new(Domain::Imputation);
+            options.tolerance = Tolerance::Relative(1e-7);
             let started = Instant::now();
-            let lp = nucleolus::nucleolus(game.game()).unwrap().into_allocation();
+            let lp = nucleolus::nucleolus_with(game.game(), options)
+                .unwrap()
+                .into_allocation();
             let lp_seconds = started.elapsed().as_secs_f64();
             let started = Instant::now();
             let solution = convex::nucleolus(&game).unwrap();

@@ -2,7 +2,8 @@
 //!
 //! 配分 `x` での超過 `v(S) - x(S)` を大きい順に並べ、許容誤差以内で等しいものを 1 つの段として読む。
 //! 仁 (プレ仁) では、段を上から順に合わせた提携族がどれも平衡になる (Kohlberg 基準)。
-//! 厳密な検証 ([`crate::verify`]) は、読み取った段から厳密な配分を復元する。
+//! 厳密な検証 ([`crate::verify`]) は読み取った段から厳密な配分を復元し、逐次 LP ([`crate::nucleolus`]) は
+//! 解いた配分の段が細かい許容誤差で読んでも整合するかを確かめる。
 
 use crate::Domain;
 use crate::error::{Error, Result};
@@ -102,6 +103,24 @@ impl SortedExcess {
     }
 }
 
+/// `x` の超過の段を `reading_tolerance` で読んだとき、段を上から順に合わせた提携族がどれも平衡か。
+///
+/// 仁 (プレ仁) の段はこの条件を満たす。超過の差が逐次 LP の許容誤差より小さい別の段を同じ段として確定した配分は、
+/// 細かい `reading_tolerance` で読むと段が分かれ、この条件を満たさなくなる。
+/// `x` の長さはプレイヤー数と同じで、成分は有限であること。
+pub(crate) fn levels_are_balanced_at(
+    game: &ExplicitGame,
+    x: &[f64],
+    domain: Domain,
+    reading_tolerance: f64,
+) -> Result<bool> {
+    let sorted = SortedExcess::new(game, x);
+    Ok(match sorted.read(game, x, domain, reading_tolerance)? {
+        Some(reading) => sorted.levels_are_balanced(&reading, game.players()),
+        None => false,
+    })
+}
+
 /// `collection` に重み 1 以上、`optional` に重み 0 以上を付けて
 /// `sum lambda_S 1_S = mu 1_N` とできるかを判定する。
 pub(crate) fn is_balanced(
@@ -149,6 +168,11 @@ mod tests {
                 .unwrap();
             sorted.levels_are_balanced(&reading, 3)
         };
+        // 同じ判定を 1 つの関数で行う。
+        assert!(levels_are_balanced_at(&game, &[2.0, 2.0, 0.0], Domain::Imputation, 1e-9).unwrap());
+        assert!(
+            !levels_are_balanced_at(&game, &[1.0, 3.0, 0.0], Domain::Imputation, 1e-9).unwrap()
+        );
         assert!(balanced(&[2.0, 2.0, 0.0]));
         // 超過 0 の段 {3}・{1, 2} は平衡だが、次の段 {1}・{1, 3} を合わせると平衡でない。
         assert!(!balanced(&[1.0, 3.0, 0.0]));

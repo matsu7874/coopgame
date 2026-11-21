@@ -53,7 +53,7 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 |---|---|
 | `Game(values, order="binary" or "lex")`, `Game.from_function(n, f)`, `Game.weighted_voting`, `Game.bankruptcy`, `Game.bnf` | 明示ベクトルのゲーム (30 人まで)。`value`, `values`, `is_convex` などのメソッドを持つ |
 | `FunctionGame(n, f)` | Python の関数で値を返すゲーム。受け付けるのは `shapley_sampling`・`banzhaf_sampling`・`sampled_nucleolus`・`sampled_least_core`・`convex_nucleolus(..., assume=True)`・`verify_solution` |
-| `nucleolus(game, domain="imputation", method="cg" or "full")`, `prenucleolus`, `least_core` | 仁・プレ仁・最小コア |
+| `nucleolus(game, domain="imputation", method="cg" or "full", tolerance=None, rel_tolerance=None)`, `prenucleolus`, `least_core` | 仁・プレ仁・最小コア。`tolerance` (値の単位) か `rel_tolerance` (`max\|v(S)\|` に対する比) を指定すると、その許容誤差で 1 回だけ解く。指定しなければ、超過の段を確かめて必要なら解き直し、10 人以下は有理数の逐次 LP に切り替えて正しい仁を返す (時間がかかることがある)。戻り値の `tolerance`・`refinements`・`rational` で求め方が分かる |
 | `per_capita_nucleolus`, `proportional_nucleolus`, `modiclus` | 仁の変種 (per capita 仁・比例仁は 17 人まで、modiclus は 7 人まで) |
 | `kernel_point`, `kernel_violation`, `is_in_kernel`, `kernel_set(..., merge=False)` | カーネル・プレカーネル |
 | `bargaining_set(game, x, domain)` | 交渉集合 (プレ交渉集合) への所属と、反論のない異議 (11 人まで) |

@@ -854,14 +854,12 @@ mod tests {
                 let game = generators::bnf(kind, n, 2).unwrap();
                 let tolerance = 1e-6 * game.max_abs_value().max(1.0);
                 for domain in [Domain::Imputation, Domain::Preimputation] {
-                    let expected = match nucleolus::nucleolus_with(
-                        &game,
-                        nucleolus::Options::new(&game, domain),
-                    ) {
-                        Ok(result) => result.allocation,
-                        Err(Error::EmptyImputationSet) => continue,
-                        Err(err) => panic!("{err}"),
-                    };
+                    let expected =
+                        match nucleolus::nucleolus_with(&game, nucleolus::Options::new(domain)) {
+                            Ok(result) => result.allocation,
+                            Err(Error::EmptyImputationSet) => continue,
+                            Err(err) => panic!("{err}"),
+                        };
                     let actual = nucleolus_by_complaints(&game, domain).unwrap().allocation;
                     assert_close(&actual, &expected, tolerance);
                 }

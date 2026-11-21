@@ -340,6 +340,38 @@ def verify_variant_limits():
     check(doc, "基準 2 の投票ゲームの 11 人の交渉集合の LP の数", [int(r["lp_solves"]) for r in group("bargaining", 11) if r["game"] == "quota2"], [56210])
 
 
+def verify_tolerance_study():
+    doc = "docs/performance.md (仁の許容誤差の決め方)"
+    rows = {(r["family"], r["players"]): r for r in read("data/analysis/tolerance-study.csv")}
+
+    def counts(family, players):
+        r = rows[(family, players)]
+        return tuple(int(r[k]) for k in ("games", "fixed_correct", "auto_correct", "refined", "rational", "approximate"))
+
+    # (ゲーム数, 1 回だけ解く: 正しい数, 既定: 正しい数, 解き直した数, 有理数に切り替えた数, approximate の数)
+    check(doc, "整数 3-6 人の表", [counts(f"integer-{s}", "3-6") for s in ("1e0", "1e5", "1e6", "1e7", "1e8", "1e9", "1e12")],
+          [(200, 200, 200, 0, 0, 0), (200, 200, 200, 0, 0, 0), (200, 166, 200, 34, 0, 0), (200, 84, 200, 116, 0, 0),
+           (200, 91, 200, 109, 1, 0), (200, 79, 200, 121, 50, 0), (200, 50, 120, 70, 70, 0)])
+    check(doc, "整数 7-8 人の表", [counts(f"integer-{s}", "7-8") for s in ("1e7", "1e9")],
+          [(20, 12, 20, 8, 0, 0), (10, 4, 10, 6, 6, 0)])
+    check(doc, "整数 11-14 人の表", [counts(f"integer-{s}", "11-14") for s in ("1e6", "1e7", "1e8", "1e9")],
+          [(40, 15, 40, 25, 0, 0), (40, 14, 37, 25, 0, 3), (40, 13, 16, 23, 0, 24), (40, 4, 5, 14, 0, 35)])
+    consistent = [r for (family, _), r in rows.items() if family.startswith("bnf") or family == "convex"]
+    check(doc, "BNF・凸は 1 回だけ解いても既定でも全て正しく、解き直さない",
+          all(r["fixed_correct"] == r["games"] == r["auto_correct"]
+              and (r["refined"], r["rational"], r["approximate"]) == ("0", "0", "0") for r in consistent), True)
+    medium = [r for (_, players), r in rows.items() if players == "11-14"]
+    check(doc, "11 人以上で正しくなかった配分は全て approximate",
+          all(int(r["auto_solved"]) - int(r["auto_correct"]) == int(r["approximate"])
+              for r in medium if r["family"].startswith("integer")), True)
+    large = [r for (_, players), r in rows.items() if players == "16-20"]
+    overhead = [100 * (float(r["auto_seconds"]) / float(r["fixed_seconds"]) - 1) for r in large]
+    check(doc, "16-20 人の確認による時間の増加 (%) の範囲", (round(min(overhead)), round(max(overhead))), (11, 13))
+    r = rows[("integer-1e9", "7-8")]
+    check(doc, "scale = 1e9 の 7-8 人の合計の秒 (1 回だけ解く, 既定)",
+          (float(r["fixed_seconds"]), round(float(r["auto_seconds"]))), (0.02, 34))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--instances", help="make_instances.sh で作ったディレクトリ")
@@ -352,6 +384,7 @@ def main():
     verify_guarantees()
     verify_exact_solver()
     verify_variant_limits()
+    verify_tolerance_study()
     if args.instances:
         verify_allocations(args.instances)
     print(f"\n{'食い違い ' + str(len(failures)) + ' 件' if failures else '全ての主張がデータと一致した'}")

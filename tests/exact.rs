@@ -143,7 +143,7 @@ fn exact_solver_matches_certified_float_solution() {
                     coopgame::Domain::Imputation,
                     coopgame::Domain::Preimputation,
                 ] {
-                    let options = coopgame::nucleolus::Options::new(&game, domain);
+                    let options = coopgame::nucleolus::Options::new(domain);
                     let Ok(float) = coopgame::nucleolus::nucleolus_with(&game, options) else {
                         continue;
                     };

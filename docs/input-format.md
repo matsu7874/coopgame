@@ -95,12 +95,12 @@ CLI は `v.txt` と同じく、配分を 1 行 1 値 (`i` 行目がプレイヤ�
 
 ```console
 $ coopgame nucleolus game.csv
-time=0.000077s lp_solves=3 rows_added=0 levels=[-1.0]
+time=0.000077s lp_solves=3 rows_added=0 solver=lp tolerance=6e-7 refinements=0 guarantee=exact levels=[-1.0]
 3
 2
 1
 $ coopgame nucleolus cost.json
-time=0.000038s lp_solves=2 rows_added=0 levels=[-1.0]
+time=0.000038s lp_solves=2 rows_added=0 solver=lp tolerance=2e-7 refinements=0 guarantee=exact levels=[-1.0]
 3
 4
 ```
@@ -135,7 +135,7 @@ coalition,value
 $ coopgame nucleolus partial.csv
 エラー: partial.csv: 引数が不正: 値が分からない提携が 2 個ある: {0, 2} {1, 2} (--missing zero で 0 とみなすか、--missing ignore で値が分かる提携だけで解く)
 $ coopgame nucleolus partial.csv --missing zero
-time=0.000109s lp_solves=5 rows_added=0 levels=[-1.0, -2.5]
+time=0.000109s lp_solves=5 rows_added=0 solver=lp tolerance=6e-7 refinements=0 guarantee=exact levels=[-1.0, -2.5]
 2.5
 2.5
 1

@@ -4,7 +4,7 @@
 //!   空の配分集合でも配分を返してしまうため)。
 //! - 元の大きさに戻した配分・最大超過・epsilon が f64 で表せなければ `Numerical` にする。
 
-use coopgame::nucleolus::{self, Options};
+use coopgame::nucleolus::{self, Options, Tolerance};
 use coopgame::{Domain, Error, ExplicitGame};
 
 const DOMAINS: [Domain; 2] = [Domain::Imputation, Domain::Preimputation];
@@ -17,8 +17,8 @@ fn non_finite_or_negative_tolerance_is_rejected() {
     for game in [&empty, &symmetric] {
         for tolerance in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1.0, -1e-12] {
             for domain in DOMAINS {
-                let mut options = Options::new(game, domain);
-                options.tolerance = tolerance;
+                let mut options = Options::new(domain);
+                options.tolerance = Tolerance::Absolute(tolerance);
                 let result = nucleolus::nucleolus_with(game, options);
                 assert!(
                     matches!(result, Err(Error::InvalidArgument(_))),
@@ -33,8 +33,8 @@ fn non_finite_or_negative_tolerance_is_rejected() {
 fn zero_tolerance_is_accepted() {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 60.0, 60.0, 60.0, 72.0]).unwrap();
     for domain in DOMAINS {
-        let mut options = Options::new(&game, domain);
-        options.tolerance = 0.0;
+        let mut options = Options::new(domain);
+        options.tolerance = Tolerance::Absolute(0.0);
         let result = nucleolus::nucleolus_with(&game, options).unwrap();
         assert_eq!(result.allocation(), &[24.0, 24.0, 24.0]);
     }
@@ -44,8 +44,8 @@ fn zero_tolerance_is_accepted() {
 fn tolerance_too_large_for_the_values_is_rejected() {
     // 値が 1e-300 程度のゲームでは、許容誤差 1e10 を値の大きさで割ると f64 で表せない。
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1e-300, 1e-300, 1e-300, 1.2e-300]).unwrap();
-    let mut options = Options::new(&game, Domain::Preimputation);
-    options.tolerance = 1e10;
+    let mut options = Options::new(Domain::Preimputation);
+    options.tolerance = Tolerance::Absolute(1e10);
     assert!(matches!(
         nucleolus::nucleolus_with(&game, options),
         Err(Error::InvalidArgument(_))

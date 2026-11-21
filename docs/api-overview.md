@@ -31,7 +31,7 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 
 | 対象 | 関数 | 手法 |
 |---|---|---|
-| 仁・プレ仁 | `nucleolus::nucleolus`, `nucleolus::prenucleolus`, `nucleolus::nucleolus_with` | 逐次 LP (Kopelowitz 方式) + 制約生成 |
+| 仁・プレ仁 | `nucleolus::nucleolus`, `nucleolus::prenucleolus`, `nucleolus::nucleolus_with` | 逐次 LP (Kopelowitz 方式) + 制約生成。許容誤差の決め方は `nucleolus::Tolerance` で選ぶ (既定の `Auto` は超過の段を確かめ、必要なら解き直すか有理数で解く。`Absolute`・`Relative` は 1 回だけ解く) |
 | 最小コア | `nucleolus::least_core` | LP 1 回 |
 | 仁・プレ仁の厳密な計算 (10 人まで) | `nucleolus::exact::nucleolus` | 逐次 LP を有理数の 2 段階単体法 (Bland の規則) と制約生成で解く。許容誤差を使わない |
 | カーネル・プレカーネルの 1 点 | `kernel::kernel_point` | Maschler/Stearns の transfer scheme |

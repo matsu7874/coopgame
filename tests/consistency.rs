@@ -147,7 +147,7 @@ fn constraint_generation_matches_full_lp() {
     use coopgame::nucleolus::{Method, Options};
     for (name, game) in random_games() {
         for domain in [Domain::Imputation, Domain::Preimputation] {
-            let mut options = Options::new(&game, domain);
+            let mut options = Options::new(domain);
             options.method = Method::Full;
             let full = nucleolus::nucleolus_with(&game, options).unwrap();
             options.method = Method::ConstraintGeneration;

@@ -16,6 +16,10 @@
 //! 超過の比較には許容誤差を使うので、超過が `t*` と許容誤差以内で等しいだけの提携も確定しうる。
 //! 確定値 `c_S` は、その段の LP の解 `x` での `x(S)` にする (`v(S) - t*` にはしない)。
 //! `x` が全ての確定の等式を同時に満たすので、以後の LP は常に実行可能点 `x` を持つ。
+//! 超過の差が許容誤差より小さい別の段があるゲームでは、結果が仁から許容誤差の程度ずれる。
+//! 既定の設定 ([`Tolerance::Auto`]) は、解いた配分の超過の段を細かく読み直してこのずれを確かめ、
+//! 必要なら許容誤差を下げて解き直すか、有理数の逐次 LP ([`exact`]) で求める ([`nucleolus_with`])。
+//! 許容誤差を指定すれば ([`Tolerance::Absolute`]・[`Tolerance::Relative`])、その値で 1 回だけ解く。
 //!
 //! LP は絶対誤差で判定するので、値の大きさによらず同じ精度で解けるよう、ゲームの値を 2 のべき乗で割って
 //! 最大絶対値を `[1, 2)` にそろえてから解き、結果を元の大きさに戻す (許容誤差も同じ倍率で割る)。
@@ -49,9 +53,10 @@ use microlp::{Problem, Solution, Variable};
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::{block_lower_bounds, coalition_sums, excess_table};
-use crate::game::exact::{ExactGame, to_rational};
-use crate::game::scale::{normalized_tolerance, rounding_magnitude};
-use crate::game::{Coalition, ExplicitGame, default_tolerance};
+use crate::game::exact::{ExactGame, to_f64, to_rational};
+use crate::game::scale::{normalized_tolerance, positive_scale, rounding_magnitude};
+use crate::game::{Coalition, ExplicitGame, default_tolerance, relative_tolerance};
+use crate::levels::levels_are_balanced_at;
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
 use crate::solution::Guarantee;
@@ -67,36 +72,78 @@ pub enum Method {
     ConstraintGeneration,
 }
 
+/// 逐次 LP の許容誤差の決め方。
+///
+/// 許容誤差は、超過の比較 (どの提携を同じ段として確定するか) と、配分集合が空かどうかの判定に使う。
+/// 配分集合は `sum v({i}) <= v(N) + 許容誤差` なら空とみなさない。和が `v(N)` を許容誤差以内で超えるときは、
+/// 超えた分を人数で等分して下限 `v({i})` を下げた 1 点を配分集合とする ([`Tolerance::Auto`] では既定の許容誤差で判定する)。
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[non_exhaustive]
+pub enum Tolerance {
+    /// 仁を正しく求めることを優先し、必要なら解き直す (既定)。手順は [`nucleolus_with`] に書く。
+    /// 解く回数と時間は入力によって変わる。
+    #[default]
+    Auto,
+    /// ゲームの値と同じ単位の許容誤差で、1 回だけ解く。有限で 0 以上の値にする。
+    Absolute(f64),
+    /// 値の最大絶対値 `max|v(S)|` に対する比の許容誤差で、1 回だけ解く ([`relative_tolerance`])。
+    /// 有限で 0 以上の値にする。`Auto` が最初に使う比は `1e-7`。
+    Relative(f64),
+}
+
+impl Tolerance {
+    /// 1 回だけ解くときの許容誤差 (ゲームの値と同じ単位)。`Auto` は既定の許容誤差。
+    fn fixed(self, game: &ExplicitGame) -> f64 {
+        match self {
+            Tolerance::Auto => default_tolerance(game),
+            Tolerance::Absolute(tolerance) => tolerance,
+            Tolerance::Relative(ratio) => relative_tolerance(game, ratio),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct Options {
     pub domain: Domain,
-    /// 超過の比較に使う許容誤差 (ゲームの値と同じ単位)。既定は [`default_tolerance`]。
+    /// 許容誤差の決め方。既定は [`Tolerance::Auto`]。
     ///
-    /// 有限で 0 以上の値にする。NaN・無限大・負の値を渡すと、解く前に [`Error::InvalidArgument`] を返す。
-    ///
-    /// 配分集合は `sum v({i}) <= v(N) + tolerance` なら空とみなさない。和が `v(N)` を許容誤差以内で
-    /// 超えるときは、超えた分を人数で等分して下限 `v({i})` を下げた 1 点を配分集合とする。
-    pub tolerance: f64,
+    /// 許容誤差を指定して、その値が有限で 0 以上でなければ、解く前に [`Error::InvalidArgument`] を返す。
+    pub tolerance: Tolerance,
     pub method: Method,
 }
 
 impl Options {
-    pub fn new(game: &ExplicitGame, domain: Domain) -> Options {
+    /// 既定の設定: 許容誤差は [`Tolerance::Auto`]、行の入れ方は [`Method::ConstraintGeneration`]。
+    pub fn new(domain: Domain) -> Options {
         Options {
             domain,
-            tolerance: default_tolerance(game),
+            tolerance: Tolerance::Auto,
             method: Method::default(),
         }
     }
+}
 
-    /// 値を `divisor` で割ったゲームに合わせた設定 (許容誤差も割る)。
+/// 値を 2 のべき乗で割ったゲームを解くときの設定。
+#[derive(Clone, Copy)]
+struct Settings {
+    domain: Domain,
+    /// 割ったゲームの値の単位での許容誤差。
+    tolerance: f64,
+    method: Method,
+}
+
+impl Settings {
+    /// `tolerance` (元のゲームの値の単位) を確かめ、値を `divisor` で割ったゲームに合わせる。
     ///
     /// 許容誤差が有限で 0 以上でないとき、または割った許容誤差が有限でない
     /// (ゲームの値に比べて大きすぎる) ときは [`Error::InvalidArgument`]。
-    fn divided_by(self, divisor: f64) -> Result<Options> {
-        let tolerance = normalized_tolerance(self.tolerance, divisor)?;
-        Ok(Options { tolerance, ..self })
+    fn new(domain: Domain, method: Method, tolerance: f64, divisor: f64) -> Result<Settings> {
+        Ok(Settings {
+            domain,
+            tolerance: normalized_tolerance(tolerance, divisor)?,
+            method,
+        })
     }
 }
 
@@ -118,6 +165,9 @@ pub struct NucleolusResult {
     pub(crate) lp_solves: usize,
     pub(crate) rows_added: usize,
     pub(crate) guarantee: Guarantee,
+    pub(crate) tolerance: f64,
+    pub(crate) refinements: usize,
+    pub(crate) rational: bool,
 }
 
 impl NucleolusResult {
@@ -146,11 +196,46 @@ impl NucleolusResult {
         self.rows_added
     }
 
+    /// この結果を求めた逐次 LP の許容誤差 (ゲームの値と同じ単位)。有理数の逐次 LP で求めた結果では 0。
+    pub fn tolerance(&self) -> f64 {
+        self.tolerance
+    }
+
+    /// [`Tolerance::Auto`] で、許容誤差を下げて解き直した回数。
+    pub fn refinements(&self) -> usize {
+        self.refinements
+    }
+
+    /// [`Tolerance::Auto`] で、有理数の逐次 LP ([`exact`]) に切り替えて求めた結果か。
+    pub fn is_rational(&self) -> bool {
+        self.rational
+    }
+
     /// 全提携の値を持つゲームの逐次 LP ([`nucleolus`] など) では [`Guarantee::Exact`]。
+    /// ただし [`Tolerance::Auto`] で、許容誤差を下げても超過の段が整合せず、有理数の逐次 LP も使えなかった
+    /// 結果は [`Guarantee::Approximate`] ([`nucleolus_with`])。
     /// オラクル版 ([`oracle`]) では、オラクルが全ての真部分提携について答えれば `Exact`、
     /// 一部の提携だけなら [`Guarantee::Approximate`]。
     pub fn guarantee(&self) -> Guarantee {
         self.guarantee
+    }
+
+    /// LP を解かずに決まった配分の結果 (1 人ゲーム、配分集合が 1 点のゲームなど)。
+    pub(crate) fn without_lp(
+        allocation: Vec<f64>,
+        guarantee: Guarantee,
+        tolerance: f64,
+    ) -> NucleolusResult {
+        NucleolusResult {
+            allocation,
+            levels: Vec::new(),
+            lp_solves: 0,
+            rows_added: 0,
+            guarantee,
+            tolerance,
+            refinements: 0,
+            rational: false,
+        }
     }
 
     /// 正規化したゲームで求めた結果を、元の大きさ (`factor` 倍) に戻す。
@@ -160,6 +245,7 @@ impl NucleolusResult {
         for value in self.allocation.iter_mut().chain(self.levels.iter_mut()) {
             *value *= factor;
         }
+        self.tolerance *= factor;
         check_representable(&self.allocation, "配分")?;
         check_representable(&self.levels, "最大超過")?;
         Ok(self)
@@ -212,29 +298,168 @@ impl LeastCore {
     }
 }
 
-/// 仁(配分集合上で超過ベクトルを辞書式に最小化する点)。
+/// 仁(配分集合上で超過ベクトルを辞書式に最小化する点)。既定の設定 ([`Options::new`]) で求める。
 pub fn nucleolus(game: &ExplicitGame) -> Result<NucleolusResult> {
-    nucleolus_with(game, Options::new(game, Domain::Imputation))
+    nucleolus_with(game, Options::new(Domain::Imputation))
 }
 
-/// プレ仁(原配分集合上で超過ベクトルを辞書式に最小化する点)。
+/// プレ仁(原配分集合上で超過ベクトルを辞書式に最小化する点)。既定の設定 ([`Options::new`]) で求める。
 pub fn prenucleolus(game: &ExplicitGame) -> Result<NucleolusResult> {
-    nucleolus_with(game, Options::new(game, Domain::Preimputation))
+    nucleolus_with(game, Options::new(Domain::Preimputation))
 }
+
+/// [`Tolerance::Auto`] が順に試す許容誤差 (`max|v(S)|` に対する比)。
+const AUTO_TOLERANCES: [f64; 3] = [1e-7, 1e-9, 1e-11];
+
+/// [`Tolerance::Auto`] が、解いた配分の超過の段を読み直す許容誤差 (`max|v(S)|` に対する比)。
+///
+/// 細かいほど、間隔の小さい段をまとめた配分を見分けられるが、逐次 LP の解の誤差を別の段と読み違えやすくなる。
+/// 同点が本物のゲーム (BNF・凸・優加法的・重み付き投票の表、20 人まで) では、`1e-12` で読み違いがなく、
+/// `1e-13` で 1 件あった。読み違えると、有理数の逐次 LP に切り替えられる人数では時間がかかるだけだが、
+/// それより多い人数では正しい配分の保証を近似にしてしまうので、余裕を 1 桁多く取る。
+const AUTO_READING: f64 = 1e-11;
+
+/// 有理数の逐次 LP に切り替えられる人数 ([`exact::MAX_EXACT_PLAYERS`] 人以下) での [`AUTO_READING`]。
+const AUTO_READING_WITH_RATIONAL: f64 = 1e-12;
+
+/// [`Tolerance::Auto`] が、解いた配分の超過の段を読み直して確かめる人数の上限
+/// (全ての提携の超過を並べ、段の提携族の平衡性を LP で判定する)。
+pub const MAX_AUTO_CHECK_PLAYERS: usize = 20;
 
 /// 設定 `options` で仁 (`Domain::Imputation`) またはプレ仁を求める。
 ///
+/// 逐次 LP は、超過が段の最大超過と許容誤差以内で等しい提携を同じ段として確定しうる。そのため、
+/// 超過の差が許容誤差より小さい別の段があるゲーム (値が `1e6` 以上の整数のゲームなど) では、
+/// 結果が仁から許容誤差の程度ずれることがある。`options.tolerance` でこの扱いを選ぶ。
+///
+/// - [`Tolerance::Absolute`]・[`Tolerance::Relative`]: 指定した許容誤差で 1 回だけ解く。
+///   結果は許容誤差の範囲で成り立つ。
+/// - [`Tolerance::Auto`] (既定): 仁を正しく求めることを優先し、次の順に進める。
+///   1. `max|v(S)|` の `1e-7` 倍の許容誤差で解く。
+///   2. [`MAX_AUTO_CHECK_PLAYERS`] 人以下なら、解いた配分の超過の段を `max|v(S)|` の `1e-11` 倍
+///      ([`exact::MAX_EXACT_PLAYERS`] 人以下では `1e-12` 倍) の許容誤差で読み直し、段を上から順に合わせた
+///      提携族がどれも平衡 (Kohlberg 基準) かを確かめる。平衡ならその配分を返す。
+///      別の段を同じ段として確定した配分は、細かく読むと段が分かれて平衡でなくなる。
+///      超過の段の間隔がこの許容誤差より小さいゲームでは、見分けられないことがある。
+///   3. 平衡でなければ、許容誤差を `1e-9` 倍、`1e-11` 倍に下げて解き直し、同じ確認をする。
+///   4. どの許容誤差でも平衡にならない (または LP が数値的に失敗した) ときは、[`exact::MAX_EXACT_PLAYERS`]
+///      人以下なら有理数の逐次 LP ([`exact::nucleolus`]) で求める。値は f64 の 2 進数の値どおりの有理数として扱う。
+///      それより多い人数では、最後に解けた配分を保証 [`Guarantee::Approximate`] で返す。
+///
+///   解き直しと有理数の逐次 LP の分だけ時間がかかる (有理数の逐次 LP は 10 人で数分かかることがある)。
+///   [`MAX_AUTO_CHECK_PLAYERS`] 人を超えるゲームは 1. だけを行う。
+///   結果の [`NucleolusResult::tolerance`]・[`NucleolusResult::refinements`]・[`NucleolusResult::is_rational`]
+///   で、どう求めたかが分かる。
+///
 /// # Errors
 ///
-/// - `options.tolerance` が有限で 0 以上でない、またはゲームの値の大きさで割ると有限でない
+/// - 指定した許容誤差が有限で 0 以上でない、またはゲームの値の大きさで割ると有限でない
 ///   (値に比べて大きすぎる): [`Error::InvalidArgument`]
 /// - 配分集合が空 (`Domain::Imputation`): [`Error::EmptyImputationSet`]
 /// - LP が数値的に進まない、または結果 (配分・各段の最大超過) が f64 で表せない: [`Error::Numerical`]
+///   (`Auto` では、有理数の逐次 LP でも求められなかった場合)
 pub fn nucleolus_with(game: &ExplicitGame, options: Options) -> Result<NucleolusResult> {
+    match options.tolerance {
+        Tolerance::Auto => solve_auto(game, options.domain, options.method, true),
+        fixed => solve_once(game, options.domain, options.method, fixed.fixed(game)),
+    }
+}
+
+/// 逐次 LP だけで求めた仁 (プレ仁)。[`Tolerance::Auto`] の手順のうち、有理数の逐次 LP への切り替えをしない。
+///
+/// 検証 ([`crate::verify`]) が基準の仁として使う (有理数の逐次 LP を使うかは検証の設定で決める)。
+pub(crate) fn nucleolus_by_lp(game: &ExplicitGame, domain: Domain) -> Result<NucleolusResult> {
+    solve_auto(game, domain, Method::default(), false)
+}
+
+/// 許容誤差 `tolerance` (ゲームの値と同じ単位) で 1 回だけ解く。
+fn solve_once(
+    game: &ExplicitGame,
+    domain: Domain,
+    method: Method,
+    tolerance: f64,
+) -> Result<NucleolusResult> {
     let (normalized, divisor) = game.normalized();
-    let options = options.divided_by(divisor)?;
-    let result = Sequential::new(&normalized, options)?.run()?;
+    let settings = Settings::new(domain, method, tolerance, divisor)?;
+    let result = Sequential::new(&normalized, settings)?.run()?;
     result.scaled_by(divisor)
+}
+
+/// [`Tolerance::Auto`] の手順 ([`nucleolus_with`])。`rational_fallback` が偽なら、有理数の逐次 LP に切り替えない。
+fn solve_auto(
+    game: &ExplicitGame,
+    domain: Domain,
+    method: Method,
+    rational_fallback: bool,
+) -> Result<NucleolusResult> {
+    let n = game.players();
+    let scale = positive_scale(game.max_abs_value());
+    let rational_fallback = rational_fallback && n <= exact::MAX_EXACT_PLAYERS;
+    let reading = if rational_fallback {
+        AUTO_READING_WITH_RATIONAL
+    } else {
+        AUTO_READING
+    };
+    let mut solved: Option<NucleolusResult> = None;
+    let mut failure: Option<Error> = None;
+    let mut refinements = 0;
+    for (attempt, ratio) in AUTO_TOLERANCES.iter().enumerate() {
+        refinements = attempt;
+        let mut result = match solve_once(game, domain, method, ratio * scale) {
+            Ok(result) => result,
+            // LP の数値的な失敗は、有理数の逐次 LP で解けることがある。それ以外 (入力の誤り、配分集合が空) は
+            // 解き直しても変わらない。
+            Err(error @ Error::Numerical(_)) => {
+                failure = Some(error);
+                break;
+            }
+            Err(error) => return Err(error),
+        };
+        result.refinements = attempt;
+        // LP を解かずに決まった配分 (1 人ゲーム、配分集合が 1 点) には、確かめる段がない。
+        if result.lp_solves == 0
+            || n > MAX_AUTO_CHECK_PLAYERS
+            || levels_are_balanced_at(game, &result.allocation, domain, reading * scale)
+                .unwrap_or(false)
+        {
+            return Ok(result);
+        }
+        solved = Some(result);
+    }
+    if rational_fallback && let Ok(result) = solve_rationally(game, domain, refinements) {
+        return Ok(result);
+    }
+    match (solved, failure) {
+        (Some(mut result), _) => {
+            result.guarantee = Guarantee::Approximate;
+            Ok(result)
+        }
+        (None, Some(error)) => Err(error),
+        (None, None) => unreachable!("解けたか、失敗を記録したかのどちらか"),
+    }
+}
+
+/// 有理数の逐次 LP で求め、f64 の結果にする。値は f64 の 2 進数の値どおりの有理数として扱う。
+fn solve_rationally(
+    game: &ExplicitGame,
+    domain: Domain,
+    refinements: usize,
+) -> Result<NucleolusResult> {
+    let solved = exact::nucleolus(&ExactGame::from_explicit(game)?, domain)?;
+    let allocation = to_f64(&solved.allocation);
+    let levels = to_f64(&solved.levels);
+    check_representable(&allocation, "配分")?;
+    check_representable(&levels, "最大超過")?;
+    Ok(NucleolusResult {
+        allocation,
+        levels,
+        lp_solves: solved.lp_solves,
+        rows_added: 0,
+        guarantee: Guarantee::Exact,
+        tolerance: 0.0,
+        refinements,
+        rational: true,
+    })
 }
 
 /// 提携構造 `blocks` (N の分割) のもとでの仁 (`Domain::Imputation`) またはプレ仁。
@@ -242,25 +467,27 @@ pub fn nucleolus_with(game: &ExplicitGame, options: Options) -> Result<Nucleolus
 /// 各ブロック `B` で `x(B) = v(B)` を課し、その中で超過ベクトルを辞書式に最小化する
 /// (Aumann & Drèze 1974 の提携構造つきの仁)。ブロックが N だけなら [`nucleolus_with`] と同じ。
 /// 分割になっているかは呼び出し側 ([`crate::partition::CoalitionStructure`]) で確かめる。
+///
+/// 1 回だけ解く。[`Tolerance::Auto`] は既定の許容誤差 ([`default_tolerance`]) で解く
+/// (超過の段を読み直す確認は、提携構造のない仁だけが行う)。
 pub(crate) fn nucleolus_with_structure(
     game: &ExplicitGame,
     blocks: &[Coalition],
     options: Options,
 ) -> Result<NucleolusResult> {
     let (normalized, divisor) = game.normalized();
-    let options = options.divided_by(divisor)?;
-    let lower = block_lower_bounds(&normalized, blocks, options.domain, options.tolerance)?;
+    let tolerance = options.tolerance.fixed(game);
+    let settings = Settings::new(options.domain, options.method, tolerance, divisor)?;
+    let lower = block_lower_bounds(&normalized, blocks, settings.domain, settings.tolerance)?;
     if blocks.iter().all(|block| block.len() == 1) {
         // 全員が単独なら x_i = v({i}) に決まる (逐次 LP は 1 段も解かない)。
-        return Ok(NucleolusResult {
-            allocation: game.singleton_values(),
-            levels: Vec::new(),
-            lp_solves: 0,
-            rows_added: 0,
-            guarantee: Guarantee::Exact,
-        });
+        return Ok(NucleolusResult::without_lp(
+            game.singleton_values(),
+            Guarantee::Exact,
+            tolerance,
+        ));
     }
-    let result = Sequential::with_blocks(&normalized, options, blocks, lower).run()?;
+    let result = Sequential::with_blocks(&normalized, settings, blocks, lower).run()?;
     result.scaled_by(divisor)
 }
 
@@ -270,8 +497,8 @@ pub(crate) fn nucleolus_with_structure(
 /// `epsilon` か配分が f64 で表せない (値が f64 の上限に近く、有限でなくなる) ときは [`Error::Numerical`]。
 pub fn least_core(game: &ExplicitGame, domain: Domain) -> Result<LeastCore> {
     let (normalized, divisor) = game.normalized();
-    let options = Options::new(game, domain).divided_by(divisor)?;
-    let Some((epsilon, allocation)) = normalized_least_core(&normalized, options)? else {
+    let settings = Settings::new(domain, Method::default(), default_tolerance(game), divisor)?;
+    let Some((epsilon, allocation)) = normalized_least_core(&normalized, settings)? else {
         return Ok(LeastCore {
             epsilon: f64::NEG_INFINITY,
             allocation: vec![game.value(game.grand())],
@@ -292,9 +519,9 @@ pub fn least_core(game: &ExplicitGame, domain: Domain) -> Result<LeastCore> {
 /// 正規化したゲームで最大超過を最小化し、`(epsilon, 配分)` を返す。1 人ゲーム (真部分提携がない) は `None`。
 fn normalized_least_core(
     normalized: &ExplicitGame,
-    options: Options,
+    settings: Settings,
 ) -> Result<Option<(f64, Vec<f64>)>> {
-    let mut solver = Sequential::new(normalized, options)?;
+    let mut solver = Sequential::new(normalized, settings)?;
     if solver.n == 1 {
         return Ok(None);
     }
@@ -325,12 +552,17 @@ pub fn has_nonempty_core(game: &ExplicitGame) -> Result<bool> {
     let (normalized, divisor) = game.normalized();
     // コアが空かどうかは値の大きさによらないので、正規化したゲームの epsilon の符号で判定する
     // (元の大きさに戻すと f64 で表せない値のゲームでも判定できる)。
-    let options = Options::new(game, Domain::Preimputation).divided_by(divisor)?;
-    let Some((epsilon, x)) = normalized_least_core(&normalized, options)? else {
+    let settings = Settings::new(
+        Domain::Preimputation,
+        Method::default(),
+        default_tolerance(game),
+        divisor,
+    )?;
+    let Some((epsilon, x)) = normalized_least_core(&normalized, settings)? else {
         // 1 人ゲームのコアは {v(N)}。
         return Ok(true);
     };
-    let tolerance = options.tolerance;
+    let tolerance = settings.tolerance;
     if epsilon < -tolerance {
         return Ok(true);
     }
@@ -373,7 +605,7 @@ enum RowForm {
 
 struct Sequential<'a> {
     game: &'a ExplicitGame,
-    options: Options,
+    options: Settings,
     n: usize,
     /// 各プレイヤーの下限 (`Domain::Imputation` のみ。[`block_lower_bounds`])。
     lower: Option<Vec<f64>>,
@@ -392,7 +624,7 @@ struct Sequential<'a> {
 }
 
 impl<'a> Sequential<'a> {
-    fn new(game: &'a ExplicitGame, options: Options) -> Result<Sequential<'a>> {
+    fn new(game: &'a ExplicitGame, options: Settings) -> Result<Sequential<'a>> {
         let blocks = [game.grand()];
         let lower = block_lower_bounds(game, &blocks, options.domain, options.tolerance)?;
         Ok(Sequential::with_blocks(game, options, &blocks, lower))
@@ -401,7 +633,7 @@ impl<'a> Sequential<'a> {
     /// 提携構造 `blocks` (N の分割) の各ブロック `B` で `x(B) = v(B)` を課す。
     fn with_blocks(
         game: &'a ExplicitGame,
-        options: Options,
+        options: Settings,
         blocks: &[Coalition],
         lower: Option<Vec<f64>>,
     ) -> Sequential<'a> {
@@ -442,27 +674,22 @@ impl<'a> Sequential<'a> {
 
     fn run(&mut self) -> Result<NucleolusResult> {
         if self.n == 1 {
-            return Ok(NucleolusResult {
-                allocation: vec![self.game.value(self.game.grand())],
-                levels: Vec::new(),
-                lp_solves: 0,
-                rows_added: 0,
-                guarantee: Guarantee::Exact,
-            });
+            return Ok(NucleolusResult::without_lp(
+                vec![self.game.value(self.game.grand())],
+                Guarantee::Exact,
+                self.tolerance(),
+            ));
         }
         self.pin_single_point_blocks();
         if self.span.is_full() {
             // 全てのブロックで配分が 1 点に決まった。LP は解かない。
-            return Ok(NucleolusResult {
-                allocation: self
-                    .lower
+            return Ok(NucleolusResult::without_lp(
+                self.lower
                     .clone()
                     .expect("1 点に決まるのは配分集合の場合だけ"),
-                levels: Vec::new(),
-                lp_solves: 0,
-                rows_added: 0,
-                guarantee: Guarantee::Exact,
-            });
+                Guarantee::Exact,
+                self.tolerance(),
+            ));
         }
         let mut levels = Vec::new();
         let mut allocation = Vec::new();
@@ -479,6 +706,9 @@ impl<'a> Sequential<'a> {
             lp_solves: self.counter.solves,
             rows_added: self.rows_added,
             guarantee: Guarantee::Exact,
+            tolerance: self.tolerance(),
+            refinements: 0,
+            rational: false,
         })
     }
 
@@ -827,8 +1057,8 @@ mod tests {
         let blocks = [Coalition(0b011), Coalition(0b100)];
         for tolerance in [f64::NAN, f64::INFINITY, -1.0] {
             for domain in [Domain::Imputation, Domain::Preimputation] {
-                let mut options = Options::new(&game, domain);
-                options.tolerance = tolerance;
+                let mut options = Options::new(domain);
+                options.tolerance = Tolerance::Absolute(tolerance);
                 let result = nucleolus_with_structure(&game, &blocks, options);
                 assert!(
                     matches!(result, Err(Error::InvalidArgument(_))),

@@ -277,10 +277,9 @@ mod tests {
             let sampled = SampledGame::from_coalitions(&game, all).unwrap();
             assert_eq!(sampled.evaluations(), (1 << n) - 1);
             for domain in [Domain::Imputation, Domain::Preimputation] {
-                let expected =
-                    nucleolus::nucleolus_with(&game, nucleolus::Options::new(&game, domain))
-                        .unwrap()
-                        .allocation;
+                let expected = nucleolus::nucleolus_with(&game, nucleolus::Options::new(domain))
+                    .unwrap()
+                    .allocation;
                 let actual = oracle::nucleolus_with(&sampled, domain, 1e-7 * game.max_abs_value())
                     .unwrap()
                     .allocation;

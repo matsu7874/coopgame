@@ -356,3 +356,98 @@ fn check_reports_conclusion_and_honors_reference() {
     assert!(run.success, "{}", run.stderr);
     assert_eq!(run.stdout, "3\n2\n1\n");
 }
+
+/// nucleolus の許容誤差: 指定すると 1 回だけ解き、指定しなければ既定の手順で求める。
+#[test]
+fn nucleolus_tolerance_options() {
+    let cli = Cli::new("nucleolus_tolerance");
+    // 値が 1e12 程度の 4 人の整数ゲーム (ビット順)。逐次 LP の許容誤差では超過の段を分けられない。
+    // 仁は (999999999998.5, 1000000000001.25, 999999999999.75, 1000000000002.5)。
+    cli.file("v.txt", V_TXT).file(
+        "large.txt",
+        "0\n0\n2000000000002\n0\n2000000000001\n2000000000006\n3000000000002\n0\n2000000000006\n2000000000006\n3000000000005\n2000000000005\n3000000000002\n3000000000002\n4000000000002\n",
+    );
+    // 標準エラーの統計の `tolerance=` の値。
+    let tolerance = |stderr: &str| -> f64 {
+        let field = stderr
+            .split_whitespace()
+            .find_map(|field| field.strip_prefix("tolerance="))
+            .unwrap_or_else(|| panic!("tolerance がない: {stderr}"));
+        field.parse().unwrap()
+    };
+    let close = |actual: f64, expected: f64| (actual - expected).abs() <= 1e-12 * expected;
+    // 既定: 段が整合するゲームは比 1e-7 で 1 回だけ解く (max|v| = 6)。
+    let run = cli.run(&["nucleolus", "v.txt"]);
+    assert_eq!(run.stdout, "3\n2\n1\n");
+    for expected in ["solver=lp", "refinements=0", "guarantee=exact"] {
+        assert!(run.stderr.contains(expected), "{expected}: {}", run.stderr);
+    }
+    assert!(close(tolerance(&run.stderr), 6e-7), "{}", run.stderr);
+    // 指定した許容誤差で 1 回だけ解く。
+    let run = cli.run(&["nucleolus", "v.txt", "--rel-tolerance", "1e-9"]);
+    assert!(close(tolerance(&run.stderr), 6e-9), "{}", run.stderr);
+    let run = cli.run(&["nucleolus", "v.txt", "--tolerance", "0.001"]);
+    assert!(close(tolerance(&run.stderr), 1e-3), "{}", run.stderr);
+    let run = cli.run(&["nucleolus", "large.txt", "--rel-tolerance", "1e-7"]);
+    assert!(
+        run.stderr.contains("solver=lp") && run.stderr.contains("refinements=0"),
+        "{}",
+        run.stderr
+    );
+    // 既定: 段を分けられないゲームは、有理数の逐次 LP に切り替える。
+    let run = cli.run(&["nucleolus", "large.txt"]);
+    assert!(run.success, "{}", run.stderr);
+    assert!(run.stderr.contains("solver=rational"), "{}", run.stderr);
+    let exact = cli.run(&["nucleolus", "large.txt", "--exact"]);
+    let expected: Vec<f64> = exact
+        .stdout
+        .lines()
+        .map(|line| {
+            let (numerator, denominator) = line.split_once('/').unwrap_or((line, "1"));
+            numerator.parse::<f64>().unwrap() / denominator.parse::<f64>().unwrap()
+        })
+        .collect();
+    assert_eq!(run.values(), expected);
+    assert_eq!(
+        expected,
+        [
+            999999999998.5,
+            1000000000001.25,
+            999999999999.75,
+            1000000000002.5
+        ]
+    );
+    // 指定の誤り。
+    for (args, message) in [
+        (
+            &[
+                "nucleolus",
+                "v.txt",
+                "--tolerance",
+                "1e-6",
+                "--rel-tolerance",
+                "1e-9",
+            ][..],
+            "どちらか一方だけ",
+        ),
+        (
+            &["nucleolus", "v.txt", "--exact", "--tolerance", "1e-6"],
+            "--exact は許容誤差を使わない",
+        ),
+        (
+            &["nucleolus", "v.txt", "--tolerance", "abc"],
+            "--tolerance の値",
+        ),
+        (
+            &["nucleolus", "v.txt", "--rel-tolerance", "-1"],
+            "0 以上の有限の数ではない",
+        ),
+        (
+            &["shapley", "v.txt", "--tolerance", "1e-6"],
+            "未知のオプション",
+        ),
+    ] {
+        let stderr = cli.run(args).error().to_string();
+        assert!(stderr.contains(message), "{args:?}: {stderr}");
+    }
+}

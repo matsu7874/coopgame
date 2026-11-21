@@ -186,7 +186,7 @@ pub fn nucleolus(
     domain: Domain,
 ) -> Result<NucleolusResult> {
     structure.check(game)?;
-    nucleolus::nucleolus_with_structure(game, structure.blocks(), Options::new(game, domain))
+    nucleolus::nucleolus_with_structure(game, structure.blocks(), Options::new(domain))
 }
 
 /// 連合を 1 人のプレイヤーとみなした商ゲーム `v_B(R) = v(∪_{k ∈ R} B_k)`。

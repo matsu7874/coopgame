@@ -199,7 +199,12 @@ impl ExplicitGame {
 /// 値の大きさに比例させるので、ゲームの値を `c` 倍すると許容誤差も `c` 倍になる
 /// (値の小さいゲームでも許容誤差が値を上回らない)。
 pub fn default_tolerance(game: &ExplicitGame) -> f64 {
-    1e-7 * scale::positive_scale(game.max_abs_value())
+    relative_tolerance(game, 1e-7)
+}
+
+/// 値の最大絶対値 `max|v(S)|` に対する比 `ratio` の許容誤差 (全ての値が 0 なら `ratio`)。
+pub fn relative_tolerance(game: &ExplicitGame, ratio: f64) -> f64 {
+    ratio * scale::positive_scale(game.max_abs_value())
 }
 
 pub(super) fn check_players(players: usize) -> Result<()> {

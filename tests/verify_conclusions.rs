@@ -14,7 +14,7 @@ use coopgame::game::exact::{ExactGame, Rational};
 use coopgame::nucleolus;
 use coopgame::properties::Assume;
 use coopgame::verify::{self, Check, Reference, Verified, VerifyOptions};
-use coopgame::{Domain, Error, ExplicitGame, Guarantee};
+use coopgame::{Domain, Error, ExplicitGame, Guarantee, generators};
 
 fn r(numerator: i64, denominator: i64) -> Rational {
     Rational::new(numerator.into(), denominator.into())
@@ -322,50 +322,68 @@ fn point_within_tolerance_of_exact_nucleolus_is_certified() {
 
 // ---------------------------------------------------------------- 基準の仁が厳密でない・求められない場合
 
-/// 逐次 LP の仁が厳密な検証に合格しないゲームで、基準を逐次 LP の仁だけにする (`Reference::Lp`) と、
-/// 浮動小数点の Kohlberg 判定に合格した LP の仁が基準になる。基準との差が許容誤差 (50) の 100 倍以下の点は未決、
-/// それを超える点は否定する。既定 (`Reference::Auto`) では有理数の仁と比べ、許容誤差を超える点を否定する。
+/// 値が 1e7 程度の整数ゲームでは、基準の逐次 LP が許容誤差を下げて解き直すので、基準を逐次 LP の仁だけにしても
+/// (`Reference::Lp`) 厳密な仁を復元でき、許容誤差 (50) を超えて離れた点を否定する。
 #[test]
-fn point_is_judged_against_float_verified_reference() {
+fn refined_lp_reference_refutes_points_beyond_tolerance() {
     let game = large_integer_game();
     let exact = ExactGame::from_explicit(&game).unwrap();
     let truth = to_f64(&large_integer_nucleolus());
     let mut lp_only = VerifyOptions::default();
     lp_only.reference = Reference::Lp;
-    for (shift, refuted) in [(100.0, false), (1e4, true)] {
+    for shift in [100.0, 1e4] {
         let mut x = truth.clone();
         x[0] += shift;
         x[3] -= shift;
-        for check in [
-            verify::check(&game, &x, Domain::Imputation, lp_only),
-            verify::check_exact(&exact, &x, Domain::Imputation, lp_only),
-        ] {
-            match check.unwrap() {
-                Check::Refuted(reason) if refuted => {
-                    assert!(
-                        reason.contains("浮動小数点で検証した仁"),
-                        "{shift}: {reason}"
-                    );
+        for options in [lp_only, VerifyOptions::default()] {
+            for check in [
+                verify::check(&game, &x, Domain::Imputation, options),
+                verify::check_exact(&exact, &x, Domain::Imputation, options),
+            ] {
+                match check.unwrap() {
+                    Check::Refuted(reason) => {
+                        assert!(reason.contains("厳密に検証した仁"), "{shift}: {reason}");
+                    }
+                    other => panic!("{shift}: {other:?}"),
                 }
-                Check::Undecided(reason) if !refuted => {
-                    assert!(
-                        reason.contains("浮動小数点で検証した仁"),
-                        "{shift}: {reason}"
-                    );
-                }
-                other => panic!("{shift}: {other:?}"),
             }
         }
-        for check in [
-            verify::check(&game, &x, Domain::Imputation, VerifyOptions::default()),
-            verify::check_exact(&exact, &x, Domain::Imputation, VerifyOptions::default()),
-        ] {
-            match check.unwrap() {
-                Check::Refuted(reason) => {
-                    assert!(reason.contains("厳密に検証した仁"), "{shift}: {reason}");
-                }
-                other => panic!("{shift}: {other:?}"),
+    }
+}
+
+/// 浮動小数点数の和で作ったゲームでは、有理数では等しくない超過が近接し、逐次 LP の仁から厳密な配分を
+/// 復元できないことがある (4 人、seed 0)。基準を逐次 LP の仁だけにする (`Reference::Lp`) と、浮動小数点の
+/// Kohlberg 判定に合格した LP の仁が基準になる。基準との差が許容誤差の 100 倍以下の点は未決、それを超える点は否定する。
+#[test]
+fn point_is_judged_against_float_verified_reference() {
+    let game = generators::random_superadditive(4, 0).unwrap();
+    let lp = nucleolus::nucleolus(&game).unwrap().into_allocation();
+    assert!(
+        !verify::certify(&game, &lp, Domain::Imputation)
+            .unwrap()
+            .satisfied
+    );
+    let tolerance = 1e-6 * game.max_abs_value();
+    let mut lp_only = VerifyOptions::default();
+    lp_only.reference = Reference::Lp;
+    for (shift, refuted) in [(10.0 * tolerance, false), (1000.0 * tolerance, true)] {
+        let mut x = lp.clone();
+        x[0] += shift;
+        x[3] -= shift;
+        match verify::check(&game, &x, Domain::Imputation, lp_only).unwrap() {
+            Check::Refuted(reason) if refuted => {
+                assert!(
+                    reason.contains("浮動小数点で検証した仁"),
+                    "{shift}: {reason}"
+                );
             }
+            Check::Undecided(reason) if !refuted => {
+                assert!(
+                    reason.contains("浮動小数点で検証した仁"),
+                    "{shift}: {reason}"
+                );
+            }
+            other => panic!("{shift}: {other:?}"),
         }
     }
 }

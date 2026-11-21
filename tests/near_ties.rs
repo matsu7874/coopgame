@@ -21,7 +21,7 @@ fn assert_matches_exact(game: &ExplicitGame, domain: Domain, label: &str) {
         .iter()
         .map(|q| q.to_f64().unwrap())
         .collect::<Vec<_>>();
-    let actual = nucleolus::nucleolus_with(game, Options::new(game, domain))
+    let actual = nucleolus::nucleolus_with(game, Options::new(domain))
         .unwrap_or_else(|err| panic!("{label} {domain:?}: {err}"));
     let tolerance = default_tolerance(game);
     let difference = max_abs_difference(actual.allocation(), &expected);
@@ -53,7 +53,7 @@ fn coalition_whose_excess_is_within_tolerance_of_the_level() {
         2999999.0 / 3.0,
     ];
     for domain in [Domain::Imputation, Domain::Preimputation] {
-        let actual = nucleolus::nucleolus_with(&game, Options::new(&game, domain))
+        let actual = nucleolus::nucleolus_with(&game, Options::new(domain))
             .unwrap_or_else(|err| panic!("{domain:?}: {err}"));
         let difference = max_abs_difference(actual.allocation(), &expected);
         assert!(

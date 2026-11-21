@@ -24,7 +24,7 @@ use coopgame::games::spanning_tree::SpanningTreeGame;
 use coopgame::io as io_core;
 use coopgame::kernel::{self, Row, SetOptions, TransferOptions};
 use coopgame::nucleolus::convex::{self, ConvexOptions, ConvexStats};
-use coopgame::nucleolus::{self as nucleolus_core, Method, Options};
+use coopgame::nucleolus::{self as nucleolus_core, Method, Options, Tolerance};
 use coopgame::nucleolus::{sampled, variants};
 use coopgame::partition;
 use coopgame::properties::{Assume, ConvexChecked};
@@ -332,19 +332,41 @@ fn nucleolus_dict<'py>(
     dict.set_item("lp_solves", result.lp_solves())?;
     dict.set_item("rows_added", result.rows_added())?;
     dict.set_item("guarantee", result.guarantee().to_string())?;
+    dict.set_item("tolerance", result.tolerance())?;
+    dict.set_item("refinements", result.refinements())?;
+    dict.set_item("rational", result.is_rational())?;
     Ok(dict)
 }
 
 /// 仁 (`domain="imputation"`) またはプレ仁を逐次 LP で求める。`method` は `"cg"` (制約生成) か `"full"`。
+///
+/// `tolerance` (値の単位) か `rel_tolerance` (`max|v(S)|` に対する比) のどちらかを指定すると、その許容誤差で
+/// 1 回だけ解く。どちらも指定しなければ、仁を正しく求めることを優先する: 解いた配分の超過の段を細かく読み直して
+/// 確かめ、整合しなければ許容誤差を下げて解き直し、それでも整合しなければ 10 人以下は有理数の逐次 LP で求める
+/// (時間がかかることがある。11 人以上は `guarantee` を `"approximate"` にして返す。確認は 20 人まで)。
+/// 戻り値の `tolerance` (使った許容誤差。有理数で求めたら 0)・`refinements` (解き直した回数)・`rational`
+/// (有理数の逐次 LP で求めたか) で、どう求めたかが分かる。
 #[pyfunction]
-#[pyo3(signature = (game, domain = "imputation", method = "cg"))]
+#[pyo3(signature = (game, domain = "imputation", method = "cg", tolerance = None, rel_tolerance = None))]
 fn nucleolus<'py>(
     py: Python<'py>,
     game: &Game,
     domain: &str,
     method: &str,
+    tolerance: Option<f64>,
+    rel_tolerance: Option<f64>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let mut options = Options::new(&game.inner, parse_domain(domain)?);
+    let mut options = Options::new(parse_domain(domain)?);
+    options.tolerance = match (tolerance, rel_tolerance) {
+        (None, None) => Tolerance::Auto,
+        (Some(tolerance), None) => Tolerance::Absolute(tolerance),
+        (None, Some(ratio)) => Tolerance::Relative(ratio),
+        (Some(_), Some(_)) => {
+            return Err(PyValueError::new_err(
+                "tolerance と rel_tolerance は、どちらか一方だけを指定する",
+            ));
+        }
+    };
     options.method = match method {
         "cg" => Method::ConstraintGeneration,
         "full" => Method::Full,
@@ -361,7 +383,7 @@ fn nucleolus<'py>(
 /// プレ仁 (`nucleolus(game, "preimputation")` と同じ)。
 #[pyfunction]
 fn prenucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
-    nucleolus(py, game, "preimputation", "cg")
+    nucleolus(py, game, "preimputation", "cg", None, None)
 }
 
 /// 最小コアの epsilon と、それを達成する配分の 1 つ。

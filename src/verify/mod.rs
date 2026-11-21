@@ -44,7 +44,7 @@ use crate::game::{
     Coalition, ExplicitGame, PlayerSet, SetFunction, default_tolerance, value_scale,
 };
 use crate::linalg::max_abs_difference;
-use crate::nucleolus::{self, Options};
+use crate::nucleolus;
 use crate::rng::SplitMix64;
 use crate::solution::{Guarantee, Solution, Unverified};
 
@@ -380,8 +380,7 @@ fn certify_small(
         Err(error) => Check::Undecided(format!("厳密な仁との差を測れない: {error}")),
     };
     // 基準 1: 逐次 LP の仁。厳密に検証できればその厳密な配分と比べる。
-    let lp = nucleolus::nucleolus_with(explicit, Options::new(explicit, domain))
-        .map(|result| result.allocation);
+    let lp = nucleolus::nucleolus_by_lp(explicit, domain).map(|result| result.allocation);
     if let Ok(lp) = &lp
         && let Ok(exact_reference) = certify_exact(exact_game, lp, domain)
         && exact_reference.satisfied

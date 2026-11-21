@@ -287,6 +287,35 @@ def test_convex_nucleolus_proven_and_assumed():
         coopgame.auto_nucleolus(coopgame.FunctionGame(5, graph.value))
 
 
+def test_nucleolus_tolerance():
+    game = coopgame.Game([0, 0, 0, 4, 3, 2, 6], order="lex")
+    # 既定: 段が整合するゲームは比 1e-7 の許容誤差で 1 回だけ解く。
+    default = coopgame.nucleolus(game)
+    assert default["allocation"] == pytest.approx([3, 2, 1])
+    assert default["tolerance"] == pytest.approx(6e-7)
+    assert default["refinements"] == 0 and default["rational"] is False
+    # 指定した許容誤差で 1 回だけ解く。
+    assert coopgame.nucleolus(game, rel_tolerance=1e-9)["tolerance"] == pytest.approx(6e-9)
+    assert coopgame.nucleolus(game, tolerance=1e-3)["tolerance"] == pytest.approx(1e-3)
+    with pytest.raises(ValueError, match="どちらか一方"):
+        coopgame.nucleolus(game, tolerance=1e-6, rel_tolerance=1e-9)
+    with pytest.raises(ValueError):
+        coopgame.nucleolus(game, rel_tolerance=-1)
+    # 値が 1e12 程度の整数ゲームは逐次 LP で超過の段を分けられないので、既定では有理数の逐次 LP に切り替える。
+    large = coopgame.Game(
+        [0, 0, 2000000000002, 0, 2000000000001, 2000000000006, 3000000000002, 0]
+        + [2000000000006, 2000000000006, 3000000000005, 2000000000005]
+        + [3000000000002, 3000000000002, 4000000000002]
+    )
+    solved = coopgame.nucleolus(large)
+    assert solved["rational"] is True and solved["guarantee"] == "exact"
+    exact = coopgame.nucleolus_exact([int(v) for v in large.values()])
+    assert solved["allocation"] == [float(x) for x in exact["allocation"]]
+    assert solved["allocation"] == [999999999998.5, 1000000000001.25, 999999999999.75, 1000000000002.5]
+    fixed = coopgame.nucleolus(large, rel_tolerance=1e-7)
+    assert fixed["rational"] is False and fixed["refinements"] == 0
+
+
 def test_verify_solution():
     game = coopgame.Game([0, 0, 0, 10, 0, 0, 2], order="lex")
     report = coopgame.verify_solution(game, [1, 1, 0])
