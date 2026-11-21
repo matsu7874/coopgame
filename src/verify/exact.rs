@@ -8,13 +8,10 @@ use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::allocation_defect;
 use crate::game::exact::{ExactGame, Rational, format_rational, to_f64, to_rational};
-use crate::game::excess_table;
 use crate::game::scale::{check_tolerance, positive_scale};
 use crate::game::{Coalition, ExplicitGame};
-use crate::linalg::Span;
-use crate::lp::Counter;
+use crate::levels::{Reading, SortedExcess};
 use crate::rational::{ExactEchelon, Inserted, indicator, simplex};
-use crate::verify::kohlberg::is_balanced as is_balanced_float;
 
 /// 厳密な検証の結果。
 #[derive(Clone, Debug)]
@@ -114,7 +111,7 @@ pub fn certify_exact(exact: &ExactGame, x: &[f64], domain: Domain) -> Result<Exa
         }
         // 2 回目以降の読み取りは、読み取った段が Kohlberg 基準を満たすときだけ復元して判定する。
         let recovered = if attempt == 0 || sorted.levels_are_balanced(&reading, game.players()) {
-            sorted.solve(exact, &reading)
+            solve(&sorted, exact, &reading)
         } else {
             None
         };
@@ -233,146 +230,55 @@ pub fn recover_allocation(
     let Some(reading) = sorted.read(game, x, domain, tolerance)? else {
         return Ok(None);
     };
-    Ok(sorted.solve(exact, &reading))
+    Ok(solve(&sorted, exact, &reading))
 }
 
-/// 配分 `x` での真部分提携の超過と、超過の大きい順の並び (段の読み取りの許容誤差によらない)。
-struct SortedExcess {
-    excess: Vec<f64>,
-    /// 真部分提携 (ビット表現) を超過の大きい順に並べたもの。
-    order: Vec<usize>,
-}
-
-/// 段の読み取りの結果: 下限に張り付いたプレイヤーと、[`SortedExcess::order`] の段の区切り。
-#[derive(Debug, PartialEq)]
-struct Reading {
-    lower_bound: Vec<usize>,
-    /// 各段の終わりの位置 (`order` の添字。その位置は含まない)。
-    ends: Vec<usize>,
-}
-
-impl SortedExcess {
-    fn new(game: &ExplicitGame, x: &[f64]) -> SortedExcess {
-        let full = (1usize << game.players()) - 1;
-        let excess = excess_table(game, x);
-        let mut order: Vec<usize> = (1..full).collect();
-        order.sort_by(|a, b| excess[*b].total_cmp(&excess[*a]));
-        SortedExcess { excess, order }
+/// 読み取った段の連立一次方程式を有理数で解き、配分を返す。矛盾するか一意に定まらなければ `None`。
+fn solve(sorted: &SortedExcess, exact: &ExactGame, reading: &Reading) -> Option<Vec<Rational>> {
+    let n = exact.players();
+    // 未知数 (x_1..x_n, alpha_1..alpha_K) と右辺からなる行を加える。
+    let unknowns = n + reading.ends.len();
+    let mut echelon = ExactEchelon::default();
+    let mut push = |mut row: Vec<Rational>, rhs: Rational| -> bool {
+        row.push(rhs);
+        !matches!(echelon.insert(row, unknowns), Inserted::Inconsistent)
+    };
+    let grand = Coalition::grand(n);
+    let mut efficiency = indicator(grand, n);
+    efficiency.resize(unknowns, Rational::zero());
+    if !push(efficiency, exact.value(grand).clone()) {
+        return None;
     }
-
-    /// 段の先頭の超過から `tolerance` 以内を同じ段として、提携の特性ベクトル・`1_N`・下限の単位ベクトルが
-    /// `R^n` を張るまで段を読む。張らなければ `None`。
-    fn read(
-        &self,
-        game: &ExplicitGame,
-        x: &[f64],
-        domain: Domain,
-        tolerance: f64,
-    ) -> Result<Option<Reading>> {
-        let n = game.players();
-        let mut span = Span::new(n);
-        span.insert(&vec![1.0; n]);
-        let lower_bound: Vec<usize> = match domain {
-            Domain::Imputation => (0..n)
-                .filter(|&i| (x[i] - game.value(Coalition::singleton(i))).abs() <= tolerance)
-                .collect(),
-            Domain::Preimputation => Vec::new(),
-        };
-        for &i in &lower_bound {
-            span.insert_coalition(Coalition::singleton(i));
-        }
-        let mut ends = Vec::new();
-        let mut start = 0;
-        while start < self.order.len() && !span.is_full() {
-            let head = self.excess[self.order[start]];
-            let mut end = start;
-            while end < self.order.len() && self.excess[self.order[end]] >= head - tolerance {
-                span.insert_coalition(Coalition(self.order[end] as u64));
-                end += 1;
-            }
-            if end == start {
-                // 超過が NaN で比較できず、段が 1 つも進まない (有限な入力からは生じないが、無限ループを避ける)。
-                return Err(Error::Numerical(format!(
-                    "超過 {head} の段を作れない (比較できない値がある)"
-                )));
-            }
-            ends.push(end);
-            start = end;
-        }
-        Ok(span.is_full().then_some(Reading { lower_bound, ends }))
-    }
-
-    /// 読み取った段を上から順に合わせた提携族が、どれも平衡か (浮動小数点数の LP で判定する)。
-    ///
-    /// 読み取りが仁の超過の段と一致していれば、Kohlberg 基準からどの族も平衡になる。平衡でない族があれば、
-    /// その読み取りは仁の段ではない。LP が解けずに判定できない族は平衡として扱う (復元と厳密な判定に進む)。
-    fn levels_are_balanced(&self, reading: &Reading, n: usize) -> bool {
-        let optional: Vec<Coalition> = reading
-            .lower_bound
-            .iter()
-            .map(|&i| Coalition::singleton(i))
-            .collect();
-        let mut counter = Counter::default();
-        let mut collection: Vec<Coalition> = Vec::new();
-        let mut start = 0;
-        reading.ends.iter().all(|&end| {
-            collection.extend(
-                self.order[start..end]
-                    .iter()
-                    .map(|&mask| Coalition(mask as u64)),
-            );
-            start = end;
-            is_balanced_float(&collection, &optional, n, &mut counter).unwrap_or(true)
-        })
-    }
-
-    /// 読み取った段の連立一次方程式を有理数で解き、配分を返す。矛盾するか一意に定まらなければ `None`。
-    fn solve(&self, exact: &ExactGame, reading: &Reading) -> Option<Vec<Rational>> {
-        let n = exact.players();
-        // 未知数 (x_1..x_n, alpha_1..alpha_K) と右辺からなる行を加える。
-        let unknowns = n + reading.ends.len();
-        let mut echelon = ExactEchelon::default();
-        let mut push = |mut row: Vec<Rational>, rhs: Rational| -> bool {
-            row.push(rhs);
-            !matches!(echelon.insert(row, unknowns), Inserted::Inconsistent)
-        };
-        let grand = Coalition::grand(n);
-        let mut efficiency = indicator(grand, n);
-        efficiency.resize(unknowns, Rational::zero());
-        if !push(efficiency, exact.value(grand).clone()) {
+    for &i in &reading.lower_bound {
+        let mut row = vec![Rational::zero(); unknowns];
+        row[i] = Rational::one();
+        if !push(row, exact.value(Coalition::singleton(i)).clone()) {
             return None;
         }
-        for &i in &reading.lower_bound {
-            let mut row = vec![Rational::zero(); unknowns];
-            row[i] = Rational::one();
-            if !push(row, exact.value(Coalition::singleton(i)).clone()) {
+    }
+    let mut start = 0;
+    for (k, &end) in reading.ends.iter().enumerate() {
+        for &mask in &sorted.order[start..end] {
+            let coalition = Coalition(mask as u64);
+            let mut row = indicator(coalition, n);
+            row.resize(unknowns, Rational::zero());
+            row[n + k] = Rational::one();
+            if !push(row, exact.value(coalition).clone()) {
                 return None;
             }
         }
-        let mut start = 0;
-        for (k, &end) in reading.ends.iter().enumerate() {
-            for &mask in &self.order[start..end] {
-                let coalition = Coalition(mask as u64);
-                let mut row = indicator(coalition, n);
-                row.resize(unknowns, Rational::zero());
-                row[n + k] = Rational::one();
-                if !push(row, exact.value(coalition).clone()) {
-                    return None;
-                }
-            }
-            start = end;
-        }
-        if echelon.rank() != unknowns {
-            return None;
-        }
-        // 全ての列がピボットなので、既約な行階段形の右辺が解になる。
-        let mut solution = vec![Rational::zero(); unknowns];
-        for (pivot, row) in &echelon.rows {
-            solution[*pivot] = row[unknowns].clone();
-        }
-        solution.truncate(n);
-        Some(solution)
+        start = end;
     }
+    if echelon.rank() != unknowns {
+        return None;
+    }
+    // 全ての列がピボットなので、既約な行階段形の右辺が解になる。
+    let mut solution = vec![Rational::zero(); unknowns];
+    for (pivot, row) in &echelon.rows {
+        solution[*pivot] = row[unknowns].clone();
+    }
+    solution.truncate(n);
+    Some(solution)
 }
 
 /// 有理数の配分 `x` が仁 (プレ仁) であるかを Kohlberg 基準で厳密に判定する。
@@ -544,23 +450,6 @@ mod tests {
         assert_eq!(report.allocation, vec![r(8, 3), r(2, 3), r(5, 3)]);
     }
 
-    /// 仁の超過の段は上から順に合わせた族がどれも平衡で、仁でない点の段はそうならない。
-    #[test]
-    fn levels_of_nucleolus_are_balanced_and_levels_of_other_points_are_not() {
-        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
-        let balanced = |x: &[f64]| {
-            let sorted = SortedExcess::new(&game, x);
-            let reading = sorted
-                .read(&game, x, Domain::Imputation, 1e-9)
-                .unwrap()
-                .unwrap();
-            sorted.levels_are_balanced(&reading, 3)
-        };
-        assert!(balanced(&[2.0, 2.0, 0.0]));
-        // 超過 0 の段 {3}・{1, 2} は平衡だが、次の段 {1}・{1, 3} を合わせると平衡でない。
-        assert!(!balanced(&[1.0, 3.0, 0.0]));
-    }
-
     #[test]
     fn rejects_non_nucleolus_exactly() {
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
@@ -576,17 +465,6 @@ mod tests {
             Domain::Imputation,
         );
         assert!(!report.satisfied);
-    }
-
-    #[test]
-    fn reading_stops_at_incomparable_excess() {
-        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
-        let x = [2.0, 2.0, 0.0];
-        let mut sorted = SortedExcess::new(&game, &x);
-        let head = sorted.order[0];
-        sorted.excess[head] = f64::NAN;
-        let result = sorted.read(&game, &x, Domain::Preimputation, 1e-6);
-        assert!(matches!(result, Err(Error::Numerical(_))), "{result:?}");
     }
 
     #[test]

@@ -5,8 +5,9 @@ use crate::error::{Error, Result};
 use crate::game::allocation::feasibility_violation;
 use crate::game::excess_table;
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
+use crate::levels::is_balanced;
 use crate::linalg::Span;
-use crate::lp::{self, Cmp, Counter};
+use crate::lp::Counter;
 
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -104,37 +105,6 @@ pub fn kohlberg(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<Kohlbe
         levels_checked,
         lp_solves: counter.solves,
     })
-}
-
-/// `collection` に重み 1 以上、`optional` に重み 0 以上を付けて
-/// `sum lambda_S 1_S = mu 1_N` とできるかを判定する。
-pub(super) fn is_balanced(
-    collection: &[Coalition],
-    optional: &[Coalition],
-    n: usize,
-    counter: &mut Counter,
-) -> Result<bool> {
-    let mut problem = lp::minimize();
-    let mu = problem.add_var(1.0, (0.0, f64::INFINITY));
-    let mut weights = Vec::with_capacity(collection.len() + optional.len());
-    for coalition in collection {
-        weights.push((*coalition, problem.add_var(0.0, (1.0, f64::INFINITY))));
-    }
-    for coalition in optional {
-        if !collection.contains(coalition) {
-            weights.push((*coalition, problem.add_var(0.0, (0.0, f64::INFINITY))));
-        }
-    }
-    for player in 0..n {
-        let mut terms: Vec<_> = weights
-            .iter()
-            .filter(|(coalition, _)| coalition.contains(player))
-            .map(|(_, var)| (*var, 1.0))
-            .collect();
-        terms.push((mu, -1.0));
-        lp::add(&mut problem, terms, Cmp::Eq, 0.0);
-    }
-    Ok(counter.solve(&problem)?.is_some())
 }
 
 #[cfg(test)]

@@ -46,7 +46,7 @@ cargo build --release --features cli   # target/release/coopgame
 |---|---|
 | 0 | `game`、(内部) `rng` |
 | 1 | `solution`・`surplus`・`compromise`・`power`・`generators`、(内部) `lp`・`linalg`・`rational` |
-| 2 | `values`・`properties`・`kernel`・`bargaining`、(内部) `submodular` |
+| 2 | `values`・`properties`・`kernel`・`bargaining`、(内部) `submodular`・`levels` |
 | 3 | `nucleolus`・`communication` |
 | 4 | `games`・`verify`・`partition`・`io`・`analysis` |
 | 5 | `auto` |
