@@ -13,7 +13,7 @@ use std::time::Duration;
 use coopgame::game::exact::{ExactGame, Rational};
 use coopgame::nucleolus;
 use coopgame::properties::Assume;
-use coopgame::verify::{self, Check, Verified, VerifyOptions};
+use coopgame::verify::{self, Check, Reference, Verified, VerifyOptions};
 use coopgame::{Domain, Error, ExplicitGame, Guarantee};
 
 fn r(numerator: i64, denominator: i64) -> Rational {
@@ -322,20 +322,23 @@ fn point_within_tolerance_of_exact_nucleolus_is_certified() {
 
 // ---------------------------------------------------------------- 基準の仁が厳密でない・求められない場合
 
-/// 逐次 LP の仁が厳密な検証に合格しないゲームでは、浮動小数点の Kohlberg 判定に合格した LP の仁を基準にする。
-/// 基準との差が許容誤差 (50) の 100 倍以下の点は未決、それを超える点は否定する。
+/// 逐次 LP の仁が厳密な検証に合格しないゲームで、基準を逐次 LP の仁だけにする (`Reference::Lp`) と、
+/// 浮動小数点の Kohlberg 判定に合格した LP の仁が基準になる。基準との差が許容誤差 (50) の 100 倍以下の点は未決、
+/// それを超える点は否定する。既定 (`Reference::Auto`) では有理数の仁と比べ、許容誤差を超える点を否定する。
 #[test]
 fn point_is_judged_against_float_verified_reference() {
     let game = large_integer_game();
     let exact = ExactGame::from_explicit(&game).unwrap();
     let truth = to_f64(&large_integer_nucleolus());
+    let mut lp_only = VerifyOptions::default();
+    lp_only.reference = Reference::Lp;
     for (shift, refuted) in [(100.0, false), (1e4, true)] {
         let mut x = truth.clone();
         x[0] += shift;
         x[3] -= shift;
         for check in [
-            verify::check(&game, &x, Domain::Imputation, VerifyOptions::default()),
-            verify::check_exact(&exact, &x, Domain::Imputation, VerifyOptions::default()),
+            verify::check(&game, &x, Domain::Imputation, lp_only),
+            verify::check_exact(&exact, &x, Domain::Imputation, lp_only),
         ] {
             match check.unwrap() {
                 Check::Refuted(reason) if refuted => {
@@ -353,13 +356,25 @@ fn point_is_judged_against_float_verified_reference() {
                 other => panic!("{shift}: {other:?}"),
             }
         }
+        for check in [
+            verify::check(&game, &x, Domain::Imputation, VerifyOptions::default()),
+            verify::check_exact(&exact, &x, Domain::Imputation, VerifyOptions::default()),
+        ] {
+            match check.unwrap() {
+                Check::Refuted(reason) => {
+                    assert!(reason.contains("厳密に検証した仁"), "{shift}: {reason}");
+                }
+                other => panic!("{shift}: {other:?}"),
+            }
+        }
     }
 }
 
-/// 基準の仁を求める逐次 LP が失敗するゲームでは、エラーではなく未決を返す。
+/// 基準の仁を求める逐次 LP が失敗するゲームでは、基準を逐次 LP の仁だけにするとエラーではなく未決を返す。
 ///
 /// `v({1}) = -M`、`v({2}) = v({3}) = M`、他の提携は `-M` (`M = 1.5e308`) のゲームのプレ仁は
 /// `(-5M/3, M/3, M/3)` で、`-5M/3` は f64 で表せない。逐次 LP は [`Error::Numerical`] を返す。
+/// 既定 (`Reference::Auto`) では有理数の逐次 LP がプレ仁を求め、離れた点を否定する。
 #[test]
 fn failure_of_reference_lp_is_undecided() {
     let m = 1.5e308;
@@ -370,9 +385,11 @@ fn failure_of_reference_lp_is_undecided() {
     ));
     let exact = ExactGame::from_explicit(&game).unwrap();
     let x = [-m, 0.0, 0.0];
+    let mut lp_only = VerifyOptions::default();
+    lp_only.reference = Reference::Lp;
     for check in [
-        verify::check(&game, &x, Domain::Preimputation, VerifyOptions::default()),
-        verify::check_exact(&exact, &x, Domain::Preimputation, VerifyOptions::default()),
+        verify::check(&game, &x, Domain::Preimputation, lp_only),
+        verify::check_exact(&exact, &x, Domain::Preimputation, lp_only),
     ] {
         match check.unwrap() {
             Check::Undecided(reason) => {
@@ -381,6 +398,100 @@ fn failure_of_reference_lp_is_undecided() {
             other => panic!("未決のはず: {other:?}"),
         }
     }
+    for check in [
+        verify::check(&game, &x, Domain::Preimputation, VerifyOptions::default()),
+        verify::check_exact(&exact, &x, Domain::Preimputation, VerifyOptions::default()),
+    ] {
+        match check.unwrap() {
+            Check::Refuted(reason) => assert!(reason.contains("厳密に検証した仁"), "{reason}"),
+            other => panic!("否定のはず: {other:?}"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------- 基準の仁の求め方
+
+/// 値が 1e9 程度の整数ゲームでは、逐次 LP の仁は厳密な仁から値の単位で数個ずれ、厳密な配分を復元できない。
+/// 基準を逐次 LP の仁だけにすると未決になるゲームがあるが、有理数の逐次 LP で基準を求め直せば、
+/// 厳密な仁との差で結論が出る (既定の `Reference::Auto` は 8 人以下で求め直す)。
+#[test]
+fn rational_reference_decides_what_lp_reference_cannot() {
+    let mut state = 5u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let with_reference = |reference: Reference| {
+        let mut options = VerifyOptions::default();
+        options.reference = reference;
+        options
+    };
+    assert_eq!(VerifyOptions::default().reference, Reference::Auto);
+    let mut undecided_by_lp = 0;
+    for case in 0..40 {
+        let n = 3 + case % 4;
+        let values: Vec<f64> = (1usize..1 << n)
+            .map(|mask| {
+                let size = mask.count_ones() as f64;
+                if size == 1.0 {
+                    0.0
+                } else {
+                    1e9 * size + (next() % 7) as f64
+                }
+            })
+            .collect();
+        let game = ExplicitGame::from_binary(&values).unwrap();
+        let exact = ExactGame::from_explicit(&game).unwrap();
+        let truth = nucleolus::exact::nucleolus(&exact, Domain::Imputation)
+            .unwrap()
+            .allocation;
+        // 厳密な仁から、許容誤差 (1e-6 * max|v|、3000 以上) より十分小さい 2 だけずらした点。
+        // 超過の段が崩れるので、この点自身からは厳密な配分を復元できない。
+        let mut near = to_f64(&truth);
+        near[0] += 2.0;
+        near[1] -= 2.0;
+        let by_lp = verify::check(
+            &game,
+            &near,
+            Domain::Imputation,
+            with_reference(Reference::Lp),
+        )
+        .unwrap();
+        assert!(
+            !matches!(by_lp, Check::Refuted(_)),
+            "case {case}: {by_lp:?}"
+        );
+        if matches!(by_lp, Check::Undecided(_)) {
+            undecided_by_lp += 1;
+        }
+        for reference in [Reference::Auto, Reference::Exact] {
+            let check =
+                verify::check(&game, &near, Domain::Imputation, with_reference(reference)).unwrap();
+            assert_eq!(
+                check,
+                Check::Certified {
+                    exact: truth.clone()
+                },
+                "case {case} {reference:?}"
+            );
+        }
+        // 許容誤差を超えて離れた点は、厳密な仁との差で否定する。
+        let mut far = to_f64(&truth);
+        far[0] += 1e5;
+        far[1] -= 1e5;
+        let check =
+            verify::check(&game, &far, Domain::Imputation, VerifyOptions::default()).unwrap();
+        match check {
+            Check::Refuted(reason) => {
+                assert!(reason.contains("厳密に検証した仁"), "case {case}: {reason}");
+            }
+            other => panic!("case {case}: {other:?}"),
+        }
+    }
+    // 逐次 LP の仁だけでは未決になるゲームがある (なければ、求め直しを確かめていない)。
+    assert!(undecided_by_lp >= 10, "{undecided_by_lp}");
 }
 
 /// `sum v({i}) = 3 > v(N) = 3 - 5e-6` なので配分集合は空で、仁は存在しない。和と個人合理性は

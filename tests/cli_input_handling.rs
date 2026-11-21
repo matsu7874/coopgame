@@ -319,3 +319,40 @@ fn compare_reports_solutions_it_omits() {
         run.stderr
     );
 }
+
+/// check は配分が仁かを検証し、結論 (certified・refuted・undecided) を標準エラーに、合格なら厳密な配分を
+/// 標準出力に出す。合格しなければ終了コードが 0 でない。基準の仁の求め方は --reference で選ぶ。
+#[test]
+fn check_reports_conclusion_and_honors_reference() {
+    let cli = Cli::new("check_command");
+    // v({0,1}) = 4, v({0,2}) = 3, v({1,2}) = 2, v(N) = 6 の仁は (3, 2, 1)。
+    cli.file("v.txt", V_TXT)
+        .file("sol.txt", "3\n2\n1\n")
+        .file("far.txt", "2\n2\n2\n");
+    let run = cli.run(&["check", "v.txt", "sol.txt"]);
+    assert!(run.success, "{}", run.stderr);
+    assert_eq!(run.stdout, "3\n2\n1\n");
+    assert!(run.stderr.contains("check=certified"), "{}", run.stderr);
+    for reference in ["auto", "lp", "exact"] {
+        let run = cli.run(&["check", "v.txt", "far.txt", "--reference", reference]);
+        assert!(!run.success, "{reference}");
+        assert!(
+            run.stderr.contains("check=refuted"),
+            "{reference}: {}",
+            run.stderr
+        );
+        assert_eq!(run.stdout, "", "{reference}");
+    }
+    let stderr = cli
+        .run(&["check", "v.txt", "sol.txt", "--reference", "fast"])
+        .error()
+        .to_string();
+    assert!(
+        stderr.contains("--reference は auto・lp・exact"),
+        "{stderr}"
+    );
+    // 値を有理数として読む検証と、プレ仁の検証。
+    let run = cli.run(&["check", "v.txt", "sol.txt", "--rational", "--pre"]);
+    assert!(run.success, "{}", run.stderr);
+    assert_eq!(run.stdout, "3\n2\n1\n");
+}

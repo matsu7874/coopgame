@@ -28,7 +28,7 @@ use coopgame::nucleolus::{self as nucleolus_core, Method, Options};
 use coopgame::nucleolus::{sampled, variants};
 use coopgame::partition;
 use coopgame::properties::{Assume, ConvexChecked};
-use coopgame::verify::{self as verify_core, Check, Verified, VerifyOptions};
+use coopgame::verify::{self as verify_core, Check, Reference, Verified, VerifyOptions};
 use coopgame::{Coalition, Domain, ExplicitGame, generators, properties};
 use coopgame::{bargaining, communication, compromise, power, values};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -1455,8 +1455,12 @@ fn auto_nucleolus<'py>(py: Python<'py>, game: &Bound<'py, PyAny>) -> PyResult<Bo
 ///
 /// 20 人以下は厳密な検証、26 人以下はランダムな `pairs` 組のカーネル条件の総当たり (否定だけができる)。
 /// 戻り値の `check` は `"certified"`・`"refuted"`・`"undecided"`。`certified` なら `exact` に Fraction の配分。
+///
+/// `reference` は、候補が厳密な検証に合格しないときに比べる基準の仁の求め方。`"lp"` は逐次 LP の仁だけ、
+/// `"exact"` は逐次 LP の仁が厳密な検証に合格しなければ有理数の逐次 LP で求め直す (10 人まで)、
+/// `"auto"` (既定) は 8 人以下のときだけ求め直す。
 #[pyfunction]
-#[pyo3(signature = (game, allocation, domain = "imputation", pairs = 8, seed = 0))]
+#[pyo3(signature = (game, allocation, domain = "imputation", pairs = 8, seed = 0, reference = "auto"))]
 fn verify_solution<'py>(
     py: Python<'py>,
     game: &Bound<'py, PyAny>,
@@ -1464,12 +1468,24 @@ fn verify_solution<'py>(
     domain: &str,
     pairs: usize,
     seed: u64,
+    reference: &str,
 ) -> PyResult<Bound<'py, PyDict>> {
     let domain = parse_domain(domain)?;
+    let reference = match reference {
+        "auto" => Reference::Auto,
+        "lp" => Reference::Lp,
+        "exact" => Reference::Exact,
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "reference は \"auto\"・\"lp\"・\"exact\": {reference:?}"
+            )));
+        }
+    };
     let check = with_set_function(game, |g| {
         let mut options = VerifyOptions::default();
         options.pairs = pairs;
         options.seed = seed;
+        options.reference = reference;
         verify_core::check(g, &allocation, domain, options).map_err(to_py_err)
     })?;
     let dict = PyDict::new(py);

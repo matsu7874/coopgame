@@ -121,8 +121,24 @@ player	cost	shapley	nucleolus
 coopgame verify v.txt sol.txt               # Kohlberg 基準とカーネル条件
 coopgame certify v.txt sol.txt              # 有理数による厳密な検証 (厳密な仁を分数で出す)
 coopgame certify v.txt sol.txt --rational   # v.txt の値を 10 進数・分数の値どおりの有理数として検証する
+coopgame check v.txt sol.txt                # 配分が仁かを検証し、結論 (certified・refuted・undecided) を出す
+coopgame check v.txt sol.txt --reference lp # 基準の仁の求め方を選ぶ (auto・lp・exact)
 coopgame bargaining v.txt sol.txt           # 交渉集合に属するか (属さなければ反論のない異議を出す)
 ```
+
+`certify` は、`sol.txt` の配分自身から厳密な配分を復元できたときだけ合格にする。
+`check` は、`certify` に合格しない配分を基準の仁と比べ、結論を標準エラーに出す (`check=certified` など)。
+合格なら厳密な仁を分数で標準出力に出し、合格でなければ終了コードが 0 以外になる。`--rational`・`--pre` は `certify` と同じ。
+
+`--reference` は基準の仁の求め方である (結論の条件は [保証の種類](guarantees.md) の「検証の範囲」)。
+
+| 値 | 基準の仁 |
+|---|---|
+| `lp` | 逐次 LP の仁だけ |
+| `exact` | 逐次 LP の仁が厳密な検証に合格しなければ、有理数の逐次 LP で求め直す (10 人まで) |
+| `auto` (既定) | 逐次 LP の仁が厳密な検証に合格しなければ、8 人以下のときだけ有理数の逐次 LP で求め直す |
+
+`convex-nucleolus --assume` の事後検証でも、`--reference` で同じ選択ができる。
 
 ## 配分を説明・比較する
 

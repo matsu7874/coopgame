@@ -12,7 +12,7 @@ use coopgame::kernel::{self, SetOptions, TransferOptions};
 use coopgame::nucleolus::convex::{self, ConvexOptions};
 use coopgame::nucleolus::{Method, Options, variants};
 use coopgame::properties::{Assume, ConvexChecked};
-use coopgame::verify::{self, Verified, VerifyOptions};
+use coopgame::verify::{self, Check, Reference, Verified, VerifyOptions};
 use coopgame::{
     Domain, ExplicitGame, bargaining, communication, compromise, generators, io, nucleolus,
     partition, power, values,
@@ -49,6 +49,8 @@ const USAGE: &str = "\
   coopgame kernel-set <v.txt> [--pre] [--lex] [--max-nodes N] [--merge]
   coopgame verify     <v.txt> <sol.txt> [--pre] [--lex]
   coopgame certify    <v.txt> <sol.txt> [--pre] [--lex] [--rational]
+  coopgame check      <v.txt> <sol.txt> [--pre] [--lex] [--rational] [--reference auto|lp|exact]
+                      配分が仁 (プレ仁) かを検証し、結論 (certified・refuted・undecided) を出す
   coopgame bargaining <v.txt> <sol.txt> [--pre] [--lex]   交渉集合 (プレ交渉集合) に属するか
   coopgame explain    <v.txt> <sol.txt> [--lex] [--levels K]   配分の説明 (不満の大きい提携、安定性)
   coopgame compare    <v.txt> [--lex] [--cost]   仁・プレ仁・Shapley 値などを安定性で比べる
@@ -82,7 +84,10 @@ const USAGE: &str = "\
 
 計算結果の配分は標準出力に 1 行 1 値で、統計は標準エラーに出す。
 certify は sol.txt の配分から厳密な配分を復元し、有理数で Kohlberg 基準を判定する。
-厳密な配分を分数で標準出力に出し、判定 (certified=true/false) を標準エラーに出す。";
+厳密な配分を分数で標準出力に出し、判定 (certified=true/false) を標準エラーに出す。
+check は certify に合格しない配分を基準の仁と比べ、結論を標準エラーに出す (合格なら厳密な仁を標準出力に出す)。
+--reference は基準の仁の求め方: lp は逐次 LP の仁だけ、exact は逐次 LP の仁が厳密な検証に合格しなければ
+有理数の逐次 LP で求め直す (10 人まで)、auto (既定) は 8 人以下のときだけ求め直す。";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -161,6 +166,9 @@ impl Args {
             "--missing",
             "--blocks",
             "--edges",
+            "--reference",
+            "--tolerance",
+            "--rel-tolerance",
         ];
         let mut positional = Vec::new();
         let mut flags = Vec::new();
@@ -552,7 +560,12 @@ fn run(raw: &[String]) -> CliResult<()> {
             print_allocation(result.allocation());
         }
         "convex-nucleolus" => {
-            args.check_options(&["--lex", "--assume"])?;
+            args.check_options(&["--lex", "--assume", "--reference"])?;
+            if args.has("--reference") && !args.has("--assume") {
+                return Err(
+                    "--reference は --assume と併用する (仮定して求めた結果の検証に使う)".into(),
+                );
+            }
             let game = read_game(&args, 0)?;
             let started = Instant::now();
             if args.has("--assume") {
@@ -562,7 +575,7 @@ fn run(raw: &[String]) -> CliResult<()> {
                         .map_err(|e| format!("凸と仮定した手法が失敗した: {e}"))?;
                 let seconds = started.elapsed().as_secs_f64();
                 let allocation = unverified.peek().allocation().to_vec();
-                let verdict = unverified.verify(&game, VerifyOptions::default())?;
+                let verdict = unverified.verify(&game, verify_options(&args)?)?;
                 let (guarantee, note) = match &verdict {
                     Verified::Certified(solution) => {
                         (solution.guarantee().to_string(), String::new())
@@ -700,6 +713,37 @@ fn run(raw: &[String]) -> CliResult<()> {
             }
             if !report.satisfied {
                 return Err("厳密な検証に合格しなかった".into());
+            }
+        }
+        "check" => {
+            args.check_options(&["--pre", "--lex", "--rational", "--reference"])?;
+            let x = read_values(args.file(1)?)?;
+            let options = verify_options(&args)?;
+            let started = Instant::now();
+            let check = if args.has("--rational") {
+                let input = read_exact_input(&args, 0)?;
+                reject_cost(&args, 0, input.kind)?;
+                verify::check_exact(&input.game, &x, args.domain(), options)
+            } else {
+                let game = read_game(&args, 0)?;
+                verify::check(&game, &x, args.domain(), options)
+            }?;
+            let seconds = started.elapsed().as_secs_f64();
+            match check {
+                Check::Certified { exact } => {
+                    eprintln!("check=certified time={seconds:.6}s");
+                    for value in &exact {
+                        println!("{}", format_rational(value));
+                    }
+                }
+                Check::Refuted(reason) => {
+                    eprintln!("check=refuted time={seconds:.6}s reason={reason}");
+                    return Err("検証の結論は否定 (配分は仁でない)".into());
+                }
+                Check::Undecided(reason) => {
+                    eprintln!("check=undecided time={seconds:.6}s reason={reason}");
+                    return Err("検証の結論は未決 (仁とも仁でないとも確定できない)".into());
+                }
             }
         }
         "verify" => {
@@ -883,6 +927,20 @@ impl MissingPolicy {
             MissingPolicy::Error | MissingPolicy::Ignore => io::Missing::Error,
         }
     }
+}
+
+/// 検証の設定。`--reference` で基準の仁の求め方を選ぶ (既定は auto)。
+fn verify_options(args: &Args) -> CliResult<VerifyOptions> {
+    let mut options = VerifyOptions::default();
+    options.reference = match args.value("--reference")? {
+        None | Some("auto") => Reference::Auto,
+        Some("lp") => Reference::Lp,
+        Some("exact") => Reference::Exact,
+        Some(other) => {
+            return Err(format!("--reference は auto・lp・exact: {other:?}").into());
+        }
+    };
+    Ok(options)
 }
 
 /// JSON・CSV から全提携の表を作れなかったときのエラー。値が分からない提携や人数の上限が原因なら、

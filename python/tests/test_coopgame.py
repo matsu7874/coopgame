@@ -293,6 +293,11 @@ def test_verify_solution():
     assert report["check"] == "certified" and report["exact"] == [1, 1, 0]
     assert coopgame.verify_solution(game, [3, 3, -4], domain="preimputation")["check"] == "certified"
     assert coopgame.verify_solution(game, [1.5, 0.5, 0])["check"] == "refuted"
+    # 基準の仁の求め方 (既定は "auto")。
+    for reference in ["auto", "lp", "exact"]:
+        assert coopgame.verify_solution(game, [1.5, 0.5, 0], reference=reference)["check"] == "refuted"
+    with pytest.raises(ValueError, match="reference"):
+        coopgame.verify_solution(game, [1, 1, 0], reference="fast")
 
 
 def test_certify_rational_reads_decimals_exactly():

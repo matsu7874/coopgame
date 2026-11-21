@@ -8,8 +8,9 @@
 //!
 //! - 人数が [`MAX_CERTIFY_PLAYERS`] 以下: 全提携の値の表を作り、有理数の Kohlberg 判定
 //!   ([`crate::verify::certify`]) で検証する。合格すれば [`Guarantee::Certified`] に昇格する。
-//!   不合格なら、逐次 LP で求めて検証した仁と比べる。基準の仁が厳密な検証に合格し、候補との差が許容誤差以下なら
-//!   その厳密な仁で合格とし、離れていれば否定 (誤り) と確定する。基準の仁を求められないなど、
+//!   不合格なら、基準の仁と比べる。基準は逐次 LP で求めた仁で、それが厳密な検証に合格しなければ、
+//!   設定 ([`Reference`]) に応じて有理数の逐次 LP で求め直す。基準の仁が厳密な検証に合格し、候補との差が
+//!   許容誤差以下ならその厳密な仁で合格とし、離れていれば否定 (誤り) と確定する。基準の仁を求められないなど、
 //!   検証自体が成り立たないときは未決とする。
 //! - それより多い人数 ([`MAX_PAIR_CHECK_PLAYERS`] まで): 仁はカーネルに、プレ仁はプレカーネルに属する
 //!   (Davis & Maschler 1965、Maschler, Peleg & Shapley 1979) ので、ランダムに選んだ組 `(i, j)` について
@@ -53,17 +54,60 @@ pub const MAX_CERTIFY_PLAYERS: usize = 20;
 /// 組ごとのカーネル条件の総当たりを行う人数の上限 (1 組あたり `2^(n-2)` 回の評価)。
 pub const MAX_PAIR_CHECK_PLAYERS: usize = 26;
 
+/// [`Reference::Auto`] で、基準の仁を有理数の逐次 LP で求め直す人数の上限。
+///
+/// 有理数の逐次 LP ([`nucleolus::exact::nucleolus`]) の時間は人数とともに急に延びる
+/// (計測では 8 人で最大 2.5 秒、9 人で 23 秒、10 人で 153 秒。`docs/performance.md`)。
+pub const MAX_AUTO_EXACT_REFERENCE_PLAYERS: usize = 8;
+
+/// 候補が厳密な検証に合格しないときに比べる、基準の仁の求め方 ([`MAX_CERTIFY_PLAYERS`] 人以下の検証で使う)。
+///
+/// どれも、まず逐次 LP の仁を基準にする。逐次 LP の仁は、超過の差が許容誤差より小さい段があるゲーム
+/// (値が大きい整数のゲームなど) では厳密な仁から許容誤差の程度ずれ、厳密な配分を復元できないことがある。
+/// そのときに有理数の逐次 LP で基準を求め直すかどうかを選ぶ。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Reference {
+    /// 逐次 LP の仁だけを使う。逐次 LP の仁が厳密な検証に合格しなければ、浮動小数点の検証で比べる
+    /// (差が小さければ未決になる)。
+    Lp,
+    /// 逐次 LP の仁が厳密な検証に合格しなければ、有理数の逐次 LP で求め直す
+    /// ([`nucleolus::exact::MAX_EXACT_PLAYERS`] 人まで。それより多い人数では [`Reference::Lp`] と同じ)。
+    Exact,
+    /// 逐次 LP の仁が厳密な検証に合格しなければ、[`MAX_AUTO_EXACT_REFERENCE_PLAYERS`] 人以下のときだけ
+    /// 有理数の逐次 LP で求め直す。
+    #[default]
+    Auto,
+}
+
+impl Reference {
+    /// 有理数の逐次 LP で基準を求め直す人数の上限。
+    fn exact_players(self) -> usize {
+        match self {
+            Reference::Lp => 0,
+            Reference::Exact => nucleolus::exact::MAX_EXACT_PLAYERS,
+            Reference::Auto => MAX_AUTO_EXACT_REFERENCE_PLAYERS,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct VerifyOptions {
     /// 多人数のときに調べる組の数。
     pub pairs: usize,
     pub seed: u64,
+    /// 基準の仁の求め方。既定は [`Reference::Auto`]。
+    pub reference: Reference,
 }
 
 impl Default for VerifyOptions {
     fn default() -> VerifyOptions {
-        VerifyOptions { pairs: 8, seed: 0 }
+        VerifyOptions {
+            pairs: 8,
+            seed: 0,
+            reference: Reference::Auto,
+        }
     }
 }
 
@@ -160,8 +204,8 @@ impl Unverified<Solution> {
 ///
 /// - `Certified`: 有理数の Kohlberg 判定 ([`kohlberg_exact`]) に合格した厳密な配分 `x*` があり、`x` との差
 ///   (各成分の差の絶対値の最大を有理数で測る) が `T` 以下。`x*` は、`x` から復元したもの ([`certify`])、
-///   または `x` が [`certify`] に合格しないときに、逐次 LP で求めた仁から復元したもの。仁は一意なので、
-///   どちらも同じ仁である。
+///   または `x` が [`certify`] に合格しないときの基準の仁 (逐次 LP で求めた仁から復元したもの。復元できなければ、
+///   `options.reference` ([`Reference`]) に応じて有理数の逐次 LP で求めたもの)。仁は一意なので、どれも同じ仁である。
 /// - `Refuted`: 和や個人合理性が `T` を超えて破れている、`x` に有限でない成分がある、仁で配分集合が空である、
 ///   または基準の仁から離れている。配分集合は、逐次 LP ([`nucleolus::nucleolus`]) と同じく、`sum v({i})` が
 ///   `v(N)` を既定の許容誤差 ([`default_tolerance`]) を超えて上回るときに空とする。基準の仁が厳密に検証できれば
@@ -189,7 +233,14 @@ pub fn check<G: SetFunction + ?Sized>(
     if n <= MAX_CERTIFY_PLAYERS {
         let explicit = ExplicitGame::tabulate(game)?;
         let exact = ExactGame::from_explicit(&explicit)?;
-        Ok(check_small(&explicit, &exact, x, domain, Values::Float))
+        Ok(check_small(
+            &explicit,
+            &exact,
+            x,
+            domain,
+            Values::Float,
+            options.reference,
+        ))
     } else if n <= MAX_PAIR_CHECK_PLAYERS {
         let tolerance = 1e-6 * value_scale(game);
         if let Some(refuted) = check_feasibility(game, x, domain, tolerance) {
@@ -217,11 +268,18 @@ pub fn check_exact(
     exact: &ExactGame,
     x: &[f64],
     domain: Domain,
-    _options: VerifyOptions,
+    options: VerifyOptions,
 ) -> Result<Check> {
     let explicit = exact.to_explicit()?;
     check_length(explicit.players(), x)?;
-    Ok(check_small(&explicit, exact, x, domain, Values::Rational))
+    Ok(check_small(
+        &explicit,
+        exact,
+        x,
+        domain,
+        Values::Rational,
+        options.reference,
+    ))
 }
 
 /// 検証するゲームの値の由来。配分集合が空かどうかの判定を決める。
@@ -241,6 +299,7 @@ fn check_small(
     x: &[f64],
     domain: Domain,
     values: Values,
+    reference: Reference,
 ) -> Check {
     // 有理数の値で sum v({i}) が v(N) を超える量。正なら、有理数の値では配分集合が空で、仁は存在しない。
     let gap = match domain {
@@ -277,7 +336,7 @@ fn check_small(
             to_f64(&[gap])[0]
         ));
     }
-    certify_small(explicit, exact, x, domain, tolerance)
+    certify_small(explicit, exact, x, domain, tolerance, reference)
 }
 
 /// 有理数の値での `sum v({i}) - v(N)`。正なら配分集合が空で、仁が存在しない。
@@ -289,7 +348,7 @@ fn imputation_gap(exact: &ExactGame) -> Rational {
     lower - exact.value(Coalition::grand(n))
 }
 
-/// 和・個人合理性を満たす有限な配分 `x` を厳密に検証し、不合格なら逐次 LP で求めた仁と比べる。
+/// 和・個人合理性を満たす有限な配分 `x` を厳密に検証し、不合格なら基準の仁 ([`Reference`]) と比べる。
 ///
 /// `Certified` を返すのは、有理数の Kohlberg 判定に合格した配分 (仁) と `x` の差が `tolerance` 以下のときだけ。
 /// 検証の途中の失敗 (LP が解けないなど) は `Undecided` にする。
@@ -299,6 +358,7 @@ fn certify_small(
     x: &[f64],
     domain: Domain,
     tolerance: f64,
+    reference: Reference,
 ) -> Check {
     let report = match certify_exact(exact_game, x, domain) {
         Ok(report) => report,
@@ -310,35 +370,45 @@ fn certify_small(
         };
     }
     let reason = report.reason.unwrap_or_default();
-    // 基準: 逐次 LP の仁。厳密に検証できればその厳密な配分と比べる。
-    let reference = match nucleolus::nucleolus_with(explicit, Options::new(explicit, domain)) {
-        Ok(reference) => reference.allocation,
+    // 判定に合格した配分は仁 (一意) なので、x との差だけで合否が決まる。
+    let against_exact = |nucleolus: Vec<Rational>| match compare_distance(&nucleolus, x, tolerance)
+    {
+        Ok((true, _)) => Check::Certified { exact: nucleolus },
+        Ok((false, distance)) => Check::Refuted(format!(
+            "厳密に検証した仁との差が {distance:e} ある ({reason})"
+        )),
+        Err(error) => Check::Undecided(format!("厳密な仁との差を測れない: {error}")),
+    };
+    // 基準 1: 逐次 LP の仁。厳密に検証できればその厳密な配分と比べる。
+    let lp = nucleolus::nucleolus_with(explicit, Options::new(explicit, domain))
+        .map(|result| result.allocation);
+    if let Ok(lp) = &lp
+        && let Ok(exact_reference) = certify_exact(exact_game, lp, domain)
+        && exact_reference.satisfied
+    {
+        return against_exact(exact_reference.allocation);
+    }
+    // 基準 2: 有理数の逐次 LP の仁 (求め方が許す人数まで)。有理数の Kohlberg 判定に合格したものだけを使う。
+    if explicit.players() <= reference.exact_players()
+        && let Ok(solved) = nucleolus::exact::nucleolus(exact_game, domain)
+        && kohlberg_exact(exact_game, &solved.allocation, domain).satisfied
+    {
+        return against_exact(solved.allocation);
+    }
+    let lp = match lp {
+        Ok(lp) => lp,
         Err(error) => {
             return Check::Undecided(format!(
                 "候補は厳密な検証に合格せず ({reason})、比べる基準の仁も求められない: {error}"
             ));
         }
     };
-    if let Ok(exact_reference) = certify_exact(exact_game, &reference, domain)
-        && exact_reference.satisfied
-    {
-        // 判定に合格した配分は仁 (一意) なので、x との差だけで合否が決まる。
-        return match compare_distance(&exact_reference.allocation, x, tolerance) {
-            Ok((true, _)) => Check::Certified {
-                exact: exact_reference.allocation,
-            },
-            Ok((false, distance)) => Check::Refuted(format!(
-                "厳密に検証した仁との差が {distance:e} ある ({reason})"
-            )),
-            Err(error) => Check::Undecided(format!("厳密な仁との差を測れない: {error}")),
-        };
-    }
     // 値が浮動小数点の和で作られていると、有理数では等しくない超過が近接して厳密な検証が
     // 成り立たないことがある。その場合は浮動小数点の Kohlberg 判定に合格した LP の仁を基準にし、
     // 数値誤差より十分大きい差 (`100 * tolerance`) があるときだけ否定する。
-    match kohlberg(explicit, &reference, domain) {
+    match kohlberg(explicit, &lp, domain) {
         Ok(kohlberg_report) if kohlberg_report.satisfied => {
-            let distance = max_abs_difference(&reference, x);
+            let distance = max_abs_difference(&lp, x);
             if distance > 100.0 * tolerance {
                 Check::Refuted(format!(
                     "浮動小数点で検証した仁との差が {distance:e} ある ({reason})"
