@@ -756,8 +756,9 @@ impl PartialGame {
     /// 値が分かる提携の超過だけを辞書式に最小化した配分 (分かる提携に限った仁)。
     ///
     /// 逐次 LP を有界にするため、1 人提携とその補集合の値が全て分かっている必要がある。
-    /// 結果は真のゲームの仁とは限らないので、保証は [`crate::Guarantee::Approximate`] になる
+    /// 値のない提携があると、結果は真のゲームの仁とは限らないので、保証は [`crate::Guarantee::Approximate`] になる
     /// (このゲームは値が分かる提携だけを返すオラクルなので、[`crate::nucleolus::oracle`] が近似とする)。
+    /// 全ての提携の値が分かっていれば、全提携の表から求めた仁と同じ [`crate::Guarantee::Exact`] になる。
     pub fn nucleolus(&self, domain: Domain) -> Result<NucleolusResult> {
         let n = self.players;
         let full = PlayerSet::grand(n);
@@ -816,9 +817,14 @@ impl OracleGame for PartialGame {
         self.known.values().fold(0.0, |acc, v| acc.max(v.abs()))
     }
 
-    /// 値が分かる提携だけを返すので `false`。
+    /// 全ての真部分提携 (`2^n - 2` 個) の値が分かっていれば `true`。値のない提携があれば `false`。
     fn lists_all_coalitions(&self) -> bool {
-        false
+        let proper = self.known.keys().filter(|set| set.is_proper()).count();
+        // 2^n が usize に収まらない人数では、全ての提携の値を持つことはない。
+        u32::try_from(self.players)
+            .ok()
+            .and_then(|n| 1usize.checked_shl(n))
+            .is_some_and(|subsets| proper == subsets - 2)
     }
 }
 
@@ -883,7 +889,7 @@ mod tests {
         for (a, e) in partial.allocation.iter().zip(&expected) {
             assert!((a - e).abs() < 1e-7);
         }
-        assert_eq!(partial.guarantee, Guarantee::Approximate);
+        assert_eq!(partial.guarantee, Guarantee::Exact);
         // 1 人提携の補集合 (2 人提携) が欠けていると解けない。
         let csv = "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|1|2,6\n";
         assert!(

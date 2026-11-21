@@ -111,11 +111,14 @@ fn user_oracle_declaring_partial_coverage_is_approximate() {
     );
 }
 
-/// 値が分かる提携だけを持つゲーム (`io::PartialGame`) も、`oracle` に直接渡すと近似になる。
+/// 値が分かる提携だけを持つゲーム (`io::PartialGame`) は、値のない提携が 1 つでもあれば、`oracle` に直接渡しても
+/// 近似になる。
 #[cfg(feature = "io")]
 #[test]
-fn partial_game_gives_approximate_results_through_oracle() {
-    let text = "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|2,3\n1|2,2\n0|1|2,6\n";
+fn partial_game_with_missing_coalitions_is_approximate() {
+    // 4 人。2 人提携のうち {2, 3} の値がない。
+    let text = "coalition,value\n0,0\n1,0\n2,0\n3,0\n0|1,2\n0|2,2\n0|3,2\n1|2,2\n1|3,2\n\
+                0|1|2,5\n0|1|3,5\n0|2|3,5\n1|2|3,5\n0|1|2|3,8\n";
     let partial = coopgame::io::parse_csv(text).unwrap().partial().unwrap();
     assert!(!Separation::covers_all_coalitions(&partial));
     assert_eq!(
@@ -133,4 +136,28 @@ fn partial_game_gives_approximate_results_through_oracle() {
         partial.nucleolus(Domain::Imputation).unwrap().guarantee(),
         Guarantee::Approximate
     );
+}
+
+/// 全ての提携の値が分かっていれば、`PartialGame` は全提携について答えるオラクルで、結果は全提携の表から求めた仁と
+/// 同じ保証になる。
+#[cfg(feature = "io")]
+#[test]
+fn partial_game_with_all_coalitions_is_exact() {
+    let text = "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|2,3\n1|2,2\n0|1|2,6\n";
+    let data = coopgame::io::parse_csv(text).unwrap();
+    let partial = data.partial().unwrap();
+    assert!(Separation::covers_all_coalitions(&partial));
+    let solved = partial.nucleolus(Domain::Imputation).unwrap();
+    assert_eq!(solved.guarantee(), Guarantee::Exact);
+    assert_eq!(
+        oracle::least_core(&partial, Domain::Imputation)
+            .unwrap()
+            .guarantee(),
+        Guarantee::Exact
+    );
+    let full = data.to_explicit(coopgame::io::Missing::Error).unwrap();
+    let expected = coopgame::nucleolus::nucleolus(&full).unwrap();
+    for (a, e) in solved.allocation().iter().zip(expected.allocation()) {
+        assert!((a - e).abs() < 1e-7, "{solved:?} / {expected:?}");
+    }
 }

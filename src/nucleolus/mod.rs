@@ -146,7 +146,9 @@ impl NucleolusResult {
         self.rows_added
     }
 
-    /// 逐次 LP では [`Guarantee::Exact`]。
+    /// 全提携の値を持つゲームの逐次 LP ([`nucleolus`] など) では [`Guarantee::Exact`]。
+    /// オラクル版 ([`oracle`]) では、オラクルが全ての真部分提携について答えれば `Exact`、
+    /// 一部の提携だけなら [`Guarantee::Approximate`]。
     pub fn guarantee(&self) -> Guarantee {
         self.guarantee
     }
@@ -204,6 +206,7 @@ impl LeastCore {
         self.allocation
     }
 
+    /// [`NucleolusResult::guarantee`] と同じ規則で決まる。
     pub fn guarantee(&self) -> Guarantee {
         self.guarantee
     }
