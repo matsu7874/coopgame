@@ -146,7 +146,7 @@ coopgame verify v.txt sol.txt               # Kohlberg 基準とカーネル条�
 coopgame certify v.txt sol.txt              # 有理数による厳密な検証 (厳密な仁を分数で出す)
 coopgame certify v.txt sol.txt --rational   # v.txt の値を 10 進数・分数の値どおりの有理数として検証する
 coopgame check v.txt sol.txt                # 配分が仁かを検証し、結論 (certified・refuted・undecided) を出す
-coopgame check v.txt sol.txt --reference lp # 基準の仁の求め方を選ぶ (auto・lp・exact)
+coopgame check v.txt sol.txt --reference lp # 基準の仁の求め方を選ぶ (exact・lp)
 coopgame bargaining v.txt sol.txt           # 交渉集合に属するか (属さなければ反論のない異議を出す)
 ```
 
@@ -158,9 +158,8 @@ coopgame bargaining v.txt sol.txt           # 交渉集合に属するか (属�
 
 | 値 | 基準の仁 |
 |---|---|
+| `exact` (既定) | 逐次 LP の仁が厳密な検証に合格しなければ、有理数の逐次 LP で求め直す (10 人まで。9 人で最大 23 秒、10 人で最大 153 秒かかった) |
 | `lp` | 逐次 LP の仁だけ |
-| `exact` | 逐次 LP の仁が厳密な検証に合格しなければ、有理数の逐次 LP で求め直す (10 人まで) |
-| `auto` (既定) | 逐次 LP の仁が厳密な検証に合格しなければ、8 人以下のときだけ有理数の逐次 LP で求め直す |
 
 `convex-nucleolus --assume` の事後検証でも、`--reference` で同じ選択ができる。
 

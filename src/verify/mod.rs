@@ -54,30 +54,24 @@ pub const MAX_CERTIFY_PLAYERS: usize = 20;
 /// 組ごとのカーネル条件の総当たりを行う人数の上限 (1 組あたり `2^(n-2)` 回の評価)。
 pub const MAX_PAIR_CHECK_PLAYERS: usize = 26;
 
-/// [`Reference::Auto`] で、基準の仁を有理数の逐次 LP で求め直す人数の上限。
-///
-/// 有理数の逐次 LP ([`nucleolus::exact::nucleolus`]) の時間は人数とともに急に延びる
-/// (計測では 8 人で最大 2.5 秒、9 人で 23 秒、10 人で 153 秒。`docs/performance.md`)。
-pub const MAX_AUTO_EXACT_REFERENCE_PLAYERS: usize = 8;
-
 /// 候補が厳密な検証に合格しないときに比べる、基準の仁の求め方 ([`MAX_CERTIFY_PLAYERS`] 人以下の検証で使う)。
 ///
-/// どれも、まず逐次 LP の仁を基準にする。逐次 LP の仁は、超過の差が許容誤差より小さい段があるゲーム
-/// (値が大きい整数のゲームなど) では厳密な仁から許容誤差の程度ずれ、厳密な配分を復元できないことがある。
-/// そのときに有理数の逐次 LP で基準を求め直すかどうかを選ぶ。
+/// どちらも、まず逐次 LP の仁 (超過の段が整合しなければ、許容誤差を下げて解き直したもの) を基準にする。
+/// 逐次 LP の仁は、超過の段の間隔が小さいゲーム (値が `1e9` 以上の整数のゲームなど) では厳密な仁からずれ、
+/// 厳密な配分を復元できないことがある。そのときに有理数の逐次 LP で基準を求め直すかどうかを選ぶ。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Reference {
     /// 逐次 LP の仁だけを使う。逐次 LP の仁が厳密な検証に合格しなければ、浮動小数点の検証で比べる
     /// (差が小さければ未決になる)。
     Lp,
-    /// 逐次 LP の仁が厳密な検証に合格しなければ、有理数の逐次 LP で求め直す
-    /// ([`nucleolus::exact::MAX_EXACT_PLAYERS`] 人まで。それより多い人数では [`Reference::Lp`] と同じ)。
-    Exact,
-    /// 逐次 LP の仁が厳密な検証に合格しなければ、[`MAX_AUTO_EXACT_REFERENCE_PLAYERS`] 人以下のときだけ
-    /// 有理数の逐次 LP で求め直す。
+    /// 逐次 LP の仁が厳密な検証に合格しなければ、有理数の逐次 LP で求め直す (既定)。
+    ///
+    /// 求め直すのは [`nucleolus::exact::MAX_EXACT_PLAYERS`] 人まで (それより多い人数では [`Reference::Lp`] と同じ)。
+    /// 有理数の逐次 LP の時間は人数とともに急に延びる (計測では 8 人で最大 2.5 秒、9 人で 23 秒、10 人で 153 秒。
+    /// `docs/performance.md`)。
     #[default]
-    Auto,
+    Exact,
 }
 
 impl Reference {
@@ -86,7 +80,6 @@ impl Reference {
         match self {
             Reference::Lp => 0,
             Reference::Exact => nucleolus::exact::MAX_EXACT_PLAYERS,
-            Reference::Auto => MAX_AUTO_EXACT_REFERENCE_PLAYERS,
         }
     }
 }
@@ -97,7 +90,7 @@ pub struct VerifyOptions {
     /// 多人数のときに調べる組の数。
     pub pairs: usize,
     pub seed: u64,
-    /// 基準の仁の求め方。既定は [`Reference::Auto`]。
+    /// 基準の仁の求め方。既定は [`Reference::Exact`]。
     pub reference: Reference,
 }
 
@@ -106,7 +99,7 @@ impl Default for VerifyOptions {
         VerifyOptions {
             pairs: 8,
             seed: 0,
-            reference: Reference::Auto,
+            reference: Reference::Exact,
         }
     }
 }

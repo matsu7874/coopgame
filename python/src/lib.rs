@@ -1478,11 +1478,11 @@ fn auto_nucleolus<'py>(py: Python<'py>, game: &Bound<'py, PyAny>) -> PyResult<Bo
 /// 20 人以下は厳密な検証、26 人以下はランダムな `pairs` 組のカーネル条件の総当たり (否定だけができる)。
 /// 戻り値の `check` は `"certified"`・`"refuted"`・`"undecided"`。`certified` なら `exact` に Fraction の配分。
 ///
-/// `reference` は、候補が厳密な検証に合格しないときに比べる基準の仁の求め方。`"lp"` は逐次 LP の仁だけ、
-/// `"exact"` は逐次 LP の仁が厳密な検証に合格しなければ有理数の逐次 LP で求め直す (10 人まで)、
-/// `"auto"` (既定) は 8 人以下のときだけ求め直す。
+/// `reference` は、候補が厳密な検証に合格しないときに比べる基準の仁の求め方。`"exact"` (既定) は、逐次 LP の仁が
+/// 厳密な検証に合格しなければ有理数の逐次 LP で求め直す (10 人まで。時間がかかることがある)。
+/// `"lp"` は逐次 LP の仁だけを使う。
 #[pyfunction]
-#[pyo3(signature = (game, allocation, domain = "imputation", pairs = 8, seed = 0, reference = "auto"))]
+#[pyo3(signature = (game, allocation, domain = "imputation", pairs = 8, seed = 0, reference = "exact"))]
 fn verify_solution<'py>(
     py: Python<'py>,
     game: &Bound<'py, PyAny>,
@@ -1494,12 +1494,11 @@ fn verify_solution<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let domain = parse_domain(domain)?;
     let reference = match reference {
-        "auto" => Reference::Auto,
-        "lp" => Reference::Lp,
         "exact" => Reference::Exact,
+        "lp" => Reference::Lp,
         _ => {
             return Err(PyValueError::new_err(format!(
-                "reference は \"auto\"・\"lp\"・\"exact\": {reference:?}"
+                "reference は \"exact\" か \"lp\": {reference:?}"
             )));
         }
     };

@@ -49,7 +49,7 @@ const USAGE: &str = "\
   coopgame kernel-set <v.txt> [--pre] [--lex] [--max-nodes N] [--merge]
   coopgame verify     <v.txt> <sol.txt> [--pre] [--lex]
   coopgame certify    <v.txt> <sol.txt> [--pre] [--lex] [--rational]
-  coopgame check      <v.txt> <sol.txt> [--pre] [--lex] [--rational] [--reference auto|lp|exact]
+  coopgame check      <v.txt> <sol.txt> [--pre] [--lex] [--rational] [--reference exact|lp]
                       配分が仁 (プレ仁) かを検証し、結論 (certified・refuted・undecided) を出す
   coopgame bargaining <v.txt> <sol.txt> [--pre] [--lex]   交渉集合 (プレ交渉集合) に属するか
   coopgame explain    <v.txt> <sol.txt> [--lex] [--levels K]   配分の説明 (不満の大きい提携、安定性)
@@ -91,8 +91,8 @@ const USAGE: &str = "\
 certify は sol.txt の配分から厳密な配分を復元し、有理数で Kohlberg 基準を判定する。
 厳密な配分を分数で標準出力に出し、判定 (certified=true/false) を標準エラーに出す。
 check は certify に合格しない配分を基準の仁と比べ、結論を標準エラーに出す (合格なら厳密な仁を標準出力に出す)。
---reference は基準の仁の求め方: lp は逐次 LP の仁だけ、exact は逐次 LP の仁が厳密な検証に合格しなければ
-有理数の逐次 LP で求め直す (10 人まで)、auto (既定) は 8 人以下のときだけ求め直す。";
+--reference は基準の仁の求め方: exact (既定) は逐次 LP の仁が厳密な検証に合格しなければ
+有理数の逐次 LP で求め直す (10 人まで。時間がかかることがある)、lp は逐次 LP の仁だけを使う。";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -980,15 +980,14 @@ fn tolerance(args: &Args) -> CliResult<Tolerance> {
     }
 }
 
-/// 検証の設定。`--reference` で基準の仁の求め方を選ぶ (既定は auto)。
+/// 検証の設定。`--reference` で基準の仁の求め方を選ぶ (既定は exact)。
 fn verify_options(args: &Args) -> CliResult<VerifyOptions> {
     let mut options = VerifyOptions::default();
     options.reference = match args.value("--reference")? {
-        None | Some("auto") => Reference::Auto,
+        None | Some("exact") => Reference::Exact,
         Some("lp") => Reference::Lp,
-        Some("exact") => Reference::Exact,
         Some(other) => {
-            return Err(format!("--reference は auto・lp・exact: {other:?}").into());
+            return Err(format!("--reference は exact・lp: {other:?}").into());
         }
     };
     Ok(options)

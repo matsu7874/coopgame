@@ -333,7 +333,7 @@ fn check_reports_conclusion_and_honors_reference() {
     assert!(run.success, "{}", run.stderr);
     assert_eq!(run.stdout, "3\n2\n1\n");
     assert!(run.stderr.contains("check=certified"), "{}", run.stderr);
-    for reference in ["auto", "lp", "exact"] {
+    for reference in ["exact", "lp"] {
         let run = cli.run(&["check", "v.txt", "far.txt", "--reference", reference]);
         assert!(!run.success, "{reference}");
         assert!(
@@ -347,10 +347,7 @@ fn check_reports_conclusion_and_honors_reference() {
         .run(&["check", "v.txt", "sol.txt", "--reference", "fast"])
         .error()
         .to_string();
-    assert!(
-        stderr.contains("--reference は auto・lp・exact"),
-        "{stderr}"
-    );
+    assert!(stderr.contains("--reference は exact・lp"), "{stderr}");
     // 値を有理数として読む検証と、プレ仁の検証。
     let run = cli.run(&["check", "v.txt", "sol.txt", "--rational", "--pre"]);
     assert!(run.success, "{}", run.stderr);
