@@ -128,12 +128,12 @@ def test_parse_game_suggests_how_to_handle_missing_values():
         coopgame.partial_nucleolus(cost, format="csv")
 
 
-def test_partial_nucleolus_with_all_values_is_exact():
-    # 全ての提携の値があれば、全提携の表から求めた仁と同じ保証になる。
+def test_partial_nucleolus_with_all_values_is_still_approximate():
+    # 全ての提携の値があっても、値が分かる提携だけを扱う手法の結果なので近似とする。配分は仁と一致する。
     full = "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|2,3\n1|2,2\n0|1|2,6\n"
     result = coopgame.partial_nucleolus(full, format="csv")
     game = coopgame.parse_game(full, format="csv")["game"]
-    assert result["guarantee"] == "exact" and result["known"] == 7
+    assert result["guarantee"] == "approximate" and result["known"] == 7
     assert result["allocation"] == pytest.approx(coopgame.nucleolus(game)["allocation"])
 
 

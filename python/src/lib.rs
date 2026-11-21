@@ -927,8 +927,7 @@ fn parse_game<'py>(
 }
 
 /// 値が分かる提携だけで解いた仁 (JSON か CSV のテキストから)。価値のゲーム (`type` が `value`) に限る。
-/// 1 人提携とその補集合の値が全て必要。値のない提携があれば、真のゲームの仁とは限らないので `guarantee` は
-/// `"approximate"`。全ての提携の値があれば `"exact"`。
+/// 1 人提携とその補集合の値が全て必要。真のゲームの仁とは限らないので `guarantee` は `"approximate"`。
 #[pyfunction]
 #[pyo3(signature = (text, format = "json", domain = "imputation"))]
 fn partial_nucleolus<'py>(

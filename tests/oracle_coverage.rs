@@ -138,22 +138,22 @@ fn partial_game_with_missing_coalitions_is_approximate() {
     );
 }
 
-/// 全ての提携の値が分かっていれば、`PartialGame` は全提携について答えるオラクルで、結果は全提携の表から求めた仁と
-/// 同じ保証になる。
+/// 全ての提携の値が分かっていても、`PartialGame` は値が分かる提携だけを扱うゲームとして近似を名乗る
+/// (`SampledGame` と同じ扱い。保証は手法で決め、厳密さは検証で示す)。配分は全提携の表から求めた仁と一致する。
 #[cfg(feature = "io")]
 #[test]
-fn partial_game_with_all_coalitions_is_exact() {
+fn partial_game_with_all_coalitions_is_still_approximate() {
     let text = "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|2,3\n1|2,2\n0|1|2,6\n";
     let data = coopgame::io::parse_csv(text).unwrap();
     let partial = data.partial().unwrap();
-    assert!(Separation::covers_all_coalitions(&partial));
+    assert!(!Separation::covers_all_coalitions(&partial));
     let solved = partial.nucleolus(Domain::Imputation).unwrap();
-    assert_eq!(solved.guarantee(), Guarantee::Exact);
+    assert_eq!(solved.guarantee(), Guarantee::Approximate);
     assert_eq!(
         oracle::least_core(&partial, Domain::Imputation)
             .unwrap()
             .guarantee(),
-        Guarantee::Exact
+        Guarantee::Approximate
     );
     let full = data.to_explicit(coopgame::io::Missing::Error).unwrap();
     let expected = coopgame::nucleolus::nucleolus(&full).unwrap();
