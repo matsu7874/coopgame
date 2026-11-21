@@ -17,7 +17,14 @@ case "$(uname -s)" in
     # R と GMP は Homebrew で入れる。CoopGame が依存する geometry と gtools は、
     # CRAN から rlib に入れる (版は固定しない。入った版は末尾に表示する)。
     brew install r gmp
-    Rscript -e 'install.packages(c("geometry", "gtools"), lib = commandArgs(TRUE)[1], repos = "https://cloud.r-project.org")' "$work/rlib"
+    # install.packages は失敗しても警告を出すだけなので、入ったかを確かめて止める。
+    Rscript -e '
+      lib <- commandArgs(TRUE)[1]
+      packages <- c("geometry", "gtools")
+      install.packages(packages, lib = lib, repos = "https://cloud.r-project.org")
+      absent <- packages[!vapply(packages, requireNamespace, logical(1), lib.loc = lib, quietly = TRUE)]
+      if (length(absent) > 0) stop("インストールできなかったパッケージ: ", paste(absent, collapse = ", "))
+    ' "$work/rlib"
     ;;
   *)
     echo "未対応の OS: $(uname -s) (R・GMP・geometry・gtools を入れてから、下のパッケージの取得以降を実行する)" >&2
