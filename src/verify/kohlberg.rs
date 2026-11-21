@@ -108,7 +108,7 @@ pub fn kohlberg(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<Kohlbe
 
 /// `collection` に重み 1 以上、`optional` に重み 0 以上を付けて
 /// `sum lambda_S 1_S = mu 1_N` とできるかを判定する。
-fn is_balanced(
+pub(super) fn is_balanced(
     collection: &[Coalition],
     optional: &[Coalition],
     n: usize,

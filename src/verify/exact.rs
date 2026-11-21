@@ -12,7 +12,9 @@ use crate::game::excess_table;
 use crate::game::scale::{check_tolerance, positive_scale};
 use crate::game::{Coalition, ExplicitGame};
 use crate::linalg::Span;
+use crate::lp::Counter;
 use crate::rational::{ExactEchelon, Inserted, indicator, simplex};
+use crate::verify::kohlberg::is_balanced as is_balanced_float;
 
 /// 厳密な検証の結果。
 #[derive(Clone, Debug)]
@@ -62,10 +64,15 @@ impl ExactReport {
 ///   値の大きいゲームでは超過の差が `T` 以下の別の段があり、`T` で読むとそれらを 1 つの段にまとめて
 ///   誤った `x*` を復元するためである。読み取りの許容誤差を変えても判定と合格の条件は変わらないので、
 ///   試す回数を増やしても誤った配分を合格にすることはない。
+///   `T` より小さい許容誤差での読み取りは、読み取った段を上から順に合わせた提携族がどれも平衡
+///   (浮動小数点数の LP で判定) のときだけ、復元と判定に進む。仁の段はこの条件 (Kohlberg 基準) を満たすので、
+///   満たさない読み取りは仁の段ではない。仁でない `x` について、有理数の計算を繰り返さないためである。
+///   このため、仁ではないが仁から `T` 以内にある `x` は、`T` での読み取りから仁を復元できなければ不合格になる
+///   ([`crate::verify::check`] は逐次 LP の仁からも復元するので、そのような `x` も合格にする)。
 ///
 /// どの読み取りでも合格しなければ不合格 (`satisfied = false`) にする。`allocation` と `reason` には、
 /// 判定に合格した `x*` が `x` から離れていた場合はその `x*` と差を、そうでなければ最も大きい許容誤差の読み取りで
-/// 判定に不合格になった `x*` とその理由を、どの読み取りでも復元できなければ空の配分と復元できない旨を入れる。
+/// 判定に不合格になった `x*` とその理由を、どの読み取りからも `x*` を得られなければ空の配分と復元できない旨を入れる。
 ///
 /// ゲームの値は浮動小数点数の 2 進数の値どおりの有理数として扱う。
 ///
@@ -93,7 +100,10 @@ pub fn certify_exact(exact: &ExactGame, x: &[f64], domain: Domain) -> Result<Exa
     let mut previous: Option<Reading> = None;
     let mut rejected: Vec<Vec<Rational>> = Vec::new();
     let mut first_failure: Option<ExactReport> = None;
-    for reading_tolerance in reading_tolerances(&game, x, tolerance) {
+    for (attempt, reading_tolerance) in reading_tolerances(&game, x, tolerance)
+        .into_iter()
+        .enumerate()
+    {
         let Some(reading) = sorted.read(&game, x, domain, reading_tolerance)? else {
             continue;
         };
@@ -101,7 +111,12 @@ pub fn certify_exact(exact: &ExactGame, x: &[f64], domain: Domain) -> Result<Exa
         if previous.as_ref() == Some(&reading) {
             continue;
         }
-        let recovered = sorted.solve(exact, &reading);
+        // 2 回目以降の読み取りは、読み取った段が Kohlberg 基準を満たすときだけ復元して判定する。
+        let recovered = if attempt == 0 || sorted.levels_are_balanced(&reading, game.players()) {
+            sorted.solve(exact, &reading)
+        } else {
+            None
+        };
         previous = Some(reading);
         let Some(allocation) = recovered else {
             continue;
@@ -130,7 +145,8 @@ pub fn certify_exact(exact: &ExactGame, x: &[f64], domain: Domain) -> Result<Exa
     Ok(first_failure.unwrap_or_else(|| {
         ExactReport::fail(
             Vec::new(),
-            "超過の段から厳密な配分を一意に復元できない".into(),
+            "超過の段から厳密な配分を復元できない (段の連立方程式の解が一意でないか、読み取った段が平衡でない)"
+                .into(),
             0,
         )
     }))
@@ -276,6 +292,30 @@ impl SortedExcess {
             start = end;
         }
         Ok(span.is_full().then_some(Reading { lower_bound, ends }))
+    }
+
+    /// 読み取った段を上から順に合わせた提携族が、どれも平衡か (浮動小数点数の LP で判定する)。
+    ///
+    /// 読み取りが仁の超過の段と一致していれば、Kohlberg 基準からどの族も平衡になる。平衡でない族があれば、
+    /// その読み取りは仁の段ではない。LP が解けずに判定できない族は平衡として扱う (復元と厳密な判定に進む)。
+    fn levels_are_balanced(&self, reading: &Reading, n: usize) -> bool {
+        let optional: Vec<Coalition> = reading
+            .lower_bound
+            .iter()
+            .map(|&i| Coalition::singleton(i))
+            .collect();
+        let mut counter = Counter::default();
+        let mut collection: Vec<Coalition> = Vec::new();
+        let mut start = 0;
+        reading.ends.iter().all(|&end| {
+            collection.extend(
+                self.order[start..end]
+                    .iter()
+                    .map(|&mask| Coalition(mask as u64)),
+            );
+            start = end;
+            is_balanced_float(&collection, &optional, n, &mut counter).unwrap_or(true)
+        })
     }
 
     /// 読み取った段の連立一次方程式を有理数で解き、配分を返す。矛盾するか一意に定まらなければ `None`。
@@ -494,6 +534,23 @@ mod tests {
         let report = certify(&game, &x, Domain::Imputation).unwrap();
         assert!(report.satisfied, "{report:?}");
         assert_eq!(report.allocation, vec![r(8, 3), r(2, 3), r(5, 3)]);
+    }
+
+    /// 仁の超過の段は上から順に合わせた族がどれも平衡で、仁でない点の段はそうならない。
+    #[test]
+    fn levels_of_nucleolus_are_balanced_and_levels_of_other_points_are_not() {
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
+        let balanced = |x: &[f64]| {
+            let sorted = SortedExcess::new(&game, x);
+            let reading = sorted
+                .read(&game, x, Domain::Imputation, 1e-9)
+                .unwrap()
+                .unwrap();
+            sorted.levels_are_balanced(&reading, 3)
+        };
+        assert!(balanced(&[2.0, 2.0, 0.0]));
+        // 超過 0 の段 {3}・{1, 2} は平衡だが、次の段 {1}・{1, 3} を合わせると平衡でない。
+        assert!(!balanced(&[1.0, 3.0, 0.0]));
     }
 
     #[test]

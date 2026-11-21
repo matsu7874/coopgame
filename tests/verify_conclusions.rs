@@ -3,8 +3,9 @@
 //! - 不正な入力 (有限でない配分、負・NaN の許容誤差) は、止まらずにエラーになる。
 //! - 値の大きい整数ゲームの仁も、厳密な検証に合格する。
 //! - 厳密な仁から許容誤差以内の点は合格し、許容誤差を超える点は合格しない。
-//! - 基準の仁を求める LP が失敗しても、エラーではなく結論 (否定・未決) を返す。
-//! - 仁の配分集合が空なら否定する。
+//! - 基準の仁が厳密でなくても、基準の仁を求める LP が失敗しても、エラーではなく結論 (否定・未決) を返す。
+//! - 仁の配分集合が空なら否定する。空かどうかの判定は、浮動小数点数のゲームでは逐次 LP と揃え、
+//!   有理数のゲームでは有理数で行う。
 
 use std::sync::mpsc;
 use std::time::Duration;
@@ -34,7 +35,8 @@ fn majority() -> ExplicitGame {
     ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap()
 }
 
-/// 値が 1e7 程度の 5 人の整数ゲーム。逐次 LP の仁 (`nucleolus::nucleolus`) は数値的に失敗することがある。
+/// 値が 1e7 程度の 5 人の整数ゲーム。超過の差が小さく、逐次 LP の仁 (`nucleolus::nucleolus`) は
+/// 厳密な仁 ([`large_integer_nucleolus`]) と既定の許容誤差の範囲で異なる。
 fn large_integer_game() -> ExplicitGame {
     ExplicitGame::from_binary(&[
         0.0, 0.0, 20000005.0, 0.0, 20000002.0, 20000003.0, 30000003.0, 0.0, 20000000.0, 20000000.0,
@@ -256,16 +258,16 @@ fn point_within_tolerance_of_exact_nucleolus_is_certified() {
     }
 }
 
-// ---------------------------------------------------------------- 基準の仁を求められない場合
+// ---------------------------------------------------------------- 基準の仁が厳密でない・求められない場合
 
-/// 逐次 LP の仁が数値的に失敗するゲームでも、エラーではなく結論を返す。仁から許容誤差 (50) より
-/// 離れた点は合格しない。
+/// 逐次 LP の仁が厳密な検証に合格しないゲームでは、浮動小数点の Kohlberg 判定に合格した LP の仁を基準にする。
+/// 基準との差が許容誤差 (50) の 100 倍以下の点は未決、それを超える点は否定する。
 #[test]
-fn failure_of_reference_lp_is_not_an_error() {
+fn point_is_judged_against_float_verified_reference() {
     let game = large_integer_game();
     let exact = ExactGame::from_explicit(&game).unwrap();
     let truth = to_f64(&large_integer_nucleolus());
-    for shift in [100.0, 1e4] {
+    for (shift, refuted) in [(100.0, false), (1e4, true)] {
         let mut x = truth.clone();
         x[0] += shift;
         x[3] -= shift;
@@ -273,11 +275,48 @@ fn failure_of_reference_lp_is_not_an_error() {
             verify::check(&game, &x, Domain::Imputation, VerifyOptions::default()),
             verify::check_exact(&exact, &x, Domain::Imputation, VerifyOptions::default()),
         ] {
-            let check = check.unwrap();
-            assert!(
-                matches!(check, Check::Refuted(_) | Check::Undecided(_)),
-                "{shift}: {check:?}"
-            );
+            match check.unwrap() {
+                Check::Refuted(reason) if refuted => {
+                    assert!(
+                        reason.contains("浮動小数点で検証した仁"),
+                        "{shift}: {reason}"
+                    );
+                }
+                Check::Undecided(reason) if !refuted => {
+                    assert!(
+                        reason.contains("浮動小数点で検証した仁"),
+                        "{shift}: {reason}"
+                    );
+                }
+                other => panic!("{shift}: {other:?}"),
+            }
+        }
+    }
+}
+
+/// 基準の仁を求める逐次 LP が失敗するゲームでは、エラーではなく未決を返す。
+///
+/// `v({1}) = -M`、`v({2}) = v({3}) = M`、他の提携は `-M` (`M = 1.5e308`) のゲームのプレ仁は
+/// `(-5M/3, M/3, M/3)` で、`-5M/3` は f64 で表せない。逐次 LP は [`Error::Numerical`] を返す。
+#[test]
+fn failure_of_reference_lp_is_undecided() {
+    let m = 1.5e308;
+    let game = ExplicitGame::from_lex(&[-m, m, m, -m, -m, -m, -m]).unwrap();
+    assert!(matches!(
+        nucleolus::prenucleolus(&game),
+        Err(Error::Numerical(_))
+    ));
+    let exact = ExactGame::from_explicit(&game).unwrap();
+    let x = [-m, 0.0, 0.0];
+    for check in [
+        verify::check(&game, &x, Domain::Preimputation, VerifyOptions::default()),
+        verify::check_exact(&exact, &x, Domain::Preimputation, VerifyOptions::default()),
+    ] {
+        match check.unwrap() {
+            Check::Undecided(reason) => {
+                assert!(reason.contains("基準の仁も求められない"), "{reason}");
+            }
+            other => panic!("未決のはず: {other:?}"),
         }
     }
 }
@@ -297,6 +336,105 @@ fn empty_imputation_set_is_refuted() {
     // プレ仁は存在するので、配分集合が空であることは否定の理由にならない。
     let check = verify::check(&game, &x, Domain::Preimputation, VerifyOptions::default()).unwrap();
     assert!(matches!(check, Check::Certified { .. }), "{check:?}");
+}
+
+/// 10 進数の値 0.1・0.2・0.3 は、2 進数の値では和が 0.6 をわずかに超える。有理数の値では配分集合が空だが、
+/// 逐次 LP は既定の許容誤差以内の差を空とみなさず、配分集合が 1 点のゲームとして解く。
+/// その解を否定しない (厳密には検証できないので未決)。1 点から離れた点は個人合理性で否定する。
+#[test]
+fn imputation_set_empty_within_solver_tolerance_is_undecided() {
+    let game = ExplicitGame::from_lex(&[0.1, 0.2, 0.3, 0.3, 0.4, 0.5, 0.6]).unwrap();
+    let solved = nucleolus::nucleolus(&game).unwrap();
+    let check = verify::check(
+        &game,
+        solved.allocation(),
+        Domain::Imputation,
+        VerifyOptions::default(),
+    )
+    .unwrap();
+    match &check {
+        Check::Undecided(reason) => assert!(reason.contains("配分集合"), "{reason}"),
+        other => panic!("未決のはず: {other:?}"),
+    }
+    let check = verify::check(
+        &game,
+        &[0.3, 0.2, 0.1],
+        Domain::Imputation,
+        VerifyOptions::default(),
+    )
+    .unwrap();
+    assert!(matches!(check, Check::Refuted(_)), "{check:?}");
+}
+
+/// `sum v({i})` が `v(N)` を超える量を変えても、逐次 LP が返した仁は否定しない。逐次 LP が配分集合を空とする
+/// ゲームでは、配分集合が空であることを理由に否定する。
+#[test]
+fn check_agrees_with_solver_on_empty_imputation_set() {
+    for excess in [0.0, 1e-16, 1e-12, 1e-9, 5e-8, 1e-6, 1e-3] {
+        let grand = 3.0 - excess;
+        let game = ExplicitGame::from_lex(&[1.0, 1.0, 1.0, 2.0, 2.0, 2.0, grand]).unwrap();
+        match nucleolus::nucleolus(&game) {
+            Ok(solved) => {
+                let check = verify::check(
+                    &game,
+                    solved.allocation(),
+                    Domain::Imputation,
+                    VerifyOptions::default(),
+                )
+                .unwrap();
+                assert!(!matches!(check, Check::Refuted(_)), "{excess}: {check:?}");
+            }
+            Err(Error::EmptyImputationSet) => {
+                let x = [grand / 3.0; 3];
+                let check =
+                    verify::check(&game, &x, Domain::Imputation, VerifyOptions::default()).unwrap();
+                match check {
+                    Check::Refuted(reason) => {
+                        assert!(reason.contains("配分集合が空"), "{excess}: {reason}");
+                    }
+                    other => panic!("{excess}: 否定されるはず: {other:?}"),
+                }
+            }
+            Err(error) => panic!("{excess}: {error}"),
+        }
+    }
+}
+
+/// 有理数で作ったゲームは値に誤差がないので、配分集合が空かどうかを有理数で判定する。
+/// `sum v({i}) = v(N)` なら 1 点の配分が仁として合格し、わずかでも超えれば否定する。
+#[test]
+fn rational_game_decides_empty_imputation_set_exactly() {
+    let values = |grand: Rational| {
+        vec![
+            r(1, 10),
+            r(1, 5),
+            r(3, 10),
+            r(3, 10),
+            r(2, 5),
+            r(1, 2),
+            grand,
+        ]
+    };
+    let x = [0.1, 0.2, 0.3];
+    let single_point = ExactGame::from_lex(values(r(3, 5))).unwrap();
+    let check = verify::check_exact(
+        &single_point,
+        &x,
+        Domain::Imputation,
+        VerifyOptions::default(),
+    )
+    .unwrap();
+    match check {
+        Check::Certified { exact } => assert_eq!(exact, vec![r(1, 10), r(1, 5), r(3, 10)]),
+        other => panic!("合格するはず: {other:?}"),
+    }
+    let empty = ExactGame::from_lex(values(r(3, 5) - r(1, 1_000_000_000_000_000_000))).unwrap();
+    let check =
+        verify::check_exact(&empty, &x, Domain::Imputation, VerifyOptions::default()).unwrap();
+    match check {
+        Check::Refuted(reason) => assert!(reason.contains("配分集合が空"), "{reason}"),
+        other => panic!("否定されるはず: {other:?}"),
+    }
 }
 
 // ---------------------------------------------------------------- Unverified::verify

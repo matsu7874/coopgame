@@ -33,13 +33,15 @@ pub use exact::{
 use exact::{certify_tolerance, compare_distance};
 pub use kohlberg::{KohlbergReport, kohlberg};
 
-use num_traits::Zero;
+use num_traits::{Signed, Zero};
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::allocation::feasibility_violation;
+use crate::game::allocation::{check_imputation_set, feasibility_violation};
 use crate::game::exact::{ExactGame, Rational, to_f64};
-use crate::game::{Coalition, ExplicitGame, PlayerSet, SetFunction, value_scale};
+use crate::game::{
+    Coalition, ExplicitGame, PlayerSet, SetFunction, default_tolerance, value_scale,
+};
 use crate::linalg::max_abs_difference;
 use crate::nucleolus::{self, Options};
 use crate::rng::SplitMix64;
@@ -160,11 +162,15 @@ impl Unverified<Solution> {
 ///   (各成分の差の絶対値の最大を有理数で測る) が `T` 以下。`x*` は、`x` から復元したもの ([`certify`])、
 ///   または `x` が [`certify`] に合格しないときに、逐次 LP で求めた仁から復元したもの。仁は一意なので、
 ///   どちらも同じ仁である。
-/// - `Refuted`: 和や個人合理性が `T` を超えて破れている、`x` に有限でない成分がある、仁で配分集合が空
-///   (`sum v({i}) > v(N)`、有理数で判定) である、または基準の仁から離れている。基準の仁が厳密に検証できれば
+/// - `Refuted`: 和や個人合理性が `T` を超えて破れている、`x` に有限でない成分がある、仁で配分集合が空である、
+///   または基準の仁から離れている。配分集合は、逐次 LP ([`nucleolus::nucleolus`]) と同じく、`sum v({i})` が
+///   `v(N)` を既定の許容誤差 ([`default_tolerance`]) を超えて上回るときに空とする。基準の仁が厳密に検証できれば
 ///   差が `T` を超えるとき、浮動小数点でしか検証できなければ差が `100 T` を超えるときに否定する。
 /// - `Undecided`: 上のどれにも当たらない (基準の仁を求める LP が失敗した、基準も検証に合格しない、
-///   浮動小数点でだけ検証した基準との差が `100 T` 以下など)。
+///   浮動小数点でだけ検証した基準との差が `100 T` 以下など)。仁で、2 進数の値どおりの有理数では
+///   `sum v({i}) > v(N)` だが、差が既定の許容誤差以下の場合も未決にする (`0.1 + 0.2 + 0.3` と `0.6` のように、
+///   10 進数では等しい値で起こる)。逐次 LP はこのゲームを配分集合が 1 点のゲームとして解くが、
+///   有理数の値では配分が存在せず、厳密な判定に合格する配分がないためである。
 ///
 /// 21 人から [`MAX_PAIR_CHECK_PLAYERS`] 人まではカーネル条件の反例で否定するか未決、それより多いと未決にする。
 ///
@@ -183,7 +189,7 @@ pub fn check<G: SetFunction + ?Sized>(
     if n <= MAX_CERTIFY_PLAYERS {
         let explicit = ExplicitGame::tabulate(game)?;
         let exact = ExactGame::from_explicit(&explicit)?;
-        Ok(check_small(&explicit, &exact, x, domain))
+        Ok(check_small(&explicit, &exact, x, domain, Values::Float))
     } else if n <= MAX_PAIR_CHECK_PLAYERS {
         let tolerance = 1e-6 * value_scale(game);
         if let Some(refuted) = check_feasibility(game, x, domain, tolerance) {
@@ -200,6 +206,7 @@ pub fn check<G: SetFunction + ?Sized>(
 /// 有理数で構築したゲームについて配分を確かめる (値を浮動小数点数にしたことによる誤差がない)。
 ///
 /// 結論の意味は [`check`] の [`MAX_CERTIFY_PLAYERS`] 人以下の場合と同じ (人数によらず全提携の値の表で検証する)。
+/// ただし、仁の配分集合が空かどうかは有理数の値で判定し、`sum v({i}) > v(N)` ならわずかな差でも否定する。
 /// 和・個人合理性の確認と段の読み取りには値を浮動小数点数にしたゲームを、判定には有理数の値を使う。
 ///
 /// # Errors
@@ -214,31 +221,72 @@ pub fn check_exact(
 ) -> Result<Check> {
     let explicit = exact.to_explicit()?;
     check_length(explicit.players(), x)?;
-    Ok(check_small(&explicit, exact, x, domain))
+    Ok(check_small(&explicit, exact, x, domain, Values::Rational))
+}
+
+/// 検証するゲームの値の由来。配分集合が空かどうかの判定を決める。
+#[derive(Clone, Copy, PartialEq)]
+enum Values {
+    /// 浮動小数点数のゲーム。逐次 LP ([`nucleolus::nucleolus`]) と同じく、`sum v({i})` が `v(N)` を
+    /// 既定の許容誤差を超えて上回るときに配分集合を空とする。
+    Float,
+    /// 有理数で作ったゲーム。値に誤差がないので、`sum v({i}) > v(N)` なら配分集合を空とする。
+    Rational,
 }
 
 /// 全提携の値の表を使う検証。`explicit` は `exact` の値を浮動小数点数にしたゲーム。`x` の長さは確かめてあること。
-fn check_small(explicit: &ExplicitGame, exact: &ExactGame, x: &[f64], domain: Domain) -> Check {
-    if domain == Domain::Imputation && imputation_set_is_empty(exact) {
-        return Check::Refuted(
-            "配分集合が空 (有理数の値で sum v({i}) > v(N)) なので、仁は存在しない".into(),
-        );
+fn check_small(
+    explicit: &ExplicitGame,
+    exact: &ExactGame,
+    x: &[f64],
+    domain: Domain,
+    values: Values,
+) -> Check {
+    // 有理数の値で sum v({i}) が v(N) を超える量。正なら、有理数の値では配分集合が空で、仁は存在しない。
+    let gap = match domain {
+        Domain::Imputation => imputation_gap(exact),
+        Domain::Preimputation => Rational::zero(),
+    };
+    if gap.is_positive() {
+        let solver_tolerance = default_tolerance(explicit);
+        let solver_solves = values == Values::Float
+            && check_imputation_set(explicit, domain, solver_tolerance).is_ok();
+        if !solver_solves {
+            return Check::Refuted(match values {
+                Values::Float => format!(
+                    "配分集合が空 (sum v({{i}}) が v(N) を既定の許容誤差 {solver_tolerance:e} を超えて上回る) なので、\
+                     仁は存在しない"
+                ),
+                Values::Rational => {
+                    "配分集合が空 (有理数の値で sum v({i}) > v(N)) なので、仁は存在しない".into()
+                }
+            });
+        }
     }
     let tolerance = certify_tolerance(explicit);
     // 実行可能性 (和・個人合理性) は浮動小数点数の値で確かめ、残りは厳密な値で確かめる。
     if let Some(refuted) = check_feasibility(explicit, x, domain, tolerance) {
         return refuted;
     }
+    if gap.is_positive() {
+        // 逐次 LP は配分集合を 1 点とみなして解くが、有理数の値では効率性と個人合理性を同時に満たす配分がなく、
+        // 厳密な判定に合格する配分は存在しない。
+        return Check::Undecided(format!(
+            "2 進数の値では sum v({{i}}) が v(N) を {:e} 上回り、配分集合が空になる。差が既定の許容誤差以下なので\
+             逐次 LP は配分集合を 1 点とみなすが、厳密には検証できない",
+            to_f64(&[gap])[0]
+        ));
+    }
     certify_small(explicit, exact, x, domain, tolerance)
 }
 
-/// 有理数の値で `sum v({i}) > v(N)` か (配分集合が空で、仁が存在しない)。
-fn imputation_set_is_empty(exact: &ExactGame) -> bool {
+/// 有理数の値での `sum v({i}) - v(N)`。正なら配分集合が空で、仁が存在しない。
+fn imputation_gap(exact: &ExactGame) -> Rational {
     let n = exact.players();
     let lower = (0..n).fold(Rational::zero(), |sum, i| {
         sum + exact.value(Coalition::singleton(i))
     });
-    &lower > exact.value(Coalition::grand(n))
+    lower - exact.value(Coalition::grand(n))
 }
 
 /// 和・個人合理性を満たす有限な配分 `x` を厳密に検証し、不合格なら逐次 LP で求めた仁と比べる。
