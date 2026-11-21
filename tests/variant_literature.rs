@@ -263,6 +263,19 @@ fn lemaire_examples() {
     }
 }
 
+/// 例 3'・3'' の論文の「Nucleolus」は、実装の仁と一致する (例 3 は一致しない。次のテスト)。
+#[test]
+fn lemaire_examples_3_prime_and_3_double_prime_nucleolus() {
+    for (index, paper) in [
+        (1, [48708.33, 33333.33, 10958.33]),
+        (2, [51140.625, 43453.125, 7406.25]),
+    ] {
+        let game = ExplicitGame::from_binary(&LEMAIRE[index].0).unwrap();
+        let ours = nucleolus::nucleolus(&game).unwrap().into_allocation();
+        assert_close(&ours, &paper, 0.02, "仁");
+    }
+}
+
 /// 例 3 の論文の「Nucleolus」(52687.5, 24937.5, 12375) は、実装の仁 (52687.5, 24468.75, 12843.75) と異なる。
 /// 超過を大きい順に並べると、論文の点は (-6562.5, -6562.5, -6562.5, -7500, ...)、
 /// 実装の点は (-6562.5, -6562.5, -7031.25, -7031.25, ...) で、実装の点の方が辞書式に小さい。
