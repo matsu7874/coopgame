@@ -93,6 +93,30 @@ fn nucleolus_of_tiny_game_is_exact() {
     assert_close(&x, &expected, tolerance, "oracle");
 }
 
+/// 値が非正規化数のゲームも、2 のべき乗で割って解く (有理数の逐次 LP に切り替えない 9 人のゲームで確かめる)。
+/// 配分は、縮める前の配分を同じ倍率で縮めたものと、非正規化数の刻みの範囲で一致する。
+#[test]
+fn nucleolus_of_subnormal_game_matches_the_scaled_nucleolus() {
+    let base = generators::bnf(1, 9, 0).unwrap();
+    let factor = 2f64.powi(-1060);
+    let game = scaled(&base, factor);
+    assert!(game.max_abs_value() < f64::MIN_POSITIVE);
+    for domain in [Domain::Imputation, Domain::Preimputation] {
+        let expected: Vec<f64> = nucleolus::nucleolus_with(&base, Options::new(domain))
+            .unwrap()
+            .allocation()
+            .iter()
+            .map(|v| v * factor)
+            .collect();
+        let actual = nucleolus::nucleolus_with(&game, Options::new(domain))
+            .unwrap_or_else(|err| panic!("{domain:?}: {err}"))
+            .into_allocation();
+        // 非正規化数の刻み (2^-1074) の数倍までの丸めを許す。
+        let grid = f64::from_bits(1);
+        assert_close(&actual, &expected, 4.0 * grid, &format!("{domain:?}"));
+    }
+}
+
 /// 2 のべき乗の倍率は浮動小数点数で丸めが起きないので、解もちょうど同じ倍率になる。
 #[test]
 fn power_of_two_scaling_gives_identical_results() {

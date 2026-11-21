@@ -102,12 +102,13 @@ pub(crate) fn positive_scale(magnitude: f64) -> f64 {
 /// 割った後の最大絶対値は `[1, 2)` に入る。
 pub(crate) fn normalizer(magnitude: f64) -> f64 {
     let magnitude = positive_scale(magnitude);
+    let bits = magnitude.to_bits();
     if magnitude < f64::MIN_POSITIVE {
-        // 非正規化数は指数部を持たない。最小の正規化数で割っても丸めは起きない。
-        return f64::MIN_POSITIVE;
+        // 非正規化数は指数部を持たず、仮数部がそのまま値になる。最上位のビットだけを残す。
+        return f64::from_bits(1 << (63 - bits.leading_zeros()));
     }
     // 指数部だけを残すと、magnitude 以下で最大の 2 のべき乗になる。
-    f64::from_bits(magnitude.to_bits() & (0x7ff << 52))
+    f64::from_bits(bits & (0x7ff << 52))
 }
 
 impl ExplicitGame {
@@ -187,8 +188,9 @@ mod tests {
         assert_eq!(normalizer(2.0), 2.0);
         assert_eq!(normalizer(920000.0), 524288.0);
         assert_eq!(normalizer(3e-7), 2f64.powi(-22));
-        assert_eq!(normalizer(1e-310), f64::MIN_POSITIVE);
-        for magnitude in [1e-300, 3e-7, 0.7, 5.0, 1e7, 1e300] {
+        assert_eq!(normalizer(1e-310), 2f64.powi(-1030));
+        assert_eq!(normalizer(f64::from_bits(1)), f64::from_bits(1));
+        for magnitude in [5e-324, 1e-310, 1e-300, 3e-7, 0.7, 5.0, 1e7, 1e300] {
             let scaled = magnitude / normalizer(magnitude);
             assert!((1.0..2.0).contains(&scaled), "{magnitude}");
         }
