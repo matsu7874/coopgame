@@ -352,24 +352,120 @@ def verify_tolerance_study():
     check(doc, "整数 3-6 人の表", [counts(f"integer-{s}", "3-6") for s in ("1e0", "1e5", "1e6", "1e7", "1e8", "1e9", "1e12")],
           [(200, 200, 200, 0, 0, 0), (200, 200, 200, 0, 0, 0), (200, 166, 200, 34, 0, 0), (200, 84, 200, 116, 0, 0),
            (200, 91, 200, 109, 1, 0), (200, 79, 200, 121, 50, 0), (200, 50, 120, 70, 70, 0)])
+    check(doc, "整数 (下限) 3-6 人の表", [counts(f"lower-{s}", "3-6") for s in ("1e7", "1e9", "1e10")],
+          [(200, 116, 200, 84, 0, 0), (200, 112, 200, 83, 33, 0), (200, 15, 200, 185, 181, 0)])
     check(doc, "整数 7-8 人の表", [counts(f"integer-{s}", "7-8") for s in ("1e7", "1e9")],
-          [(20, 12, 20, 8, 0, 0), (10, 4, 10, 6, 6, 0)])
+          [(20, 10, 20, 10, 0, 0), (10, 2, 10, 8, 7, 0)])
+    check(doc, "整数 9-10 人の表", [counts(f"integer-{s}", "9-10") for s in ("1e7", "1e9")],
+          [(20, 3, 20, 17, 0, 0), (10, 0, 0, 10, 0, 10)])
     check(doc, "整数 11-14 人の表", [counts(f"integer-{s}", "11-14") for s in ("1e6", "1e7", "1e8", "1e9")],
-          [(40, 15, 40, 25, 0, 0), (40, 14, 37, 25, 0, 3), (40, 13, 16, 23, 0, 24), (40, 4, 5, 14, 0, 35)])
+          [(40, 22, 40, 18, 0, 0), (40, 13, 38, 27, 0, 2), (40, 11, 15, 29, 0, 27), (40, 4, 4, 36, 0, 36)])
     consistent = [r for (family, _), r in rows.items() if family.startswith("bnf") or family == "convex"]
     check(doc, "BNF・凸は 1 回だけ解いても既定でも全て正しく、解き直さない",
           all(r["fixed_correct"] == r["games"] == r["auto_correct"]
               and (r["refined"], r["rational"], r["approximate"]) == ("0", "0", "0") for r in consistent), True)
-    medium = [r for (_, players), r in rows.items() if players == "11-14"]
-    check(doc, "11 人以上で正しくなかった配分は全て approximate",
-          all(int(r["auto_solved"]) - int(r["auto_correct"]) == int(r["approximate"])
-              for r in medium if r["family"].startswith("integer")), True)
+    integers = {key: r for key, r in rows.items() if key[0].startswith(("integer", "lower"))}
+    check(doc, "9 人以上の整数ゲームで、正しくないのに保証が exact のままの配分の数",
+          sum(int(r["incorrect_exact"]) for (_, players), r in integers.items() if players in ("9-10", "11-14")), 0)
+    r = rows[("integer-1e8", "11-14")]
+    check(doc, "scale = 1e8 の 11-14 人の (正しくない数, approximate の数)",
+          (int(r["auto_solved"]) - int(r["auto_correct"]), int(r["approximate"])), (25, 27))
+    check(doc, "8 人以下の整数ゲームで、正しくないのに保証が exact のままの配分がある行と数",
+          {key: int(r["incorrect_exact"]) for key, r in integers.items()
+           if key[1] in ("3-6", "7-8") and r["incorrect_exact"] != "0"}, {("integer-1e12", "3-6"): 80})
     large = [r for (_, players), r in rows.items() if players == "16-20"]
     overhead = [100 * (float(r["auto_seconds"]) / float(r["fixed_seconds"]) - 1) for r in large]
-    check(doc, "16-20 人の確認による時間の増加 (%) の範囲", (round(min(overhead)), round(max(overhead))), (11, 13))
+    check(doc, "16-20 人の確認による時間の増加 (%) の範囲", (round(min(overhead)), round(max(overhead))), (6, 14))
     r = rows[("integer-1e9", "7-8")]
     check(doc, "scale = 1e9 の 7-8 人の合計の秒 (1 回だけ解く, 既定)",
-          (float(r["fixed_seconds"]), round(float(r["auto_seconds"]))), (0.02, 34))
+          (float(r["fixed_seconds"]), round(float(r["auto_seconds"]))), (0.02, 44))
+    r = rows[("superadditive-float", "11-14")]
+    check(doc, "浮動小数点数の和の優加法的なゲーム (ゲーム数, 1 回だけ解く: 合格, 既定: 合格, 解き直した数)",
+          tuple(int(r[k]) for k in ("games", "fixed_correct", "auto_correct", "refined")), (40, 28, 28, 0))
+
+
+def verify_refinement_rows():
+    doc = "docs/performance.md (上限と既定値の根拠)"
+    rows = read("data/analysis/refinement-rows.csv")
+    check(doc, "解き直しの行数を調べた人数", sorted({int(r["players"]) for r in rows}), [11, 14, 16])
+    first = {(r["family"], r["players"], r["seed"]): int(r["rows_added"]) for r in rows if r["ratio"] == "1e-7"}
+    growth = [int(r["rows_added"]) / first[(r["family"], r["players"], r["seed"])]
+              for r in rows if r["ratio"] != "1e-7" and r["certified"] == "true"]
+    check(doc, "比を下げて合格した解の、追加した行の比 1e-7 に対する倍率の最大", round(max(growth), 1), 5.3)
+    hard = [r for r in rows if (r["family"], r["players"]) == ("integer-1e10", "14")]
+    failed = [r for r in hard if r["ratio"] == "1e-9"]
+    check(doc, "値 1e10・14 人の比 1e-9 (状態, 秒の範囲)",
+          ({r["status"] for r in failed}, round(min(float(r["seconds"]) for r in failed)),
+           round(max(float(r["seconds"]) for r in failed))), ({"error"}, 9, 12))
+    finest = [r for r in hard if r["ratio"] == "1e-11"]
+    proper = 2 ** 14 - 2
+    check(doc, "値 1e10・14 人の比 1e-11 (真部分提携に対する行の割合 %, 秒, 合格)",
+          [(round(100 * int(r["rows_added"]) / proper), round(float(r["seconds"])), r["certified"]) for r in finest],
+          [(92, 18, "false"), (92, 19, "false")])
+    check(doc, "値 1e10 の 16 人は計測に含めていない",
+          any((r["family"], r["players"]) == ("integer-1e10", "16") for r in rows), False)
+    check(doc, "値 1e10・14 人の比 1e-11 の行数 (100 行単位)",
+          [round(int(r["rows_added"]), -2) for r in finest], [15100, 15100])
+    with open("src/nucleolus/mod.rs") as f:
+        source = f.read()
+    check("src/nucleolus/mod.rs (REFINEMENT_ROW_FACTOR の説明)", "同じ倍率を書いている",
+          f"最初の {round(max(growth), 1)} 倍以下" in source, True)
+
+
+def verify_exact_integer():
+    doc = "docs/performance.md (上限と既定値の根拠)"
+    rows = read("data/bench/exact-scaling-integer.csv")
+
+    def seconds(n):
+        values = [float(r["seconds"]) for r in rows if r["n"] == str(n)]
+        return (min(values), max(values), len(values))
+
+    check(doc, "整数ゲームの有理数の逐次 LP の秒 (最小, 最大, ゲーム数) n = 7, 8",
+          [seconds(7), seconds(8)], [(0.9, 2.2, 4), (2.4, 9.8, 4)])
+    check(doc, "同 n = 9, 10 (秒は四捨五入)",
+          [tuple(round(v) for v in seconds(n)) for n in (9, 10)], [(47, 133, 4), (61, 288, 2)])
+
+    def span(n):
+        low, high, _ = seconds(n)
+        return f"{round(low)}-{round(high)} 秒"
+
+    with open("src/nucleolus/mod.rs") as f:
+        source = f.read()
+    with open("docs/guarantees.md") as f:
+        guarantees = f.read()
+    check("src/nucleolus/mod.rs (MAX_AUTO_RATIONAL_PLAYERS の説明)", "8・9 人の時間の範囲が同じ",
+          f"8 人で {span(8)}、9 人で {span(9)}" in source, True)
+    check("docs/guarantees.md (検証の範囲)", "8・9 人の時間の範囲が同じ",
+          f"8 人は {span(8)}、9 人は {span(9)}" in guarantees, True)
+
+
+def verify_auto_constants():
+    """既定の手順の定数と、文書に書いた手順が同じか。"""
+    doc = "docs/performance.md (仁の許容誤差の決め方)"
+    with open("src/nucleolus/mod.rs") as f:
+        source = f.read()
+    with open("docs/performance.md") as f:
+        text = f.read()
+
+    def constant(name):
+        return re.search(rf"const {name}: [^=]+ = ([^;]+);", source).group(1)
+
+    check(doc, "順に試す許容誤差の比", constant("AUTO_TOLERANCES"), "[1e-7, 1e-9, 1e-11]")
+    for claim in ["1. `max|v(S)|` の `1e-7` 倍の許容誤差で解く。",
+                  "3. 満たさなければ、許容誤差を `1e-9` 倍、`1e-11` 倍に下げて解き直し、同じ確認をする。"]:
+        check(doc, f"手順の記述: {claim[:24]}", claim in text, True)
+    reading = (constant("MAX_AUTO_CHECK_PLAYERS"), constant("AUTO_READING"),
+               constant("MAX_AUTO_RATIONAL_PLAYERS"), constant("AUTO_READING_WITH_RATIONAL"))
+    check(doc, "確認する人数の上限と読み取りの比 (定数)", reading, ("20", "1e-11", "8", "1e-12"))
+    claim = "2. {} 人以下なら、解いた配分が Kohlberg 基準を満たすかを、`max|v(S)|` の `{}` 倍 ({} 人以下では `{}` 倍) の許容誤差で確かめる。"
+    check(doc, "確認の記述が定数と同じ", claim.format(*reading) in text, True)
+    factor = constant("REFINEMENT_ROW_FACTOR")
+    check(doc, "解き直しの行の上限 (定数と式)",
+          (factor, "(REFINEMENT_ROW_FACTOR * result.rows_added).max(4 * n * n)" in source), ("8", True))
+    check(doc, "行の上限の記述が定数と同じ",
+          f"最初に解いたときの {factor} 倍 (少なくとも `4 n^2` 行) まで" in text, True)
+    check(doc, "有理数に切り替える人数の記述が定数と同じ",
+          f"4. どの許容誤差でも満たさなければ、{constant('MAX_AUTO_RATIONAL_PLAYERS')} 人以下は有理数の逐次 LP で求める。" in text, True)
 
 
 def main():
@@ -385,6 +481,9 @@ def main():
     verify_exact_solver()
     verify_variant_limits()
     verify_tolerance_study()
+    verify_refinement_rows()
+    verify_exact_integer()
+    verify_auto_constants()
     if args.instances:
         verify_allocations(args.instances)
     print(f"\n{'食い違い ' + str(len(failures)) + ' 件' if failures else '全ての主張がデータと一致した'}")

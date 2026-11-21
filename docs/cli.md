@@ -92,14 +92,16 @@ coopgame convex-nucleolus v.txt             # 凸ゲームの手法で仁 (凸�
 | `--exact` | 値を有理数として読み、有理数だけで仁を求めて分数で出す (JSON・CSV の数も字面どおり。`--full` とは併用できない) |
 | `--full` | 全提携の行を最初から入れる LP で解く (制約生成との比較用) |
 | `--tolerance T` | 逐次 LP の許容誤差を値の単位で指定し、1 回だけ解く (`--exact` とは併用できない) |
-| `--rel-tolerance R` | 逐次 LP の許容誤差を `max|v(S)|` に対する比で指定し、1 回だけ解く (`--tolerance` とはどちらか一方) |
+| `--rel-tolerance R` | 逐次 LP の許容誤差を `max\|v(S)\|` に対する比で指定し、1 回だけ解く (`--tolerance` とはどちらか一方) |
 | `--missing zero\|ignore` | 値が分からない提携の扱い ([入力形式](input-format.md#値が分からない提携))。`ignore` は `nucleolus` (`--exact` なし) だけで使える |
 
 `--tolerance`・`--rel-tolerance` を指定しなければ、正しい仁を返すことを優先する。
-解いた配分の超過の段を細かく読み直して確かめ、整合しなければ許容誤差を下げて解き直し、
-それでも整合しなければ 10 人以下は有理数の逐次 LP で求める (時間がかかることがある)。
-11 人以上で整合しないままなら、保証を `approximate` にして返す
-(手順と計測は [性能と制約](performance.md) の「仁の許容誤差の決め方」)。
+比 `1e-7` の許容誤差で解いた配分が、Kohlberg 基準を細かい許容誤差でも満たすかを確かめる (20 人まで)。
+満たさなければ許容誤差を下げて解き直し、それでも満たさなければ 8 人以下は有理数の逐次 LP で求める (10 秒ほどかかることがある)。
+9 人以上で満たさないままなら、保証を `approximate` にして返す。
+値が `1e12` 程度のゲームを 1 単位まで正しく求めるには `--exact` を使う
+(手順・計測・見分けられない場合は [性能と制約](performance.md) の「仁の許容誤差の決め方」)。
+`--missing ignore` で値が分かる提携だけを使うときは、指定がなくても 1 回だけ解く。
 標準エラーの統計に、どう求めたかを出す。
 
 ```console
@@ -113,9 +115,9 @@ time=0.000167s lp_solves=3 rows_added=0 solver=lp tolerance=6e-7 refinements=0 g
 | 項目 | 内容 |
 |---|---|
 | `solver` | `lp` (逐次 LP)、`rational` (有理数の逐次 LP に切り替えた) |
-| `tolerance` | 使った許容誤差 (値の単位。`rational` では 0) |
-| `refinements` | 許容誤差を下げて解き直した回数 |
-| `guarantee` | `exact`、または超過の段が整合しないまま返した `approximate` |
+| `tolerance` | 返した配分を求めた許容誤差 (値の単位。`rational` では 0) |
+| `refinements` | 許容誤差を下げて解き直しを試みた回数 (失敗した試行を含む) |
+| `guarantee` | `exact`、または Kohlberg 基準を細かい許容誤差では満たさないまま返した `approximate` |
 
 `least-core`・`kernel`・`shapley`・`banzhaf`・`compare` も `--cost` で費用ゲームを扱う ([費用ゲーム](input-format.md#費用ゲーム))。
 他のコマンドに費用のゲーム (`type` が `cost`) を渡すとエラーにする。
@@ -146,20 +148,29 @@ coopgame verify v.txt sol.txt               # Kohlberg 基準とカーネル条�
 coopgame certify v.txt sol.txt              # 有理数による厳密な検証 (厳密な仁を分数で出す)
 coopgame certify v.txt sol.txt --rational   # v.txt の値を 10 進数・分数の値どおりの有理数として検証する
 coopgame check v.txt sol.txt                # 配分が仁かを検証し、結論 (certified・refuted・undecided) を出す
-coopgame check v.txt sol.txt --reference lp # 基準の仁の求め方を選ぶ (exact・lp)
+coopgame check v.txt sol.txt --reference lp # 基準の仁の求め方を選ぶ (auto・exact・lp)
 coopgame bargaining v.txt sol.txt           # 交渉集合に属するか (属さなければ反論のない異議を出す)
 ```
 
 `certify` は、`sol.txt` の配分自身から厳密な配分を復元できたときだけ合格にする。
 `check` は、`certify` に合格しない配分を基準の仁と比べ、結論を標準エラーに出す (`check=certified` など)。
-合格なら厳密な仁を分数で標準出力に出し、合格でなければ終了コードが 0 以外になる。`--rational`・`--pre` は `certify` と同じ。
+合格なら厳密な仁を分数で標準出力に出す。`--rational`・`--pre` は `certify` と同じ。
+
+| 結論 | 標準エラー | 終了コード |
+|---|---|---|
+| 合格 | `check=certified` | 0 |
+| 否定 (配分は仁でない) | `check=refuted` と理由 | 2 |
+| 未決 (仁とも仁でないとも確定できない) | `check=undecided` と理由 | 3 |
+| 入力の誤りなどのエラー | `エラー: ...` | 1 |
 
 `--reference` は基準の仁の求め方である (結論の条件は [保証の種類](guarantees.md) の「検証の範囲」)。
+どれも、まず逐次 LP の仁から厳密な配分を復元する。
 
-| 値 | 基準の仁 |
+| 値 | 逐次 LP の仁から復元できないとき |
 |---|---|
-| `exact` (既定) | 逐次 LP の仁が厳密な検証に合格しなければ、有理数の逐次 LP で求め直す (10 人まで。9 人で最大 23 秒、10 人で最大 153 秒かかった) |
-| `lp` | 逐次 LP の仁だけ |
+| `auto` (既定) | 8 人以下のときだけ、有理数の逐次 LP で求め直す |
+| `exact` | 10 人まで、有理数の逐次 LP で求め直す (9・10 人では数分かかることがある。[性能と制約](performance.md)) |
+| `lp` | 求め直さない (逐次 LP の仁だけを使う) |
 
 `convex-nucleolus --assume` の事後検証でも、`--reference` で同じ選択ができる。
 
@@ -203,6 +214,10 @@ coalition	max|dx/dv|	dx/dv (プレイヤー順)	difference
 `compare` は、計算できない解を省き、省いた解と理由を標準エラーに出す。
 省くのは、配分集合が空のゲームの仁と per capita 仁、18 人以上の per capita 仁、8 人以上の modiclus である
 (人数の上限は [性能と制約](performance.md))。解の番号は、省いた解を詰めて振る。
+
+仁・プレ仁の許容誤差は、`compare`・`influence`・`uncertainty` でも `--tolerance`・`--rel-tolerance` で指定できる。
+指定しない場合、`compare` は `nucleolus` と同じ既定の手順 (正しさを優先) で仁を求める。
+`influence` と `uncertainty` は仁を何度も解くので、比 `1e-7` の許容誤差で 1 回だけ解く。
 
 `influence` は提携の値を `±delta` 動かしたゲームを解き、`difference` の列に差分の取り方を書く。
 `central` は中心差分 `(x(v(S) + δ) - x(v(S) - δ)) / 2δ` である。

@@ -7,8 +7,10 @@
 //!
 //! 列:
 //! - `family`: ゲームの種類。`integer-<scale>` は、値が `scale * |S| + 0..6` (1 人提携は 0) の整数ゲームで、
-//!   超過の段の間隔が 1 以下になる。`bnf<k>` は `generators::bnf`、`superadditive-rational` は有理数で構築した
-//!   優加法的なゲーム、`superadditive-float` は浮動小数点数の和で作った優加法的なゲーム、`convex` は凸ゲーム
+//!   超過の段の間隔が 1 以下になる。`lower-<scale>` は、1 人提携の値も `scale + 0..6` で、全体提携の値が
+//!   1 人提携の値の和より `1..6` だけ大きい整数ゲーム (仁で多くのプレイヤーが下限 `x_i = v({i})` の近くにいる)。
+//!   `bnf<k>` は `generators::bnf`、`superadditive-rational` は有理数で構築した優加法的なゲーム、
+//!   `superadditive-float` は浮動小数点数の和で作った優加法的なゲーム、`convex` は凸ゲーム
 //! - `players`: 人数の範囲
 //! - `games`: 比べたゲームの数 (`criterion` が `rational` の行では、有理数の仁を求められたゲームだけを数える)
 //! - `criterion`: 正しさの判定。`rational` は有理数の逐次 LP の仁との差が丸めの大きさ `4 n ε max|v|` 以下、
@@ -18,6 +20,15 @@
 //! - `refined`: 既定の手順が許容誤差を下げて解き直したゲームの数
 //! - `rational`: 既定の手順が有理数の逐次 LP に切り替えたゲームの数
 //! - `approximate`: 既定の手順が保証を `approximate` にしたゲームの数
+//! - `incorrect_exact`: 既定の手順の配分のうち、正しいと判定されず、保証が `exact` のままだったものの数
+//!
+//! 引数に `rows` を付けると、許容誤差を下げたときに制約生成が追加する行の数を調べる
+//! (既定の手順が解き直しに置く行の上限の根拠)。11・14・16 人の整数ゲームを、比 `1e-7`・`1e-9`・`1e-11` の
+//! 許容誤差で 1 回ずつ解き、追加した行の数・時間・厳密な検証の合否を出す。
+//!
+//! ```bash
+//! cargo run --release --example study_tolerance -- rows > data/analysis/refinement-rows.csv
+//! ```
 
 use std::time::Instant;
 
@@ -38,6 +49,7 @@ struct Tally {
     refined: usize,
     rational: usize,
     approximate: usize,
+    incorrect_exact: usize,
     seconds: f64,
 }
 
@@ -94,7 +106,9 @@ fn row(family: &str, players: &str, games: &[ExplicitGame], criterion: Criterion
             tally.correct += usize::from(correct);
             tally.refined += usize::from(result.refinements() > 0);
             tally.rational += usize::from(result.is_rational());
-            tally.approximate += usize::from(result.guarantee() == Guarantee::Approximate);
+            let approximate = result.guarantee() == Guarantee::Approximate;
+            tally.approximate += usize::from(approximate);
+            tally.incorrect_exact += usize::from(!correct && !approximate);
         }
     }
     let [fixed, auto] = tallies;
@@ -103,7 +117,7 @@ fn row(family: &str, players: &str, games: &[ExplicitGame], criterion: Criterion
         Criterion::Certify => "certify",
     };
     println!(
-        "{family},{players},{evaluated},{criterion},{},{},{:.2},{},{},{:.2},{},{},{}",
+        "{family},{players},{evaluated},{criterion},{},{},{:.2},{},{},{:.2},{},{},{},{}",
         fixed.correct,
         fixed.solved,
         fixed.seconds,
@@ -112,7 +126,8 @@ fn row(family: &str, players: &str, games: &[ExplicitGame], criterion: Criterion
         auto.seconds,
         auto.refined,
         auto.rational,
-        auto.approximate
+        auto.approximate,
+        auto.incorrect_exact
     );
 }
 
@@ -141,7 +156,83 @@ fn integer_games(
         .collect()
 }
 
+/// 1 人提携の値も `scale + 0..6` で、全体提携の値が 1 人提携の値の和より `1..6` だけ大きい整数ゲーム。
+fn games_near_lower_bounds(
+    scale: f64,
+    sizes: &[usize],
+    count: usize,
+    next: &mut impl FnMut() -> u64,
+) -> Vec<ExplicitGame> {
+    (0..count)
+        .map(|case| {
+            let n = sizes[case % sizes.len()];
+            let full = (1usize << n) - 1;
+            let mut values: Vec<f64> = (1..=full)
+                .map(|mask| scale * mask.count_ones() as f64 + (next() % 7) as f64)
+                .collect();
+            let singles: f64 = (0..n).map(|i| values[(1 << i) - 1]).sum();
+            values[full - 1] = singles + (1 + next() % 6) as f64;
+            ExplicitGame::from_binary(&values).expect("有限の値")
+        })
+        .collect()
+}
+
+/// 許容誤差の比ごとに、制約生成が追加した行の数を出す。
+fn rows() {
+    println!("family,players,seed,ratio,status,rows_added,lp_solves,seconds,certified");
+    // 値が 1e10 程度の 16 人のゲームは、比 1e-9 で 1 ゲームに数分以上かかるので含めない。
+    let cases = [
+        (1e6, vec![11usize, 14, 16]),
+        (1e7, vec![11, 14, 16]),
+        (1e9, vec![11, 14, 16]),
+        (1e10, vec![11, 14]),
+    ];
+    for (scale, sizes) in cases {
+        for n in sizes {
+            for seed in 1..=2u64 {
+                let mut state = seed * 1000 + n as u64;
+                let mut next = move || {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    state
+                };
+                let game = integer_games(scale, &[n], 1, &mut next).remove(0);
+                for ratio in [1e-7, 1e-9, 1e-11] {
+                    let mut options = Options::new(Domain::Imputation);
+                    options.tolerance = Tolerance::Relative(ratio);
+                    let started = Instant::now();
+                    let result = nucleolus::nucleolus_with(&game, options);
+                    let seconds = started.elapsed().as_secs_f64();
+                    match result {
+                        Ok(result) => {
+                            let certified =
+                                verify::certify(&game, result.allocation(), Domain::Imputation)
+                                    .map(|report| report.satisfied)
+                                    .unwrap_or(false);
+                            println!(
+                                "integer-{scale:e},{n},{seed},{ratio:e},ok,{},{},{seconds:.2},{certified}",
+                                result.rows_added(),
+                                result.lp_solves()
+                            );
+                        }
+                        Err(_) => {
+                            println!(
+                                "integer-{scale:e},{n},{seed},{ratio:e},error,,,{seconds:.2},false"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("rows") {
+        rows();
+        return;
+    }
     let mut state = 97531u64;
     let mut next = move || {
         state ^= state << 13;
@@ -151,7 +242,7 @@ fn main() {
     };
     println!(
         "family,players,games,criterion,fixed_correct,fixed_solved,fixed_seconds,\
-         auto_correct,auto_solved,auto_seconds,refined,rational,approximate"
+         auto_correct,auto_solved,auto_seconds,refined,rational,approximate,incorrect_exact"
     );
     for scale in [1.0, 1e5, 1e6, 1e7, 1e8, 1e9, 1e12] {
         let games = integer_games(scale, &[3, 4, 5, 6], 200, &mut next);
@@ -162,14 +253,26 @@ fn main() {
             Criterion::Rational,
         );
     }
-    for (scale, count) in [(1e7, 20), (1e9, 10)] {
-        let games = integer_games(scale, &[7, 8], count, &mut next);
+    for scale in [1e7, 1e9, 1e10] {
+        let games = games_near_lower_bounds(scale, &[3, 4, 5, 6], 200, &mut next);
         row(
-            &format!("integer-{scale:e}"),
-            "7-8",
+            &format!("lower-{scale:e}"),
+            "3-6",
             &games,
-            Criterion::Certify,
+            Criterion::Rational,
         );
+    }
+    // 7-8 人は有理数の逐次 LP に切り替えることがあり、9-10 人は切り替えない。
+    for players in [[7usize, 8], [9, 10]] {
+        for (scale, count) in [(1e7, 20), (1e9, 10)] {
+            let games = integer_games(scale, &players, count, &mut next);
+            row(
+                &format!("integer-{scale:e}"),
+                &format!("{}-{}", players[0], players[1]),
+                &games,
+                Criterion::Certify,
+            );
+        }
     }
     for scale in [1.0, 1e6, 1e7, 1e8, 1e9] {
         let games = integer_games(scale, &[11, 12, 13, 14], 40, &mut next);

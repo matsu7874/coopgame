@@ -38,8 +38,10 @@ CoopGame の誤りと判定した 4 件について、超過を降順に並べ�
 | `data/bench/convex-graph.csv`、`data/bench/convex-bankruptcy.csv` | 凸ゲームの手法の計測 (同上) | 同上 | `bench_convex graph 10,16,24,32,48,64 3`、`bench_convex bankruptcy 10,20,30,40 3` (`cargo run --release --example ...`) |
 | `data/bench/auto-threshold.csv` | 自動選択の境目の計測 (同上) | 同上 | `cargo run --release --example bench_auto_threshold -- 8,10,12,14,16,18,20 3` |
 | `data/bench/exact-scaling.csv` | 有理数だけの仁のソルバーの計測 | 厳密なソルバーを追加したコミット | `cargo run --release --example bench_exact -- 3,4,5,6,7,8,9,10` |
+| `data/bench/exact-scaling-integer.csv` | 有理数だけの仁のソルバーの、整数ゲームでの計測 ([performance.md](performance.md) の「上限と既定値の根拠」) | 有理数への自動の切り替えを 8 人までにしたコミット | `cargo run --release --example bench_exact -- 7,8,9,10 integer > data/bench/exact-scaling-integer.csv` (10 人は各 scale で 1 ゲーム。Apple M4 Pro・macOS・rustc 1.99.1 で計測。秒の列は実行ごとに変わる) |
 | `data/bench/variant-limits.csv` | 仁の変種と交渉集合の判定の時間と最大メモリ (`docs/performance.md` の上限の根拠) | 上限を追加したコミット。上限より 1 人多い人数は `MAX_*_PLAYERS` を一時的に大きくしたビルド | `cargo run --release --example bench_limits > data/bench/variant-limits.csv` (Apple M4 Pro・macOS・rustc 1.99.1 で計測。最大メモリは `/usr/bin/time -l`) |
-| `data/analysis/tolerance-study.csv` | 仁の許容誤差の決め方の比較 ([performance.md](performance.md)) | 許容誤差の決め方を追加したコミット | `cargo run --release --example study_tolerance > data/analysis/tolerance-study.csv` (約 1 分。秒の列は実行ごとに変わる) |
+| `data/analysis/tolerance-study.csv` | 仁の許容誤差の決め方の比較 ([performance.md](performance.md)) | 許容誤差の決め方を追加したコミット | `cargo run --release --example study_tolerance > data/analysis/tolerance-study.csv` (Apple M4 Pro・macOS・rustc 1.99.1 で計測。秒の列は実行ごとに変わる) |
+| `data/analysis/refinement-rows.csv` | 許容誤差を下げて解き直すときに追加する行の数 (同上) | 解き直しの行の上限を追加したコミット | `cargo run --release --example study_tolerance -- rows > data/analysis/refinement-rows.csv` (同じ環境で計測。秒の列は実行ごとに変わる) |
 | `data/analysis/counterexamples.txt` | 反例の探索と縮小の実例 | 反例探索を追加したコミット | `cargo run --release --example study_counterexamples` (約 1 分) |
 | `data/compare/small.csv` | 既存実装との比較 (n = 4-12) | coopgame-rs はコミット `3f85dc1` の CLI | `python3 scripts/compare/run.py work/small` |
 | `data/compare/tuglab-retry-tol1e-8.csv` | TUGLab の再実行 | 同上 | `IMPLS=TUGLab python3 scripts/compare/run.py <失敗したインスタンス> 1e-8` |
@@ -87,7 +89,7 @@ python3 scripts/compare/diff_results.py data/compare/large.csv large.csv
 
 | 対象 | 方法 | 結果 |
 |---|---|---|
-| ドキュメントの数値 | `scripts/verify_claims.py --instances scripts/compare/work` | 104 項目全てが一致 (当時の項目数。現在は 53 項目) |
+| ドキュメントの数値 | `scripts/verify_claims.py --instances scripts/compare/work` | 104 項目全てが一致 (当時の項目数) |
 | インスタンス | `make_instances.sh` で再生成し、比較に使ったファイルと照合 | 144 個全てが一致 (`instances.sha256` に記録) |
 | 比較: coopgame-rs・CoopGame | `run.py` で再実行し `diff_results.py` で照合 | small 756 件、large 72 件の状態と配分が全て一致 (CoopGame の誤った配分も同じ値で再現) |
 | 比較: TUGLab | 同上 | small 252 件は全て一致。large 36 件のうち 33 件が一致し、3 件は状態が変わった |

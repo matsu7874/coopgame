@@ -31,7 +31,7 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 
 | 対象 | 関数 | 手法 |
 |---|---|---|
-| 仁・プレ仁 | `nucleolus::nucleolus`, `nucleolus::prenucleolus`, `nucleolus::nucleolus_with` | 逐次 LP (Kopelowitz 方式) + 制約生成。許容誤差の決め方は `nucleolus::Tolerance` で選ぶ (既定の `Auto` は超過の段を確かめ、必要なら解き直すか有理数で解く。`Absolute`・`Relative` は 1 回だけ解く) |
+| 仁・プレ仁 | `nucleolus::nucleolus`, `nucleolus::prenucleolus`, `nucleolus::nucleolus_with` | 逐次 LP (Kopelowitz 方式) + 制約生成。許容誤差の決め方は `nucleolus::Tolerance` で選ぶ (既定の `Auto` は、解いた配分が Kohlberg 基準を細かい許容誤差でも満たすかを確かめ、満たさなければ解き直すか、8 人以下なら有理数で解く。`Absolute`・`Relative` は 1 回だけ解く) |
 | 最小コア | `nucleolus::least_core` | LP 1 回 |
 | 仁・プレ仁の厳密な計算 (10 人まで) | `nucleolus::exact::nucleolus` | 逐次 LP を有理数の 2 段階単体法 (Bland の規則) と制約生成で解く。許容誤差を使わない |
 | カーネル・プレカーネルの 1 点 | `kernel::kernel_point` | Maschler/Stearns の transfer scheme |
@@ -87,7 +87,7 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 | 対象 | 関数 | 手法 |
 |---|---|---|
 | 配分の説明・比較 | `analysis::explain::{report, render, compare, render_comparison}` | 不満 (超過) の大きい提携の段、コアに属するか、最小コアの値、プレイヤーごとの最も不満な提携。複数の配分を安定性で比べる (結果は入力と同じ順)。文章ではプレイヤーを「プレイヤー 0」、提携を `{0, 2}` と書く |
-| 値の不確かさの分析 | `analysis::uncertainty::{monte_carlo, IntervalGame, interval_monte_carlo, influence, key_coalitions}` | 値の分布・区間から配分の分布 (平均・標準偏差・分位点) を求め、どの提携の値が配分を決めているかを感度 `dx/dv(S)` で示す |
+| 値の不確かさの分析 | `analysis::uncertainty::{monte_carlo, IntervalGame, interval_monte_carlo, influence, key_coalitions, solver, solver_with}` | 値の分布・区間から配分の分布 (平均・標準偏差・分位点) を求め、どの提携の値が配分を決めているかを感度 `dx/dv(S)` で示す。解く関数は `solver` (仁は比 `1e-7` の許容誤差で 1 回) か `solver_with` (許容誤差の決め方を指定) で選ぶ |
 | 配分集合の図 | `analysis::plot::{imputation_figure, PlotOptions, core_vertices}` | 3-4 人のゲームの配分集合 (三角形・四面体) にコア・カーネル・仁・Shapley 値・任意の点 (`PlotOptions::points`) を描いた SVG。頂点のラベルはプレイヤーの番号。ライト・ダークの両方に対応 |
 | 反例の探索と縮小 | `analysis::search::{search, shrink}` | 性質を満たさないゲームをランダムに探し、プレイヤーの除去・値の単純化で反例を小さくする。実例は `examples/study_counterexamples.rs`・`data/analysis/counterexamples.txt` |
 
@@ -95,7 +95,7 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 
 | 対象 | 関数 | 手法 |
 |---|---|---|
-| JSON・CSV の入出力 (feature `io`) | `io::{parse_json, parse_csv, GameData, PartialGame}` | 提携をプレイヤーの番号 (0 始まり) で書いた JSON・CSV を読み書きする。値が分からない提携はエラー・0・分かる提携だけで解く、から選ぶ ([入力形式](input-format.md)) |
+| JSON・CSV の入出力 (feature `io`) | `io::{parse_json, parse_csv, GameData, PartialGame}` | 提携をプレイヤーの番号 (0 始まり) で書いた JSON・CSV を読み書きする。値が分からない提携はエラー・0・分かる提携だけで解く (`GameData::partial_nucleolus`。費用のゲームは節約ゲームで解く)、から選ぶ ([入力形式](input-format.md)) |
 | ゲーム生成 | `generators::{bnf, bankruptcy, weighted_voting, random_convex, random_superadditive, random_weighted_voting}` | BNF 実装と同じ分布など |
 
 ## 保証の種類ごとのアルゴリズム

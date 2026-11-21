@@ -44,13 +44,13 @@ cargo run --example io --features io     # io は feature `io` が要る
 
 | プログラム | 内容 |
 |---|---|
-| `bench_exact` | 有理数だけの仁のソルバーの計測 |
+| `bench_exact` | 有理数だけの仁のソルバーの計測 (BNF のゲームと、`integer` を付けると整数ゲーム) |
 | `bench_oracle` | オラクル版の仁の計測 (破産・多数決・重み付き投票) |
 | `bench_convex` | 凸ゲームの手法の計測 |
 | `bench_auto_threshold` | 逐次 LP と凸ゲームの手法の時間の比較 (`auto` の切り替えの境目の根拠) |
 | `bench_limits` | 仁の変種と交渉集合の判定の時間と最大メモリ (プレイヤー数の上限 `nucleolus::variants::MAX_*_PLAYERS` と `bargaining::MAX_BARGAINING_SET_PLAYERS` の根拠) |
 | `study_assumption` | 凸と仮定した手法を一般のゲームに使い、事後検証で分類する |
-| `study_tolerance` | 仁の許容誤差の決め方 (既定の手順と、1 回だけ解く場合) の正しさと時間の比較 |
+| `study_tolerance` | 仁の許容誤差の決め方 (既定の手順と、1 回だけ解く場合) の正しさと時間の比較。`rows` を付けると、許容誤差ごとに追加する行の数 |
 | `study_counterexamples` | 反例の探索と縮小の実例 |
 | `study_data_valuation` | サンプリングした仁の収束と、データ評価への応用 |
 | `study_prekernel` | プレカーネル・カーネルの形とゲームの性質の関係 |
