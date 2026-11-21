@@ -338,13 +338,52 @@ fn nucleolus_dict<'py>(
     Ok(dict)
 }
 
+/// 逐次 LP の許容誤差の決め方。`tolerance` (値の単位) か `rel_tolerance` (`max|v(S)|` に対する比) の
+/// どちらかを指定すると、その許容誤差で 1 回だけ解く。どちらも指定しなければ `Tolerance::Auto`。
+fn parse_tolerance(tolerance: Option<f64>, rel_tolerance: Option<f64>) -> PyResult<Tolerance> {
+    // 値は解く前に確かめる (uncertainty は解けなかった標本を数えるだけなので、指定の誤りが紛れないようにする)。
+    // `-0.0` は 0 として扱う。
+    let checked = |name: &str, value: Option<f64>| -> PyResult<Option<f64>> {
+        match value {
+            Some(value) if !(value.is_finite() && value >= 0.0) => Err(PyValueError::new_err(
+                format!("{name} の値 {value} が 0 以上の有限の数ではない"),
+            )),
+            value => Ok(value.map(|value| value + 0.0)),
+        }
+    };
+    let tolerance = checked("tolerance", tolerance)?;
+    let rel_tolerance = checked("rel_tolerance", rel_tolerance)?;
+    match (tolerance, rel_tolerance) {
+        (None, None) => Ok(Tolerance::Auto),
+        (Some(tolerance), None) => Ok(Tolerance::Absolute(tolerance)),
+        (None, Some(ratio)) => Ok(Tolerance::Relative(ratio)),
+        (Some(_), Some(_)) => Err(PyValueError::new_err(
+            "tolerance と rel_tolerance は、どちらか一方だけを指定する",
+        )),
+    }
+}
+
+/// 検証の基準の仁の求め方 (`"auto"`・`"exact"`・`"lp"`)。
+fn parse_reference(reference: &str) -> PyResult<Reference> {
+    match reference {
+        "auto" => Ok(Reference::Auto),
+        "exact" => Ok(Reference::Exact),
+        "lp" => Ok(Reference::Lp),
+        _ => Err(PyValueError::new_err(format!(
+            "reference は \"auto\"・\"exact\"・\"lp\": {reference:?}"
+        ))),
+    }
+}
+
 /// 仁 (`domain="imputation"`) またはプレ仁を逐次 LP で求める。`method` は `"cg"` (制約生成) か `"full"`。
 ///
 /// `tolerance` (値の単位) か `rel_tolerance` (`max|v(S)|` に対する比) のどちらかを指定すると、その許容誤差で
-/// 1 回だけ解く。どちらも指定しなければ、仁を正しく求めることを優先する: 解いた配分の超過の段を細かく読み直して
-/// 確かめ、整合しなければ許容誤差を下げて解き直し、それでも整合しなければ 10 人以下は有理数の逐次 LP で求める
-/// (時間がかかることがある。11 人以上は `guarantee` を `"approximate"` にして返す。確認は 20 人まで)。
-/// 戻り値の `tolerance` (使った許容誤差。有理数で求めたら 0)・`refinements` (解き直した回数)・`rational`
+/// 1 回だけ解く。どちらも指定しなければ、仁を正しく求めることを優先する: 比 `1e-7` の許容誤差で解いた配分が
+/// Kohlberg 基準を細かい許容誤差でも満たすかを確かめ (20 人まで)、満たさなければ許容誤差を下げて解き直し、
+/// それでも満たさなければ 8 人以下は有理数の逐次 LP で求める (10 秒ほどかかることがある)。
+/// 9 人以上で満たさないままなら `guarantee` を `"approximate"` にして返す。
+/// 値が `1e12` 程度のゲームを 1 単位まで正しく求めるには `nucleolus_exact` を使う。
+/// 戻り値の `tolerance` (返した配分を求めた許容誤差。有理数で求めたら 0)・`refinements` (解き直しを試みた回数)・`rational`
 /// (有理数の逐次 LP で求めたか) で、どう求めたかが分かる。
 #[pyfunction]
 #[pyo3(signature = (game, domain = "imputation", method = "cg", tolerance = None, rel_tolerance = None))]
@@ -357,16 +396,7 @@ fn nucleolus<'py>(
     rel_tolerance: Option<f64>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let mut options = Options::new(parse_domain(domain)?);
-    options.tolerance = match (tolerance, rel_tolerance) {
-        (None, None) => Tolerance::Auto,
-        (Some(tolerance), None) => Tolerance::Absolute(tolerance),
-        (None, Some(ratio)) => Tolerance::Relative(ratio),
-        (Some(_), Some(_)) => {
-            return Err(PyValueError::new_err(
-                "tolerance と rel_tolerance は、どちらか一方だけを指定する",
-            ));
-        }
-    };
+    options.tolerance = parse_tolerance(tolerance, rel_tolerance)?;
     options.method = match method {
         "cg" => Method::ConstraintGeneration,
         "full" => Method::Full,
@@ -734,8 +764,25 @@ fn linear_production<'py>(
     Ok(dict)
 }
 
-fn solver_by_name(name: &str) -> PyResult<uncertainty_core::Solver> {
-    uncertainty_core::solver(name).ok_or_else(|| {
+/// 分析 (`uncertainty`・`influence`) の解き方。仁・プレ仁は、許容誤差を指定しなければ `max|v(S)|` の `1e-7` 倍で
+/// 1 回だけ解く (標本や差分のために何度も解くので、仁の既定の手順の解き直しはしない)。
+fn solver_by_name(
+    name: &str,
+    tolerance: Option<f64>,
+    rel_tolerance: Option<f64>,
+) -> PyResult<uncertainty_core::Solver> {
+    let tolerance = match parse_tolerance(tolerance, rel_tolerance)? {
+        Tolerance::Auto => Tolerance::Relative(1e-7),
+        specified => {
+            if name == "shapley" {
+                return Err(PyValueError::new_err(
+                    "tolerance・rel_tolerance は solver が \"nucleolus\"・\"prenucleolus\" のときだけ使える",
+                ));
+            }
+            specified
+        }
+    };
+    uncertainty_core::solver_with(name, tolerance).ok_or_else(|| {
         PyValueError::new_err(format!(
             "solver は {} のどれか: {name:?}",
             uncertainty_core::SOLVERS.join("・")
@@ -746,8 +793,12 @@ fn solver_by_name(name: &str) -> PyResult<uncertainty_core::Solver> {
 /// 値が不確かなときの配分の分布。`relative` (例: 0.1 で各値 ±10%) か、`lower`・`upper` (Game) で区間を与え、
 /// 区間内の一様分布から `samples` 個のゲームを引いて `solver` で解く。
 /// 戻り値は `mean`・`std`・`quantiles` (`{0.05: [...], 0.5: [...], 0.95: [...]}`)・`samples`・`failures`。
+///
+/// 仁・プレ仁は、`tolerance` (値の単位) も `rel_tolerance` (`max|v(S)|` に対する比) も指定しなければ、
+/// 比 `1e-7` の許容誤差で 1 回だけ解く。
 #[pyfunction]
-#[pyo3(signature = (game, relative = None, upper = None, samples = 200, seed = 0, solver = "nucleolus"))]
+#[pyo3(signature = (game, relative = None, upper = None, samples = 200, seed = 0, solver = "nucleolus", tolerance = None, rel_tolerance = None))]
+#[allow(clippy::too_many_arguments)]
 fn uncertainty<'py>(
     py: Python<'py>,
     game: &Game,
@@ -756,6 +807,8 @@ fn uncertainty<'py>(
     samples: usize,
     seed: u64,
     solver: &str,
+    tolerance: Option<f64>,
+    rel_tolerance: Option<f64>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let interval = match (relative, upper) {
         (Some(relative), None) => uncertainty_core::IntervalGame::around(&game.inner, relative),
@@ -769,9 +822,9 @@ fn uncertainty<'py>(
         }
     }
     .map_err(to_py_err)?;
-    let d =
-        uncertainty_core::interval_monte_carlo(&interval, samples, seed, solver_by_name(solver)?)
-            .map_err(to_py_err)?;
+    let solve = solver_by_name(solver, tolerance, rel_tolerance)?;
+    let d = uncertainty_core::interval_monte_carlo(&interval, samples, seed, solve)
+        .map_err(to_py_err)?;
     let dict = PyDict::new(py);
     dict.set_item("mean", d.mean)?;
     dict.set_item("std", d.std)?;
@@ -795,17 +848,22 @@ type InfluenceRow = (Vec<usize>, Vec<f64>, String);
 /// 差分の取り方は `"central"` (中心差分)、`"forward"`・`"backward"` (片側のゲームが解けないときの片側差分。
 /// 配分集合が 1 点のゲームで v(N) を下げる・1 人提携の値を上げる場合など)。
 /// 両側とも解けない提携があれば、その提携を示した ValueError。
+///
+/// 仁・プレ仁は、`tolerance` (値の単位) も `rel_tolerance` (`max|v(S)|` に対する比) も指定しなければ、
+/// 比 `1e-7` の許容誤差で 1 回だけ解く。
 #[pyfunction]
-#[pyo3(signature = (game, coalitions = None, solver = "nucleolus", levels = 2, delta = None))]
+#[pyo3(signature = (game, coalitions = None, solver = "nucleolus", levels = 2, delta = None, tolerance = None, rel_tolerance = None))]
 fn influence(
     game: &Game,
     coalitions: Option<Vec<Vec<usize>>>,
     solver: &str,
     levels: usize,
     delta: Option<f64>,
+    tolerance: Option<f64>,
+    rel_tolerance: Option<f64>,
 ) -> PyResult<Vec<InfluenceRow>> {
     let n = game.inner.players();
-    let mut solve = solver_by_name(solver)?;
+    let mut solve = solver_by_name(solver, tolerance, rel_tolerance)?;
     let coalitions: Vec<Coalition> = match coalitions {
         Some(list) => list
             .iter()
@@ -949,17 +1007,26 @@ fn parse_game<'py>(
 ///
 /// 費用のゲーム (`type` が `cost`) は節約ゲームで解き、`allocation` に費用の分担 `c({i}) - x_i` を返す
 /// (`levels` は節約ゲームでの各段の最大超過)。`kind` に入力の値の種類 (`"value"` か `"cost"`) を返す。
+///
+/// `tolerance` (値の単位。費用のゲームでは節約ゲームの値の単位) か `rel_tolerance` (値が分かる提携の値の
+/// 最大絶対値に対する比。費用のゲームでは節約ゲームの値で測る) で許容誤差を指定できる。指定しなければ比 `1e-7`。
+/// どの場合も 1 回だけ解く。
 #[pyfunction]
-#[pyo3(signature = (text, format = "json", domain = "imputation"))]
+#[pyo3(signature = (text, format = "json", domain = "imputation", tolerance = None, rel_tolerance = None))]
 fn partial_nucleolus<'py>(
     py: Python<'py>,
     text: &str,
     format: &str,
     domain: &str,
+    tolerance: Option<f64>,
+    rel_tolerance: Option<f64>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let data = parse_game_data(text, format)?;
     let domain = parse_domain(domain)?;
-    let result = data.partial_nucleolus(domain).map_err(to_py_err)?;
+    let tolerance = parse_tolerance(tolerance, rel_tolerance)?;
+    let result = data
+        .partial_nucleolus_with(domain, tolerance)
+        .map_err(to_py_err)?;
     let dict = nucleolus_dict(py, result.solved)?;
     dict.set_item("allocation", result.allocation)?;
     dict.set_item("kind", data.kind.as_str())?;
@@ -1395,14 +1462,23 @@ fn solution_dict<'py>(
 /// - `assume=True`: 凸と仮定して実行する (FunctionGame も可)。`guarantee` は `"assumed(convex)"`。
 ///   `verify=True` なら事後検証し、`verdict` に `"certified"`・`"refuted"`・`"undecided"`、`reason` に理由を入れる。
 ///   `certified` なら配分は厳密な配分になり、`guarantee` は `"certified"` になる。
+///   `reference` は事後検証の基準の仁の求め方 (`verify_solution` と同じ `"auto"`・`"exact"`・`"lp"`。
+///   指定しなければ `"auto"`)。事後検証をしない呼び方 (`assume=False` か `verify=False`) で指定すると ValueError。
 #[pyfunction]
-#[pyo3(signature = (game, assume = false, verify = true))]
+#[pyo3(signature = (game, assume = false, verify = true, reference = None))]
 fn convex_nucleolus<'py>(
     py: Python<'py>,
     game: &Bound<'py, PyAny>,
     assume: bool,
     verify: bool,
+    reference: Option<&str>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    if reference.is_some() && !(assume && verify) {
+        return Err(PyValueError::new_err(
+            "reference は事後検証の設定なので、assume=True・verify=True のときだけ指定できる",
+        ));
+    }
+    let reference = parse_reference(reference.unwrap_or("auto"))?;
     if !assume {
         let (solution, stats) = if let Ok(graph) = game.cast::<GraphGame>() {
             convex::nucleolus_with(&graph.get().inner, ConvexOptions::default())
@@ -1428,9 +1504,9 @@ fn convex_nucleolus<'py>(
             dict.set_item("verdict", py.None())?;
             return Ok(dict);
         }
-        let verdict = unverified
-            .verify(&g, VerifyOptions::default())
-            .map_err(to_py_err)?;
+        let mut options = VerifyOptions::default();
+        options.reference = reference;
+        let verdict = unverified.verify(&g, options).map_err(to_py_err)?;
         let (dict, label, reason) = match verdict {
             Verified::Certified(solution) => (
                 solution_dict(py, &solution, Some(stats))?,
@@ -1478,11 +1554,11 @@ fn auto_nucleolus<'py>(py: Python<'py>, game: &Bound<'py, PyAny>) -> PyResult<Bo
 /// 20 人以下は厳密な検証、26 人以下はランダムな `pairs` 組のカーネル条件の総当たり (否定だけができる)。
 /// 戻り値の `check` は `"certified"`・`"refuted"`・`"undecided"`。`certified` なら `exact` に Fraction の配分。
 ///
-/// `reference` は、候補が厳密な検証に合格しないときに比べる基準の仁の求め方。`"exact"` (既定) は、逐次 LP の仁が
-/// 厳密な検証に合格しなければ有理数の逐次 LP で求め直す (10 人まで。時間がかかることがある)。
-/// `"lp"` は逐次 LP の仁だけを使う。
+/// `reference` は、候補が厳密な検証に合格しないときに比べる基準の仁の求め方。どれも、まず逐次 LP の仁から
+/// 厳密な配分を復元する。復元できないとき、`"auto"` (既定) は 8 人以下のときだけ有理数の逐次 LP で求め直す。
+/// `"exact"` は 10 人まで求め直す (9・10 人では数分かかることがある)。`"lp"` は逐次 LP の仁だけを使う。
 #[pyfunction]
-#[pyo3(signature = (game, allocation, domain = "imputation", pairs = 8, seed = 0, reference = "exact"))]
+#[pyo3(signature = (game, allocation, domain = "imputation", pairs = 8, seed = 0, reference = "auto"))]
 fn verify_solution<'py>(
     py: Python<'py>,
     game: &Bound<'py, PyAny>,
@@ -1493,15 +1569,7 @@ fn verify_solution<'py>(
     reference: &str,
 ) -> PyResult<Bound<'py, PyDict>> {
     let domain = parse_domain(domain)?;
-    let reference = match reference {
-        "exact" => Reference::Exact,
-        "lp" => Reference::Lp,
-        _ => {
-            return Err(PyValueError::new_err(format!(
-                "reference は \"exact\" か \"lp\": {reference:?}"
-            )));
-        }
-    };
+    let reference = parse_reference(reference)?;
     let check = with_set_function(game, |g| {
         let mut options = VerifyOptions::default();
         options.pairs = pairs;

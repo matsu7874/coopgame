@@ -283,13 +283,22 @@ def test_convex_nucleolus_proven_and_assumed():
     # 凸な FunctionGame を凸と仮定すると、検証に合格して certified になる。
     certified = coopgame.convex_nucleolus(coopgame.FunctionGame(5, graph.value), assume=True)
     assert certified["verdict"] == "certified" and certified["guarantee"] == "certified"
+    # 事後検証の基準の仁の求め方 (既定は "auto")。事後検証をしない呼び方では指定できない。
+    for reference in ["auto", "exact", "lp"]:
+        assert coopgame.convex_nucleolus(game, assume=True, reference=reference)["verdict"] == "refuted"
+    with pytest.raises(ValueError, match="reference"):
+        coopgame.convex_nucleolus(game, assume=True, reference="fast")
+    with pytest.raises(ValueError, match="assume=True"):
+        coopgame.convex_nucleolus(graph, reference="lp")
+    with pytest.raises(ValueError, match="assume=True"):
+        coopgame.convex_nucleolus(game, assume=True, verify=False, reference="lp")
     with pytest.raises(ValueError):
         coopgame.auto_nucleolus(coopgame.FunctionGame(5, graph.value))
 
 
 def test_nucleolus_tolerance():
     game = coopgame.Game([0, 0, 0, 4, 3, 2, 6], order="lex")
-    # 既定: 段が整合するゲームは比 1e-7 の許容誤差で 1 回だけ解く。
+    # 既定: 最初に解いた配分が Kohlberg 基準を満たすゲームは、比 1e-7 の許容誤差で 1 回だけ解く。
     default = coopgame.nucleolus(game)
     assert default["allocation"] == pytest.approx([3, 2, 1])
     assert default["tolerance"] == pytest.approx(6e-7)
@@ -316,17 +325,69 @@ def test_nucleolus_tolerance():
     assert fixed["rational"] is False and fixed["refinements"] == 0
 
 
+def test_analysis_and_partial_nucleolus_accept_tolerance():
+    game = coopgame.Game([0, 0, 0, 4, 3, 2, 6], order="lex")
+    # uncertainty と influence は、指定しなければ比 1e-7 の許容誤差で 1 回だけ解く。
+    default = coopgame.influence(game)
+    assert coopgame.influence(game, rel_tolerance=1e-7) == default
+    assert coopgame.influence(game, tolerance=6e-7) == default
+    assert coopgame.uncertainty(game, relative=0.1, samples=5, rel_tolerance=1e-9)["samples"] == 5
+    with pytest.raises(ValueError, match="nucleolus"):
+        coopgame.influence(game, solver="shapley", tolerance=1e-6)
+    with pytest.raises(ValueError, match="どちらか一方"):
+        coopgame.uncertainty(game, relative=0.1, tolerance=1e-6, rel_tolerance=1e-9)
+    # 許容誤差の値は解く前に確かめる (標本の失敗に紛れさせない)。
+    for bad in [-1.0, float("nan"), float("inf")]:
+        for keyword in ["tolerance", "rel_tolerance"]:
+            with pytest.raises(ValueError, match="0 以上の有限"):
+                coopgame.uncertainty(game, relative=0.1, samples=5, **{keyword: bad})
+            with pytest.raises(ValueError, match="0 以上の有限"):
+                coopgame.influence(game, **{keyword: bad})
+            with pytest.raises(ValueError, match="0 以上の有限"):
+                coopgame.nucleolus(game, **{keyword: bad})
+    # 値に比べて大きすぎる比は解くときに分かる。標本が 1 つも解けなければ、最初の失敗の理由を出す。
+    with pytest.raises(ValueError, match="大きすぎる"):
+        coopgame.uncertainty(game, relative=0.1, samples=5, rel_tolerance=1e308)
+    # 既定の手順と比 1e-7 の 1 回の解で仁が異なるゲーム (値が 1e12 程度の 4 人の整数ゲーム) で、既定を見分ける。
+    large = coopgame.Game(
+        [0, 0, 2000000000002, 0, 2000000000001, 2000000000006, 3000000000002, 0]
+        + [2000000000006, 2000000000006, 3000000000005, 2000000000005, 3000000000002, 3000000000002, 4000000000002]
+    )
+    assert coopgame.nucleolus(large)["rational"] is True
+    assert coopgame.nucleolus(large)["allocation"] != coopgame.nucleolus(large, rel_tolerance=1e-7)["allocation"]
+    assert coopgame.influence(large) == coopgame.influence(large, rel_tolerance=1e-7)
+    assert coopgame.uncertainty(large, relative=0.1, samples=5) == coopgame.uncertainty(
+        large, relative=0.1, samples=5, rel_tolerance=1e-7
+    )
+    # 値が分かる提携だけの仁も、許容誤差を指定できる。
+    csv = "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|2,3\n1|2,2\n0|1|2,6\n"
+    assert coopgame.partial_nucleolus(csv, format="csv", rel_tolerance=1e-9)["tolerance"] == pytest.approx(6e-9)
+    assert coopgame.partial_nucleolus(csv, format="csv", tolerance=1e-3)["tolerance"] == pytest.approx(1e-3)
+    with pytest.raises(ValueError):
+        coopgame.partial_nucleolus(csv, format="csv", tolerance=-1)
+
+
 def test_verify_solution():
     game = coopgame.Game([0, 0, 0, 10, 0, 0, 2], order="lex")
     report = coopgame.verify_solution(game, [1, 1, 0])
     assert report["check"] == "certified" and report["exact"] == [1, 1, 0]
     assert coopgame.verify_solution(game, [3, 3, -4], domain="preimputation")["check"] == "certified"
     assert coopgame.verify_solution(game, [1.5, 0.5, 0])["check"] == "refuted"
-    # 基準の仁の求め方 (既定は "exact")。
-    for reference in ["exact", "lp"]:
+    # 基準の仁の求め方 (既定は "auto")。
+    for reference in ["auto", "exact", "lp"]:
         assert coopgame.verify_solution(game, [1.5, 0.5, 0], reference=reference)["check"] == "refuted"
     with pytest.raises(ValueError, match="reference"):
         coopgame.verify_solution(game, [1, 1, 0], reference="fast")
+    # 基準の求め方で結論が変わる例: 値が 1e9 程度の 4 人の整数ゲーム。厳密な仁から 2 だけずらした点は、
+    # 逐次 LP の仁からは厳密な配分を復元できないので、"lp" では未決、有理数で求め直す "auto"・"exact" では合格。
+    large = coopgame.Game(
+        [0, 0, 2000000002, 0, 2000000000, 2000000001, 3000000000, 0]
+        + [2000000005, 2000000002, 3000000000, 2000000003, 3000000001, 3000000004, 4000000001]
+    )
+    near = [1000000001.375, 999999998.25, 999999998.25, 1000000003.125]
+    assert coopgame.verify_solution(large, near)["check"] == "certified"
+    assert coopgame.verify_solution(large, near, reference="exact")["check"] == "certified"
+    assert coopgame.verify_solution(large, near, reference="lp")["check"] == "undecided"
 
 
 def test_certify_rational_reads_decimals_exactly():

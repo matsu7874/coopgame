@@ -12,9 +12,11 @@
 
 use std::fmt;
 
+use crate::Domain;
 use crate::analysis::explain::{self, ExplainOptions};
 use crate::error::{Error, Result};
 use crate::game::{Coalition, ExplicitGame};
+use crate::nucleolus::{Options, Tolerance};
 use crate::rng::SplitMix64;
 
 /// 配分の分布の要約。
@@ -47,6 +49,7 @@ pub fn monte_carlo(
     let mut rng = SplitMix64::new(seed);
     let mut allocations: Vec<Vec<f64>> = Vec::with_capacity(samples);
     let mut failures = 0;
+    let mut first_failure: Option<Error> = None;
     let mut players: Option<usize> = None;
     for _ in 0..samples {
         let game = sample(&mut rng)?;
@@ -65,16 +68,27 @@ pub fn monte_carlo(
                 )));
             }
             Ok(x) => allocations.push(x),
-            Err(_) => failures += 1,
+            Err(error) => {
+                failures += 1;
+                first_failure.get_or_insert(error);
+            }
         }
     }
-    summarize(&allocations, failures)
+    summarize(&allocations, failures, first_failure)
 }
 
-fn summarize(allocations: &[Vec<f64>], failures: usize) -> Result<Distribution> {
+fn summarize(
+    allocations: &[Vec<f64>],
+    failures: usize,
+    first_failure: Option<Error>,
+) -> Result<Distribution> {
     let Some(first) = allocations.first() else {
+        // 1 つも解けないのは、解き方の指定の誤り (許容誤差など) のことが多いので、最初の失敗の理由を添える。
+        let reason = first_failure
+            .map(|error| format!("。最初の失敗: {error}"))
+            .unwrap_or_default();
         return Err(Error::InvalidArgument(format!(
-            "解けた標本がない ({failures} 個とも失敗)"
+            "解けた標本がない ({failures} 個とも失敗{reason})"
         )));
     };
     let n = first.len();
@@ -173,14 +187,26 @@ pub type Solver = Box<dyn FnMut(&ExplicitGame) -> Result<Vec<f64>>>;
 pub const SOLVERS: [&str; 3] = ["nucleolus", "prenucleolus", "shapley"];
 
 /// 名前 (`"nucleolus"`・`"prenucleolus"`・`"shapley"`) から解き方を選ぶ。
+///
+/// 仁・プレ仁は、`max|v(S)|` の `1e-7` 倍の許容誤差で 1 回だけ解く ([`Tolerance::Relative`])。
+/// 標本や差分のために仁を何度も解く分析で、仁の既定の手順 ([`Tolerance::Auto`]) の解き直しや有理数の逐次 LP に
+/// 時間をかけないためである。許容誤差の決め方を選ぶには [`solver_with`] を使う。
 pub fn solver(name: &str) -> Option<Solver> {
+    solver_with(name, Tolerance::Relative(1e-7))
+}
+
+/// 仁・プレ仁の許容誤差の決め方を指定した [`solver`] (`"shapley"` は `tolerance` を使わない)。
+pub fn solver_with(name: &str, tolerance: Tolerance) -> Option<Solver> {
+    let nucleolus = move |domain: Domain| -> Solver {
+        Box::new(move |game: &ExplicitGame| {
+            let mut options = Options::new(domain);
+            options.tolerance = tolerance;
+            Ok(crate::nucleolus::nucleolus_with(game, options)?.allocation)
+        })
+    };
     match name {
-        "nucleolus" => Some(Box::new(|g: &ExplicitGame| {
-            Ok(crate::nucleolus::nucleolus(g)?.allocation)
-        })),
-        "prenucleolus" => Some(Box::new(|g: &ExplicitGame| {
-            Ok(crate::nucleolus::prenucleolus(g)?.allocation)
-        })),
+        "nucleolus" => Some(nucleolus(Domain::Imputation)),
+        "prenucleolus" => Some(nucleolus(Domain::Preimputation)),
         "shapley" => Some(Box::new(|g: &ExplicitGame| Ok(crate::values::shapley(g)))),
         _ => None,
     }

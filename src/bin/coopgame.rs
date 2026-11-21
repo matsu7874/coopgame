@@ -36,7 +36,8 @@ const USAGE: &str = "\
   coopgame modiclus     <v.txt> [--lex]           modiclus (準配分)
   coopgame disruption   <v.txt> [--lex]           disruption nucleolus (コアが空でないゲーム)
   coopgame anti-nucleolus <v.txt> [--pre] [--lex] anti-nucleolus (--pre で anti-prenucleolus)。双対ゲームの仁 (プレ仁)
-  coopgame convex-nucleolus <v.txt> [--lex] [--assume]   凸ゲームの手法で仁 (--assume は凸と仮定して試し、事後検証する)
+  coopgame convex-nucleolus <v.txt> [--lex] [--assume [--reference auto|exact|lp]]
+                      凸ゲームの手法で仁 (--assume は凸と仮定して試し、事後検証する)
   coopgame shapley    <v.txt> [--lex] [--samples N] [--seed S] [--cost]
   coopgame banzhaf    <v.txt> [--lex] [--samples N] [--seed S] [--normalize] [--cost]
   coopgame solidarity <v.txt> [--lex]   solidarity 値 (Nowak & Radzik 1994)
@@ -49,14 +50,18 @@ const USAGE: &str = "\
   coopgame kernel-set <v.txt> [--pre] [--lex] [--max-nodes N] [--merge]
   coopgame verify     <v.txt> <sol.txt> [--pre] [--lex]
   coopgame certify    <v.txt> <sol.txt> [--pre] [--lex] [--rational]
-  coopgame check      <v.txt> <sol.txt> [--pre] [--lex] [--rational] [--reference exact|lp]
+  coopgame check      <v.txt> <sol.txt> [--pre] [--lex] [--rational] [--reference auto|exact|lp]
                       配分が仁 (プレ仁) かを検証し、結論 (certified・refuted・undecided) を出す
   coopgame bargaining <v.txt> <sol.txt> [--pre] [--lex]   交渉集合 (プレ交渉集合) に属するか
   coopgame explain    <v.txt> <sol.txt> [--lex] [--levels K]   配分の説明 (不満の大きい提携、安定性)
-  coopgame compare    <v.txt> [--lex] [--cost]   仁・プレ仁・Shapley 値などを安定性で比べる
-  coopgame uncertainty <v.txt> [--lex] [--relative 0.1] [--samples 200] [--seed S] [--solver nucleolus|shapley]
+  coopgame compare    <v.txt> [--lex] [--cost] [--tolerance T | --rel-tolerance R]
+                      仁・プレ仁・Shapley 値などを安定性で比べる
+  coopgame uncertainty <v.txt> [--lex] [--relative 0.1] [--samples 200] [--seed S]
+                      [--solver nucleolus|prenucleolus|shapley]
+                      [--tolerance T | --rel-tolerance R]
                       各値が ±relative の一様な誤差を持つときの配分の分布 (平均・標準偏差・5%/95% 点)
-  coopgame influence  <v.txt> [--lex] [--solver nucleolus|shapley] [--levels 2] [--delta D]
+  coopgame influence  <v.txt> [--lex] [--solver nucleolus|prenucleolus|shapley] [--levels 2] [--delta D]
+                      [--tolerance T | --rel-tolerance R]
                       配分を決めている提携の値に対する配分の感度 dx/dv(S)
   coopgame talmud     --estate E --claims d1,d2,... [--exact]
   coopgame generate   --type T --n N [--seed S]
@@ -75,14 +80,17 @@ const USAGE: &str = "\
   sol.txt  検証する配分を 1 行 1 値で書いたファイル
   --pre    プレ仁・プレカーネル(個人合理性を課さない)
   --full   仁の LP に全提携の行を最初から入れる(既定は制約生成)
-  --tolerance T      仁の逐次 LP の許容誤差 (値の単位) を指定し、1 回だけ解く
-  --rel-tolerance R  仁の逐次 LP の許容誤差を max|v(S)| に対する比で指定し、1 回だけ解く (最初に使う比は 1e-7)。
-           どちらも指定しなければ、仁を正しく求めることを優先する: 解いた配分の超過の段を細かく読み直して確かめ、
-           整合しなければ許容誤差を下げて解き直し、それでも整合しなければ 10 人以下は有理数の逐次 LP で求める
-           (時間がかかることがある。11 人以上は guarantee=approximate で返す)。確認は 20 人まで
+  --tolerance T      仁の逐次 LP の許容誤差を値の単位で指定し、1 回だけ解く (nucleolus・compare・uncertainty・influence)
+  --rel-tolerance R  同じ許容誤差を max|v(S)| に対する比で指定する (--tolerance とはどちらか一方)。
+           nucleolus と compare は、どちらも指定しなければ仁を正しく求めることを優先する: 比 1e-7 で解いた配分が
+           Kohlberg 基準を細かい許容誤差でも満たすかを確かめ、満たさなければ許容誤差を下げて解き直し、
+           それでも満たさなければ 8 人以下は有理数の逐次 LP で求める (10 秒ほどかかることがある)。
+           9 人以上で満たさないままなら guarantee=approximate で返す (確認は 20 人まで)。
+           値が 1e12 程度のゲームを 1 単位まで正しく求めるには --exact を使う。
+           uncertainty と influence は何度も解くので、指定しなければ比 1e-7 で 1 回だけ解く
   --samples N  Shapley 値・Banzhaf 値をサンプリングで推定する (順列数・提携数、1 以上)。省略すると厳密計算
   --merge  カーネル全体で、同じ直線上でつながる線分を 1 本にまとめる
-  --rational  certify で v.txt の値を 10 進数・分数 (8/3) の値どおりの有理数として読む (JSON・CSV の数も字面どおり)
+  --rational  certify・check で v.txt の値を 10 進数・分数 (8/3) の値どおりの有理数として読む (JSON・CSV の数も字面どおり)
               (既定は浮動小数点数の 2 進数の値どおり)。どのコマンドも分数の値を受け付ける
 
 プレイヤーは 0 始まりの番号で表す (入力・出力・オプションのすべて)。提携は {0, 2} の形で出す。
@@ -91,13 +99,20 @@ const USAGE: &str = "\
 certify は sol.txt の配分から厳密な配分を復元し、有理数で Kohlberg 基準を判定する。
 厳密な配分を分数で標準出力に出し、判定 (certified=true/false) を標準エラーに出す。
 check は certify に合格しない配分を基準の仁と比べ、結論を標準エラーに出す (合格なら厳密な仁を標準出力に出す)。
---reference は基準の仁の求め方: exact (既定) は逐次 LP の仁が厳密な検証に合格しなければ
-有理数の逐次 LP で求め直す (10 人まで。時間がかかることがある)、lp は逐次 LP の仁だけを使う。";
+check の終了コードは、合格 0、否定 2、未決 3 (入力の誤りなどのエラーは 1)。
+--reference は基準の仁の求め方: auto (既定) は逐次 LP の仁が厳密な検証に合格しなければ、8 人以下のときだけ
+有理数の逐次 LP で求め直す。exact は 10 人まで求め直す (9・10 人では数分かかることがある)。
+lp は逐次 LP の仁だけを使う。";
+
+/// check の結論が否定のときの終了コード (入力の誤りなどのエラーは 1)。
+const EXIT_REFUTED: u8 = 2;
+/// check の結論が未決のときの終了コード。
+const EXIT_UNDECIDED: u8 = 3;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(&args) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(message) => {
             eprintln!("エラー: {message}");
             ExitCode::FAILURE
@@ -276,7 +291,7 @@ impl Args {
     }
 }
 
-fn run(raw: &[String]) -> CliResult<()> {
+fn run(raw: &[String]) -> CliResult<ExitCode> {
     let Some((command, rest)) = raw.split_first() else {
         return Err(USAGE.into());
     };
@@ -338,11 +353,11 @@ fn run(raw: &[String]) -> CliResult<()> {
                         None => println!("{}", format_rational(value)),
                     }
                 }
-                return Ok(());
+                return Ok(ExitCode::SUCCESS);
             }
             // 値が分からない提携があれば、分かる提携だけで解く。
             if args.missing == MissingPolicy::Ignore && nucleolus_known_only(&args, tolerance)? {
-                return Ok(());
+                return Ok(ExitCode::SUCCESS);
             }
             let prepared = read_prepared(&args, 0)?;
             let started = Instant::now();
@@ -767,11 +782,11 @@ fn run(raw: &[String]) -> CliResult<()> {
                 }
                 Check::Refuted(reason) => {
                     eprintln!("check=refuted time={seconds:.6}s reason={reason}");
-                    return Err("検証の結論は否定 (配分は仁でない)".into());
+                    return Ok(ExitCode::from(EXIT_REFUTED));
                 }
                 Check::Undecided(reason) => {
                     eprintln!("check=undecided time={seconds:.6}s reason={reason}");
-                    return Err("検証の結論は未決 (仁とも仁でないとも確定できない)".into());
+                    return Ok(ExitCode::from(EXIT_UNDECIDED));
                 }
             }
         }
@@ -830,7 +845,14 @@ fn run(raw: &[String]) -> CliResult<()> {
             print!("{}", explain::render(&report));
         }
         "compare" => {
-            args.check_options(&["--lex", "--cost"])?;
+            args.check_options(&["--lex", "--cost", "--tolerance", "--rel-tolerance"])?;
+            // 仁・プレ仁は nucleolus コマンドと同じ手順で求める (指定がなければ既定の手順)。
+            let tolerance = tolerance(&args)?;
+            let solve = |domain: Domain, game: &ExplicitGame| {
+                let mut options = Options::new(domain);
+                options.tolerance = tolerance;
+                nucleolus::nucleolus_with(game, options).map(|r| r.into_allocation())
+            };
             // 費用のゲームは節約ゲームで比べ (超過は費用の分担での y(S) - c(S))、配分を費用の分担で出す。
             let prepared = read_prepared(&args, 0)?;
             let game = &prepared.game;
@@ -840,14 +862,17 @@ fn run(raw: &[String]) -> CliResult<()> {
                 Ok(allocation) => candidates.push((label.to_string(), allocation)),
                 Err(error) => eprintln!("{label} は計算できないので省く: {error}"),
             };
-            add(
-                "仁",
-                nucleolus::nucleolus(game).map(|r| r.into_allocation()),
-            );
-            add(
-                "プレ仁",
-                nucleolus::prenucleolus(game).map(|r| r.into_allocation()),
-            );
+            for (label, domain) in [
+                ("仁", Domain::Imputation),
+                ("プレ仁", Domain::Preimputation),
+            ] {
+                match solve(domain, game) {
+                    // 仁・プレ仁の引数の誤りは、許容誤差の指定の誤り (値に比べて大きすぎる比など) なので、
+                    // 解を省かずにエラーにする。
+                    Err(error @ coopgame::Error::InvalidArgument(_)) => return Err(error.into()),
+                    result => add(label, result),
+                }
+            }
             add("Shapley 値", Ok(values::shapley(game)));
             add(
                 "per capita 仁",
@@ -871,12 +896,20 @@ fn run(raw: &[String]) -> CliResult<()> {
             }
         }
         "uncertainty" => {
-            args.check_options(&["--lex", "--relative", "--samples", "--seed", "--solver"])?;
+            args.check_options(&[
+                "--lex",
+                "--relative",
+                "--samples",
+                "--seed",
+                "--solver",
+                "--tolerance",
+                "--rel-tolerance",
+            ])?;
             let game = read_game(&args, 0)?;
             let relative: f64 = args.number("--relative", 0.1)?;
             let samples = samples(&args, 200)?;
             let seed: u64 = args.number("--seed", 0)?;
-            let solve = solver(args.value("--solver")?.unwrap_or("nucleolus"))?;
+            let solve = solver(&args)?;
             let interval = uncertainty::IntervalGame::around(&game, relative)?;
             let d = uncertainty::interval_monte_carlo(&interval, samples, seed, solve)?;
             println!("player\tmean\tstd\tq05\tq50\tq95");
@@ -893,9 +926,16 @@ fn run(raw: &[String]) -> CliResult<()> {
             eprintln!("samples={} failures={}", d.samples, d.failures);
         }
         "influence" => {
-            args.check_options(&["--lex", "--solver", "--levels", "--delta"])?;
+            args.check_options(&[
+                "--lex",
+                "--solver",
+                "--levels",
+                "--delta",
+                "--tolerance",
+                "--rel-tolerance",
+            ])?;
             let game = read_game(&args, 0)?;
-            let mut solve = solver(args.value("--solver")?.unwrap_or("nucleolus"))?;
+            let mut solve = solver(&args)?;
             let x = solve(&game)?;
             let levels: usize = args.number("--levels", 2)?;
             let delta: f64 = args.number("--delta", 1e-4 * game.max_abs_value().max(1.0))?;
@@ -931,7 +971,7 @@ fn run(raw: &[String]) -> CliResult<()> {
         "help" | "--help" | "-h" => println!("{USAGE}"),
         other => return Err(format!("未知のコマンド {other:?}\n\n{USAGE}").into()),
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 fn read_values(path: &str) -> CliResult<Vec<f64>> {
@@ -961,13 +1001,16 @@ impl MissingPolicy {
 /// 逐次 LP の許容誤差の決め方。`--tolerance` (値の単位) か `--rel-tolerance` (max|v| に対する比) の
 /// どちらかを指定すると、その許容誤差で 1 回だけ解く。指定がなければ既定の手順 (Tolerance::Auto)。
 fn tolerance(args: &Args) -> CliResult<Tolerance> {
+    // 値は解く前に確かめる (uncertainty は解けなかった標本を数えるだけなので、指定の誤りが紛れないようにする)。
     let number = |name: &str| -> CliResult<Option<f64>> {
         match args.value(name)? {
             None => Ok(None),
-            Some(text) => text
-                .parse()
-                .map(Some)
-                .map_err(|_| format!("{name} の値 {text:?} が不正").into()),
+            Some(text) => match text.parse::<f64>() {
+                // `-0` は 0 として扱う。
+                Ok(value) if value.is_finite() && value >= 0.0 => Ok(Some(value + 0.0)),
+                Ok(_) => Err(format!("{name} の値 {text} が 0 以上の有限の数ではない").into()),
+                Err(_) => Err(format!("{name} の値 {text:?} が不正").into()),
+            },
         }
     };
     match (number("--tolerance")?, number("--rel-tolerance")?) {
@@ -980,14 +1023,15 @@ fn tolerance(args: &Args) -> CliResult<Tolerance> {
     }
 }
 
-/// 検証の設定。`--reference` で基準の仁の求め方を選ぶ (既定は exact)。
+/// 検証の設定。`--reference` で基準の仁の求め方を選ぶ (既定は auto)。
 fn verify_options(args: &Args) -> CliResult<VerifyOptions> {
     let mut options = VerifyOptions::default();
     options.reference = match args.value("--reference")? {
-        None | Some("exact") => Reference::Exact,
+        None | Some("auto") => Reference::Auto,
+        Some("exact") => Reference::Exact,
         Some("lp") => Reference::Lp,
         Some(other) => {
-            return Err(format!("--reference は exact・lp: {other:?}").into());
+            return Err(format!("--reference は auto・exact・lp: {other:?}").into());
         }
     };
     Ok(options)
@@ -1177,7 +1221,8 @@ fn nucleolus_known_only(args: &Args, tolerance: Tolerance) -> CliResult<bool> {
         .partial_nucleolus_with(args.domain(), tolerance)
         .map_err(|e| format!("{path}: {e}"))?;
     eprintln!(
-        "guarantee={} (値が分かる {} 個の提携だけで解いた。真のゲームの仁とは限らない)",
+        "tolerance={:e} guarantee={} (値が分かる {} 個の提携だけで解いた。真のゲームの仁とは限らない)",
+        result.solved.tolerance(),
         result.solved.guarantee(),
         data.known.len()
     );
@@ -1194,8 +1239,25 @@ fn samples(args: &Args, default: usize) -> CliResult<usize> {
     Ok(samples)
 }
 
-fn solver(name: &str) -> CliResult<uncertainty::Solver> {
-    uncertainty::solver(name).ok_or_else(|| {
+/// uncertainty・influence の解き方 (`--solver`。既定は nucleolus)。
+///
+/// 仁・プレ仁は、指定がなければ max|v(S)| の 1e-7 倍の許容誤差で 1 回だけ解く (標本や差分のために何度も解くので、
+/// 既定の手順の解き直しはしない)。`--tolerance`・`--rel-tolerance` で許容誤差を指定できる。
+fn solver(args: &Args) -> CliResult<uncertainty::Solver> {
+    let name = args.value("--solver")?.unwrap_or("nucleolus");
+    let tolerance = match tolerance(args)? {
+        Tolerance::Auto => Tolerance::Relative(1e-7),
+        specified => {
+            if name == "shapley" {
+                return Err(
+                    "--tolerance・--rel-tolerance は --solver が nucleolus・prenucleolus のときだけ使える"
+                        .into(),
+                );
+            }
+            specified
+        }
+    };
+    uncertainty::solver_with(name, tolerance).ok_or_else(|| {
         format!(
             "未知の解き方 {name:?} ({})",
             uncertainty::SOLVERS.join(", ")

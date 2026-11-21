@@ -753,7 +753,7 @@ impl GameData {
     }
 
     /// 許容誤差の決め方を指定した [`GameData::partial_nucleolus`] ([`PartialGame::nucleolus_with`])。
-    /// 費用のゲームでは、許容誤差は節約ゲームの値の単位で指定する。
+    /// 費用のゲームでは、許容誤差は節約ゲームの値の単位で指定する (比で指定するときも、節約ゲームの値の大きさに対する比)。
     pub fn partial_nucleolus_with(
         &self,
         domain: Domain,
@@ -833,7 +833,7 @@ impl PartialGame {
     /// 許容誤差の決め方を指定した [`PartialGame::nucleolus`]。
     ///
     /// [`Tolerance::Relative`] は値が分かる提携の値の最大絶対値に対する比。[`Tolerance::Auto`] は既定の許容誤差
-    /// (比 `1e-7`) で 1 回だけ解く (値が分かる提携だけでは超過の段を確かめられないので、解き直しはしない)。
+    /// (比 `1e-7`) で 1 回だけ解く (値が分かる提携だけでは Kohlberg 基準を確かめられないので、解き直しはしない)。
     pub fn nucleolus_with(&self, domain: Domain, tolerance: Tolerance) -> Result<NucleolusResult> {
         let n = self.players;
         let full = PlayerSet::grand(n);
@@ -858,9 +858,9 @@ impl PartialGame {
         let tolerance = match tolerance {
             Tolerance::Absolute(tolerance) => tolerance,
             Tolerance::Relative(ratio) => {
-                ratio * crate::game::scale::positive_scale(OracleGame::scale(self))
+                crate::game::scale::tolerance_from_ratio(ratio, OracleGame::scale(self))?
             }
-            // 値が分かる提携だけでは超過の段を確かめられないので、既定の許容誤差で 1 回だけ解く。
+            // 値が分かる提携だけでは Kohlberg 基準を確かめられないので、既定の許容誤差で 1 回だけ解く。
             _ => crate::nucleolus::oracle::default_tolerance(self),
         };
         crate::nucleolus::oracle::nucleolus_with(self, domain, tolerance)

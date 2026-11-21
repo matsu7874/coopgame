@@ -6,6 +6,8 @@ use std::process::Command;
 
 struct Run {
     success: bool,
+    /// 終了コード。
+    code: Option<i32>,
     stdout: String,
     stderr: String,
 }
@@ -54,6 +56,7 @@ impl Cli {
             .unwrap();
         Run {
             success: output.status.success(),
+            code: output.status.code(),
             stdout: String::from_utf8(output.stdout).unwrap(),
             stderr: String::from_utf8(output.stderr).unwrap(),
         }
@@ -62,6 +65,12 @@ impl Cli {
 
 /// 3 人ゲーム (docs/cli.md の例)。仁は (3, 2, 1)。
 const V_TXT: &str = "0\n0\n4\n0\n3\n2\n6\n";
+
+/// 値が 1e12 程度の 4 人の整数ゲーム (ビット順)。比 1e-7 の許容誤差では超過の段を分けられず、
+/// 既定の手順は有理数の逐次 LP に切り替える。仁は (999999999998.5, 1000000000001.25, 999999999999.75, 1000000000002.5)。
+const LARGE_TXT: &str = "0\n0\n2000000000002\n0\n2000000000001\n2000000000006\n3000000000002\n0\n\
+                         2000000000006\n2000000000006\n3000000000005\n2000000000005\n3000000000002\n\
+                         3000000000002\n4000000000002\n";
 
 #[test]
 fn explain_rejects_non_finite_allocation() {
@@ -321,7 +330,7 @@ fn compare_reports_solutions_it_omits() {
 }
 
 /// check は配分が仁かを検証し、結論 (certified・refuted・undecided) を標準エラーに、合格なら厳密な配分を
-/// 標準出力に出す。合格しなければ終了コードが 0 でない。基準の仁の求め方は --reference で選ぶ。
+/// 標準出力に出す。終了コードは合格 0、否定 2、未決 3 (入力の誤りは 1)。基準の仁の求め方は --reference で選ぶ。
 #[test]
 fn check_reports_conclusion_and_honors_reference() {
     let cli = Cli::new("check_command");
@@ -330,12 +339,12 @@ fn check_reports_conclusion_and_honors_reference() {
         .file("sol.txt", "3\n2\n1\n")
         .file("far.txt", "2\n2\n2\n");
     let run = cli.run(&["check", "v.txt", "sol.txt"]);
-    assert!(run.success, "{}", run.stderr);
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
     assert_eq!(run.stdout, "3\n2\n1\n");
     assert!(run.stderr.contains("check=certified"), "{}", run.stderr);
-    for reference in ["exact", "lp"] {
+    for reference in ["auto", "exact", "lp"] {
         let run = cli.run(&["check", "v.txt", "far.txt", "--reference", reference]);
-        assert!(!run.success, "{reference}");
+        assert_eq!(run.code, Some(2), "{reference}: {}", run.stderr);
         assert!(
             run.stderr.contains("check=refuted"),
             "{reference}: {}",
@@ -343,27 +352,221 @@ fn check_reports_conclusion_and_honors_reference() {
         );
         assert_eq!(run.stdout, "", "{reference}");
     }
-    let stderr = cli
-        .run(&["check", "v.txt", "sol.txt", "--reference", "fast"])
-        .error()
-        .to_string();
-    assert!(stderr.contains("--reference は exact・lp"), "{stderr}");
+    // 入力の誤りは終了コード 1。
+    let run = cli.run(&["check", "v.txt", "sol.txt", "--reference", "fast"]);
+    assert_eq!(run.code, Some(1));
+    assert!(
+        run.stderr.contains("--reference は auto・exact・lp"),
+        "{}",
+        run.stderr
+    );
     // 値を有理数として読む検証と、プレ仁の検証。
     let run = cli.run(&["check", "v.txt", "sol.txt", "--rational", "--pre"]);
     assert!(run.success, "{}", run.stderr);
     assert_eq!(run.stdout, "3\n2\n1\n");
+
+    // 基準の求め方で結論が変わる例: 値が 1e9 程度の 4 人の整数ゲーム (ビット順)。厳密な仁
+    // (7999999995/8, 4000000001/4, 3999999993/4, 8000000025/8) から、許容誤差 (4000) より十分小さい 2 だけ
+    // ずらした点は、逐次 LP の仁からは厳密な配分を復元できないので、基準が lp なら未決になる。
+    // 有理数の逐次 LP で基準を求め直す auto (既定)・exact は合格にする。
+    cli.file(
+        "large.txt",
+        "0\n0\n2000000002\n0\n2000000000\n2000000001\n3000000000\n0\n2000000005\n2000000002\n\
+         3000000000\n2000000003\n3000000001\n3000000004\n4000000001\n",
+    )
+    .file(
+        "near.txt",
+        "1000000001.375\n999999998.25\n999999998.25\n1000000003.125\n",
+    );
+    for arguments in [
+        &["check", "large.txt", "near.txt"][..],
+        &["check", "large.txt", "near.txt", "--reference", "auto"],
+        &["check", "large.txt", "near.txt", "--reference", "exact"],
+    ] {
+        let run = cli.run(arguments);
+        assert_eq!(run.code, Some(0), "{arguments:?}: {}", run.stderr);
+        assert_eq!(
+            run.stdout, "7999999995/8\n4000000001/4\n3999999993/4\n8000000025/8\n",
+            "{arguments:?}"
+        );
+    }
+    let run = cli.run(&["check", "large.txt", "near.txt", "--reference", "lp"]);
+    assert_eq!(run.code, Some(3), "{}", run.stderr);
+    assert!(run.stderr.contains("check=undecided"), "{}", run.stderr);
+}
+
+/// 分析のコマンドの許容誤差: compare は nucleolus と同じ手順、uncertainty と influence は指定しなければ
+/// 1 回だけ解く。どれも --tolerance・--rel-tolerance で指定できる。
+#[test]
+fn analysis_commands_accept_tolerance() {
+    let cli = Cli::new("analysis_tolerance");
+    cli.file("v.txt", V_TXT).file("large.txt", LARGE_TXT);
+    // 既定の手順と比 1e-7 の 1 回の解で、仁が異なるゲーム (large.txt) で既定を見分ける。
+    let first_row = |stdout: &str| -> String {
+        stdout
+            .lines()
+            .find(|line| line.starts_with("0\t") || line.starts_with("0 "))
+            .unwrap_or_else(|| panic!("0 番の解の行がない: {stdout}"))
+            .to_string()
+    };
+    let nucleolus = cli.run(&["nucleolus", "large.txt"]);
+    assert!(nucleolus.success, "{}", nucleolus.stderr);
+    assert!(
+        nucleolus.stderr.contains("solver=rational"),
+        "{}",
+        nucleolus.stderr
+    );
+    let single = cli.run(&["nucleolus", "large.txt", "--rel-tolerance", "1e-7"]);
+    assert_ne!(nucleolus.stdout, single.stdout);
+    // compare は、指定しなければ nucleolus と同じ既定の手順で仁を求める。
+    let compare_default = cli.run(&["compare", "large.txt"]);
+    assert!(compare_default.success, "{}", compare_default.stderr);
+    let compare_single = cli.run(&["compare", "large.txt", "--rel-tolerance", "1e-7"]);
+    assert!(compare_single.success, "{}", compare_single.stderr);
+    assert_ne!(
+        first_row(&compare_default.stdout),
+        first_row(&compare_single.stdout)
+    );
+    // influence・uncertainty は、指定しなければ比 1e-7 で 1 回だけ解く。
+    for command in ["influence", "uncertainty"] {
+        let default = cli.run(&[command, "large.txt"]);
+        assert!(default.success, "{command}: {}", default.stderr);
+        let single = cli.run(&[command, "large.txt", "--rel-tolerance", "1e-7"]);
+        assert_eq!(default.stdout, single.stdout, "{command}");
+    }
+    let default = cli.run(&["influence", "v.txt"]);
+    assert!(default.success, "{}", default.stderr);
+    for arguments in [
+        &["influence", "v.txt", "--rel-tolerance", "1e-7"][..],
+        &["influence", "v.txt", "--tolerance", "6e-7"],
+    ] {
+        let run = cli.run(arguments);
+        assert!(run.success, "{arguments:?}: {}", run.stderr);
+        // 既定は比 1e-7 で 1 回だけ解くので、同じ許容誤差を指定した結果と一致する。
+        assert_eq!(run.stdout, default.stdout, "{arguments:?}");
+    }
+    for arguments in [
+        &[
+            "uncertainty",
+            "v.txt",
+            "--samples",
+            "5",
+            "--rel-tolerance",
+            "1e-9",
+        ][..],
+        &["compare", "v.txt", "--rel-tolerance", "1e-9"],
+        &["compare", "v.txt", "--tolerance", "1e-6"],
+    ] {
+        let run = cli.run(arguments);
+        assert!(run.success, "{arguments:?}: {}", run.stderr);
+    }
+    for (arguments, message) in [
+        (
+            &[
+                "influence",
+                "v.txt",
+                "--solver",
+                "shapley",
+                "--tolerance",
+                "1e-6",
+            ][..],
+            "nucleolus・prenucleolus のときだけ",
+        ),
+        (
+            &[
+                "uncertainty",
+                "v.txt",
+                "--tolerance",
+                "1e-6",
+                "--rel-tolerance",
+                "1e-9",
+            ],
+            "どちらか一方だけ",
+        ),
+        (
+            &["compare", "v.txt", "--tolerance", "-1"],
+            "0 以上の有限の数ではない",
+        ),
+        // 値に比べて大きすぎる比は、解を省かずにエラーにする。
+        (
+            &["compare", "v.txt", "--rel-tolerance", "1e308"],
+            "大きすぎる",
+        ),
+        // 標本が 1 つも解けないときは、最初の失敗の理由を出す。
+        (
+            &[
+                "uncertainty",
+                "v.txt",
+                "--samples",
+                "5",
+                "--rel-tolerance",
+                "1e308",
+            ],
+            "大きすぎる",
+        ),
+    ] {
+        let run = cli.run(arguments);
+        assert_eq!(run.code, Some(1), "{arguments:?}");
+        assert!(
+            run.stderr.contains(message),
+            "{arguments:?}: {}",
+            run.stderr
+        );
+    }
+}
+
+/// convex-nucleolus の `--reference` は、`--assume` の事後検証の基準の仁の求め方を選ぶ。
+#[test]
+fn convex_nucleolus_honors_reference_with_assume() {
+    let cli = Cli::new("convex_reference");
+    cli.file("v.txt", V_TXT);
+    for reference in ["auto", "exact", "lp"] {
+        let run = cli.run(&[
+            "convex-nucleolus",
+            "v.txt",
+            "--assume",
+            "--reference",
+            reference,
+        ]);
+        assert!(run.success, "{reference}: {}", run.stderr);
+        assert_eq!(run.stdout, "3\n2\n1\n", "{reference}");
+        assert!(
+            run.stderr.contains("guarantee=certified"),
+            "{reference}: {}",
+            run.stderr
+        );
+    }
+    for (arguments, message) in [
+        (
+            &[
+                "convex-nucleolus",
+                "v.txt",
+                "--assume",
+                "--reference",
+                "fast",
+            ][..],
+            "auto・exact・lp",
+        ),
+        (
+            &["convex-nucleolus", "v.txt", "--reference", "lp"],
+            "--assume と併用する",
+        ),
+    ] {
+        let run = cli.run(arguments);
+        assert_eq!(run.code, Some(1), "{arguments:?}");
+        assert!(
+            run.stderr.contains(message),
+            "{arguments:?}: {}",
+            run.stderr
+        );
+    }
 }
 
 /// nucleolus の許容誤差: 指定すると 1 回だけ解き、指定しなければ既定の手順で求める。
 #[test]
 fn nucleolus_tolerance_options() {
     let cli = Cli::new("nucleolus_tolerance");
-    // 値が 1e12 程度の 4 人の整数ゲーム (ビット順)。逐次 LP の許容誤差では超過の段を分けられない。
-    // 仁は (999999999998.5, 1000000000001.25, 999999999999.75, 1000000000002.5)。
-    cli.file("v.txt", V_TXT).file(
-        "large.txt",
-        "0\n0\n2000000000002\n0\n2000000000001\n2000000000006\n3000000000002\n0\n2000000000006\n2000000000006\n3000000000005\n2000000000005\n3000000000002\n3000000000002\n4000000000002\n",
-    );
+    cli.file("v.txt", V_TXT).file("large.txt", LARGE_TXT);
     // 標準エラーの統計の `tolerance=` の値。
     let tolerance = |stderr: &str| -> f64 {
         let field = stderr
@@ -373,7 +576,7 @@ fn nucleolus_tolerance_options() {
         field.parse().unwrap()
     };
     let close = |actual: f64, expected: f64| (actual - expected).abs() <= 1e-12 * expected;
-    // 既定: 段が整合するゲームは比 1e-7 で 1 回だけ解く (max|v| = 6)。
+    // 既定: 解いた配分が Kohlberg 基準を満たすゲームは、比 1e-7 で 1 回だけ解く (max|v| = 6)。
     let run = cli.run(&["nucleolus", "v.txt"]);
     assert_eq!(run.stdout, "3\n2\n1\n");
     for expected in ["solver=lp", "refinements=0", "guarantee=exact"] {
