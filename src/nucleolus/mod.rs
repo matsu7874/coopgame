@@ -50,7 +50,7 @@ use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::{block_lower_bounds, coalition_sums, excess_table};
 use crate::game::exact::{ExactGame, to_rational};
-use crate::game::scale::check_tolerance;
+use crate::game::scale::{check_tolerance, rounding_magnitude};
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
@@ -360,7 +360,7 @@ pub fn has_nonempty_core(game: &ExplicitGame) -> Result<bool> {
     let exact_game = ExactGame::from_explicit(game)?;
     let epsilon = exact::least_core_epsilon(&exact_game, &seed)?;
     // 値は浮動小数点数なので、入力の丸めの大きさに収まる正の epsilon は 0 とみなす。
-    let rounding = 4.0 * n as f64 * f64::EPSILON * game.max_abs_value();
+    let rounding = rounding_magnitude(n, game.max_abs_value());
     Ok(epsilon <= to_rational(rounding)?)
 }
 

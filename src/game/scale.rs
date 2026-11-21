@@ -27,6 +27,31 @@ pub(crate) fn check_tolerance(tolerance: f64) -> Result<f64> {
     }
 }
 
+/// `players` 人のゲームで、最大絶対値が `magnitude` の値から和や差を作ったときの丸め誤差の目安
+/// `4 n ε magnitude` (`ε` は [`f64::EPSILON`])。
+///
+/// 10 進数の入力や浮動小数点数の和で作った値は、有理数では等しいはずの量がこの程度ずれる。
+/// 「ちょうど 0 か」「ちょうど等しいか」を値どおりに判定すると結論が丸めで変わる箇所では、
+/// 許容誤差 (`1e-7 max|v|` など、解の精度のための幅) ではなく、この大きさと比べる。
+pub(crate) fn rounding_magnitude(players: usize, magnitude: f64) -> f64 {
+    4.0 * players as f64 * f64::EPSILON * magnitude
+}
+
+/// `terms` 個の値の和 `sum` から `value` を引く。差が和の丸め誤差の範囲
+/// (`2 (terms + 1) ε max(|sum|, |value|)`) なら、ちょうど 0 を返す。
+///
+/// 費用から節約 `sum_{i in S} c({i}) - c(S)` を作るときに使う。費用が部分提携の費用の和に等しい提携の節約は
+/// 0 だが、浮動小数点数の和では `-3.6e-15` のような値になり、「値が 0 の提携」「非負のゲーム」の判定を狂わせる。
+pub(crate) fn difference_or_zero(sum: f64, value: f64, terms: usize) -> f64 {
+    let difference = sum - value;
+    let rounding = 2.0 * (terms as f64 + 1.0) * f64::EPSILON * sum.abs().max(value.abs());
+    if difference.abs() <= rounding {
+        0.0
+    } else {
+        difference
+    }
+}
+
 /// 値の大きさ `magnitude` (最大絶対値など) を、許容誤差の基準にする正の値にする。0 (全ての値が 0) なら 1。
 pub(crate) fn positive_scale(magnitude: f64) -> f64 {
     if magnitude > 0.0 && magnitude.is_finite() {

@@ -52,15 +52,16 @@
 //! 不満の数は per capita 仁・比例仁で `2^n`、modiclus で約 `4^n` なので、明示的に全ての行を LP に入れる。
 //! LP の時間とメモリが人数に対して指数的に増えるので、関数ごとにプレイヤー数の上限
 //! ([`MAX_PER_CAPITA_PLAYERS`]・[`MAX_PROPORTIONAL_PLAYERS`]・[`MAX_DISRUPTION_PLAYERS`]・[`MAX_MODICLUS_PLAYERS`]) を設け、
-//! 超えれば [`Error::TooManyPlayers`] を返す。上限は、代表的なゲームで 1 回の計算が 1 分以内・最大メモリ 1 GB 以内に
-//! 収まる人数である (計測は `docs/performance.md`)。
+//! 超えれば [`Error::TooManyPlayers`] を返す。per capita 仁・比例仁・disruption nucleolus の上限は、計測したゲームで
+//! 1 回の計算が 1 分以内・最大メモリ 1 GB 以内に収まる人数である (計測は `docs/performance.md`)。
+//! 比例仁は、`v(S) = 0` の提携が多いゲームでは行が増え、上限の人数でメモリがこれを超えることがある。
 
 use microlp::{Problem, Variable};
 
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::lower_bounds;
-use crate::game::scale::{check_tolerance, normalizer};
+use crate::game::scale::{check_tolerance, normalizer, rounding_magnitude};
 use crate::game::{Coalition, ExplicitGame, PlayerSet, default_tolerance};
 use crate::linalg::{Span, indicator};
 use crate::lp::{self, Cmp, Counter};
@@ -72,7 +73,8 @@ pub const MAX_MODICLUS_PLAYERS: usize = 7;
 /// [`per_capita_nucleolus`] が扱うプレイヤー数の上限 (不満の数は `2^n - 2`)。
 pub const MAX_PER_CAPITA_PLAYERS: usize = 17;
 
-/// [`proportional_nucleolus`] が扱うプレイヤー数の上限 (不満と制約の数は合わせて `2^n - 2`)。
+/// [`proportional_nucleolus`] が扱うプレイヤー数の上限。LP の行は、`v(S) > 0` の提携ごとに不満が 1 つ、
+/// `v(S) = 0` の提携ごとに制約と不満が 1 つずつで、`2^n - 2` 個から、その 2 倍までの間になる。
 pub const MAX_PROPORTIONAL_PLAYERS: usize = 17;
 
 /// [`disruption_nucleolus`] が扱うプレイヤー数の上限 (コアの制約が `2^n - 2` 個、不満がその数以下)。
@@ -170,6 +172,9 @@ fn lexicographic_minimum_in_order(
     validate_problem(players, feasible, complaints.iter().copied(), tolerance)?;
     // 定数と重みをそれぞれ 2 のべき乗で割る (丸めは起きない)。
     // 配分は定数と同じ倍率、不満の値は 定数の倍率 / 重みの倍率 で変わる。
+    // 重みは組ごとに割る。不満どうしを比べるのは同じ組の中だけなので、組ごとに別の数で割っても順序は変わらない。
+    // 全ての組を同じ数で割ると、重みの大きさが組によって桁違いのとき (比例仁の `v(S)` と 1 など)、
+    // 小さい方の重みが LP の中で 0 と区別できなくなる。
     let constants = complaints
         .iter()
         .map(|c| c.constant)
@@ -177,8 +182,11 @@ fn lexicographic_minimum_in_order(
         .chain(feasible.lower.iter().flatten().copied())
         .chain(feasible.constraints.iter().map(|(_, b)| *b))
         .fold(0.0, |acc: f64, v| acc.max(v.abs()));
-    let weights = complaints.iter().fold(0.0, |acc: f64, c| acc.max(c.weight));
-    let (value_divisor, weight_divisor) = (normalizer(constants), normalizer(weights));
+    let value_divisor = normalizer(constants);
+    let weight_divisors: Vec<f64> = groups
+        .iter()
+        .map(|group| normalizer(group.iter().fold(0.0, |acc: f64, c| acc.max(c.weight))))
+        .collect();
     let normalized_feasible = Feasible {
         total: feasible.total / value_divisor,
         lower: feasible
@@ -191,12 +199,15 @@ fn lexicographic_minimum_in_order(
             .map(|(a, b)| (a.clone(), b / value_divisor))
             .collect(),
     };
-    let normalized_complaints: Vec<Complaint> = complaints
+    let normalized_complaints: Vec<Complaint> = groups
         .iter()
-        .map(|c| Complaint {
-            coefficients: c.coefficients.clone(),
-            constant: c.constant / value_divisor,
-            weight: c.weight / weight_divisor,
+        .zip(&weight_divisors)
+        .flat_map(|(group, weight_divisor)| {
+            group.iter().map(move |c| Complaint {
+                coefficients: c.coefficients.clone(),
+                constant: c.constant / value_divisor,
+                weight: c.weight / weight_divisor,
+            })
         })
         .collect();
     // 組ごとの不満の番号。後の組から順に取り出すので逆順に持つ。
@@ -222,12 +233,12 @@ fn lexicographic_minimum_in_order(
     };
     solver.span.insert(&vec![1.0; players]);
     solver.drop_determined();
-    let mut result = solver.run()?;
+    let (mut result, level_groups) = solver.run()?;
     for value in &mut result.allocation {
         *value *= value_divisor;
     }
-    for level in &mut result.levels {
-        *level *= value_divisor / weight_divisor;
+    for (level, group) in result.levels.iter_mut().zip(level_groups) {
+        *level *= value_divisor / weight_divisors[group];
     }
     Ok(result)
 }
@@ -307,29 +318,35 @@ struct Lexicographic<'a> {
 }
 
 impl Lexicographic<'_> {
-    fn run(mut self) -> Result<LexicographicResult> {
+    /// 結果と、各段がどの組 (0 始まり) の不満の段かを返す。
+    fn run(mut self) -> Result<(LexicographicResult, Vec<usize>)> {
         if let Some(point) = self.single_point() {
-            return Ok(LexicographicResult {
+            let result = LexicographicResult {
                 allocation: point,
                 levels: Vec::new(),
                 lp_solves: 0,
                 guarantee: Guarantee::Exact,
-            });
+            };
+            return Ok((result, Vec::new()));
         }
         let mut levels = Vec::new();
+        let mut level_groups = Vec::new();
+        let mut group = 0;
         let mut allocation = None;
         loop {
             while !self.open.is_empty() {
                 let (level, x) = self.minimize_max_complaint()?;
                 levels.push(level);
+                level_groups.push(group);
                 self.fix_tight(level, &x)?;
                 self.drop_determined();
                 allocation = Some(x);
             }
             // 前の組の辞書式最小の集合 (確定した等式) の上で、次の組を最小化する。
             match self.pending.pop() {
-                Some(group) => {
-                    self.open = group;
+                Some(next) => {
+                    self.open = next;
+                    group += 1;
                     self.drop_determined();
                 }
                 None => break,
@@ -344,12 +361,13 @@ impl Lexicographic<'_> {
                 "不満の係数が R^n を張らず、辞書式最小の配分が一意に定まらない".into(),
             ));
         }
-        Ok(LexicographicResult {
+        let result = LexicographicResult {
             allocation,
             levels,
             lp_solves: self.counter.solves,
             guarantee: Guarantee::Exact,
-        })
+        };
+        Ok((result, level_groups))
     }
 
     /// 下限の和が `total` に (和の丸め誤差を除いて) 等しく、他の制約も許容誤差以内で満たすなら、
@@ -723,39 +741,44 @@ pub fn anti_nucleolus(game: &ExplicitGame) -> Result<crate::nucleolus::Nucleolus
 ///   1 人提携の値が 0 のゲームでは `x_i >= 0` が式 (9) から従う。
 /// - [`Domain::Imputation`] は、個人合理性 `x_i >= v({i})` を足した形である。
 ///
-/// 非負のゲームに限る。`v(S)` が許容誤差 ([`default_tolerance`]) 以下の絶対値なら 0 とみなし
-/// (費用から浮動小数点数で作った節約ゲームの丸め誤差)、それより負の値があれば [`Error::InvalidArgument`] を返す。
+/// 非負のゲームに限る。`v(S)` の絶対値が丸めの大きさ `4 n ε max|v|` 以下なら 0 とみなし
+/// (浮動小数点数の和や差で作った値の丸め誤差)、それより負の値があれば [`Error::InvalidArgument`] を返す。
+/// 解の精度のための許容誤差 (`1e-7 max|v|`) では比べない。値の大きさに比べて小さい正の値 (`v(N) = 1e7` に対する
+/// `v(S) = 1` など) も、定義どおり比例超過の分母にする。
+/// 費用から節約ゲームを作るときは [`crate::games::cost::CostGame::savings_game`] を使うと、和の丸めが 0 になる。
 ///
 /// プレイヤー数は [`MAX_PROPORTIONAL_PLAYERS`] 以下に限る。
 pub fn proportional_nucleolus(game: &ExplicitGame, domain: Domain) -> Result<LexicographicResult> {
     check_players(game, MAX_PROPORTIONAL_PLAYERS)?;
     let n = game.players();
     let tolerance = default_tolerance(game);
-    if let Some(mask) = game.values().iter().position(|v| *v < -tolerance) {
+    // 0 とみなすのは丸めの範囲だけにする (解の精度のための許容誤差では、小さい正の値を落としてしまう)。
+    let zero = rounding_magnitude(n, game.max_abs_value());
+    if let Some(mask) = game.values().iter().position(|v| *v < -zero) {
         return Err(Error::InvalidArgument(format!(
-            "比例仁は非負のゲームに限る: v({}) = {} (許容誤差 {tolerance})",
+            "比例仁は非負のゲームに限る: v({}) = {} (丸めとみなす範囲は {zero:e} まで)",
             Coalition(mask as u64),
             game.values()[mask]
         )));
     }
     let mut feasible = feasible_set(game, domain)?;
     let mut positive = Vec::new();
-    let mut zero = Vec::new();
+    let mut without_value = Vec::new();
     for s in proper_coalitions(game) {
         let value = game.value(s);
-        if value > tolerance {
+        if value > zero {
             positive.push(excess_complaint(game, s, value));
         } else {
             // v(S) = 0 とみなす: 制約 x(S) >= 0 と、第 2 の組の不満 a = -x(S)。
             feasible.constraints.push((indicator(s, n), 0.0));
-            zero.push(Complaint {
+            without_value.push(Complaint {
                 coefficients: indicator(s, n),
                 constant: 0.0,
                 weight: 1.0,
             });
         }
     }
-    lexicographic_minimum_in_order(n, &feasible, &[&positive, &zero], tolerance)
+    lexicographic_minimum_in_order(n, &feasible, &[&positive, &without_value], tolerance)
 }
 
 /// modiclus (修正仁): 超過の差 (bi-excess) `e(S, x) - e(T, x)` のベクトルを辞書式に最小化する準配分。
@@ -1145,17 +1168,68 @@ mod tests {
     fn proportional_treats_rounding_noise_as_zero() {
         // 費用から浮動小数点数で作った節約ゲームでは、0 のはずの値が -3.6e-15 などになる。
         let exact = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 0.4, 0.0, 0.4, 1.6]).unwrap();
-        let noisy = ExplicitGame::from_lex(&[-3.6e-15, 2e-16, 0.0, 0.4, -1e-15, 0.4, 1.6]).unwrap();
+        let noisy = ExplicitGame::from_lex(&[-3.6e-16, 2e-16, 0.0, 0.4, -1e-16, 0.4, 1.6]).unwrap();
         for domain in [Domain::Imputation, Domain::Preimputation] {
             let x = proportional_nucleolus(&exact, domain).unwrap();
             let y = proportional_nucleolus(&noisy, domain).unwrap();
             assert_close(y.allocation(), x.allocation(), 1e-12);
             assert_close(x.allocation(), &[0.0, 1.6, 0.0], 1e-12);
         }
-        // 許容誤差より負の値は拒否する。
-        let negative = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 0.4, -1e-3, 0.4, 1.6]).unwrap();
-        let err = proportional_nucleolus(&negative, Domain::Preimputation).unwrap_err();
-        assert!(matches!(err, Error::InvalidArgument(_)), "{err}");
+        // 丸めの大きさを超えて負の値は拒否する。
+        for negative in [-1e-3, -1e-9, -1e-12] {
+            let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 0.4, negative, 0.4, 1.6]).unwrap();
+            let err = proportional_nucleolus(&game, Domain::Preimputation).unwrap_err();
+            assert!(
+                matches!(err, Error::InvalidArgument(_)),
+                "{negative}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn proportional_keeps_small_positive_values() {
+        // v({0, 1}) = 1、v(N) = 1e7、他は 0。式 (9) は x_0 + x_1 >= (1 - t) で、t を最小にするには
+        // x_0 + x_1 = 1e7、x_2 = 0。残りは v(S) = 0 の提携の順序づけで x_0 = x_1 に決まる。
+        // 値の大きさに比べて小さい正の値 (1e-7 max|v|) を 0 とみなすと、等分 (1e7 / 3 ずつ) になってしまう。
+        for v01 in [1.0, 2.0, 1e-3] {
+            let game = ExplicitGame::from_binary(&[0.0, 0.0, v01, 0.0, 0.0, 0.0, 1e7]).unwrap();
+            let x = proportional_nucleolus(&game, Domain::Preimputation).unwrap();
+            assert_close(x.allocation(), &[5e6, 5e6, 0.0], 1e-3);
+        }
+    }
+
+    #[test]
+    fn proportional_scales_with_the_game() {
+        // 値を c 倍すると、配分は c 倍、比例超過の段はそのまま、v(S) = 0 の提携の段 (-x(S)) は c 倍になる。
+        // 2 つの組の重み (v(S) と 1) を同じ数で割ると、値が 1 から大きく離れたゲームで片方の重みが
+        // 潰れて LP が解けなくなる。
+        let games: [(&[f64], &[f64]); 3] = [
+            // YOH1982 の 3 自治体の節約ゲーム (ビット順)。比例超過だけで決まる。
+            (&[0.0, 0.0, 0.4, 0.0, 0.0, 0.4, 1.6], &[0.0, 1.6, 0.0]),
+            // v({0, 1}) = v(N) = 1: x_2 = 0 に固定され、残りは v(S) = 0 の提携の順序づけで決まる。
+            (&[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], &[0.5, 0.5, 0.0]),
+            // v({1, 2}) = 4、v(N) = 5: 比例超過は x_1 + x_2 だけを決め、残りは順序づけで決まる。
+            (&[0.0, 0.0, 0.0, 0.0, 0.0, 4.0, 5.0], &[0.0, 2.5, 2.5]),
+        ];
+        for (values, expected) in games {
+            let base = ExplicitGame::from_binary(values).unwrap();
+            let reference = proportional_nucleolus(&base, Domain::Preimputation).unwrap();
+            assert_close(reference.allocation(), expected, 1e-9);
+            for exponent in [-60, -40, -20, 20, 32, 40, 60] {
+                let c = 2f64.powi(exponent);
+                let scaled: Vec<f64> = values.iter().map(|v| v * c).collect();
+                let game = ExplicitGame::from_binary(&scaled).unwrap();
+                let result = proportional_nucleolus(&game, Domain::Preimputation)
+                    .unwrap_or_else(|err| panic!("2^{exponent} 倍: {err}"));
+                let back: Vec<f64> = result.allocation().iter().map(|v| v / c).collect();
+                assert_close(&back, expected, 1e-9);
+                assert_eq!(
+                    result.levels().len(),
+                    reference.levels().len(),
+                    "2^{exponent}"
+                );
+            }
+        }
     }
 
     #[test]

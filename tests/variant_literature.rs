@@ -156,8 +156,9 @@ fn yoh_six_municipalities_shapley_nucleolus_and_weak_nucleolus() {
     }
 }
 
-/// Table 6 の比例仁。節約ゲームは費用から浮動小数点数で作るので、0 のはずの値に丸め誤差が残る
-/// (`CostGame::savings_game` の出力をそのまま渡しても解けること)。
+/// Table 6 の比例仁。費用が 1 人提携の費用の和に等しい提携 (論文の表の「A, K」「A, K, L, T」など 14 個) の
+/// 節約は 0 で、`CostGame::savings_game` は、浮動小数点数の和の丸め (`-3.6e-15` など) をちょうど 0 にする。
+/// その出力をそのまま渡して解けること。
 ///
 /// 第 1 段 (比例超過の最大値 -0.148) と、その段でタイトな提携 AHL・AHKMT・HKLMT・AKLMT は、
 /// 論文の配分 (20.36, 12.46, 3.52, 8.67, 18.82, 19.99) と一致する (論文の配分は小数 2 桁なので 1e-3 の幅で比べる)。
@@ -167,10 +168,12 @@ fn yoh_six_municipalities_shapley_nucleolus_and_weak_nucleolus() {
 fn yoh_six_municipalities_proportional_nucleolus() {
     let game = six_municipalities();
     let savings = game.savings_game().unwrap();
-    assert!(
-        savings.values().iter().any(|v| *v < 0.0),
-        "節約が 0 のはずの提携に負の丸め誤差がある"
-    );
+    let without_savings = (1..63u64)
+        .filter(|&mask| savings.value(Coalition(mask)) == 0.0)
+        .count();
+    // 1 人提携 6 個と、費用が 1 人提携の費用の和になる提携 14 個。
+    assert_eq!(without_savings, 20);
+    assert!(savings.values().iter().all(|v| *v >= 0.0));
     let ratio = |s: Coalition, x: &[f64]| (savings.value(s) - s.sum(x)) / savings.value(s);
     let positive: Vec<Coalition> = (1..63u64)
         .map(Coalition)

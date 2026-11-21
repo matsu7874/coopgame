@@ -59,6 +59,7 @@ use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::exact::{self, ExactGame, Rational};
 use crate::game::oracle::OracleGame;
+use crate::game::scale::difference_or_zero;
 use crate::game::{Coalition, ExplicitGame, MAX_PLAYERS, PlayerSet, SetFunction, strip_bom};
 use crate::nucleolus::NucleolusResult;
 use crate::sorted::{LazySorted, by_excess_desc};
@@ -689,7 +690,10 @@ impl GameData {
         let known = self
             .known
             .iter()
-            .map(|(c, cost)| (*c, c.members().map(|i| standalone[i]).sum::<f64>() - cost))
+            .map(|(c, cost)| {
+                let alone: f64 = c.members().map(|i| standalone[i]).sum();
+                (*c, difference_or_zero(alone, *cost, c.len()))
+            })
             .collect();
         Ok(GameData {
             players: self.players,
