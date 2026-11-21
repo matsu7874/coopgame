@@ -12,6 +12,7 @@ use common::max_abs_difference;
 use coopgame::game::exact::ExactGame;
 use coopgame::nucleolus::{self, Options, Tolerance, exact};
 use coopgame::num_traits::ToPrimitive;
+use coopgame::verify;
 use coopgame::{Domain, Error, ExplicitGame, Guarantee, generators};
 
 /// 値が `scale * |S| + 0..6` (1 人提携は 0) の整数ゲーム。超過の段の間隔は 1 以下になる。
@@ -283,5 +284,61 @@ fn default_does_not_call_inconsistent_levels_exact_beyond_rational_limit() {
     assert!(
         is_equal_split || auto.guarantee() == Guarantee::Approximate,
         "{auto:?}"
+    );
+}
+
+/// 下限 `x_0 = v({0})` にいるプレイヤー 0 を含む提携の超過がどれも低いゲーム。超過の高い段の提携は
+/// プレイヤー 0 を含まないので、提携の特性ベクトルだけでは多くの段を読んでも `R^n` を張らない。
+/// Kohlberg 基準の確認は、`1_N` も張る空間に数えて打ち切るので、少ない段で終わる。
+#[test]
+fn kohlberg_check_stops_early_when_a_player_stays_at_the_lower_bound() {
+    let n = 12;
+    let full = (1usize << n) - 1;
+    let grand = 1e7 * (n - 1) as f64;
+    // プレイヤー 0 を含まない提携の値。
+    let without_first = |mask: usize| -> f64 {
+        match mask.count_ones() as usize {
+            0 | 1 => 0.0,
+            size if size == n - 1 => grand + 1e8,
+            size => {
+                let noise = 1 + (mask as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) % 999_999;
+                1e7 * size as f64 + noise as f64
+            }
+        }
+    };
+    let values: Vec<f64> = (1..=full)
+        .map(|mask| {
+            if mask == full {
+                grand
+            } else if mask & 1 == 0 {
+                without_first(mask)
+            } else if mask == 1 {
+                0.0
+            } else {
+                without_first(mask & !1) - 1e9
+            }
+        })
+        .collect();
+    let game = ExplicitGame::from_binary(&values).unwrap();
+    let result = nucleolus::nucleolus(&game).unwrap();
+    assert!(
+        result.allocation()[0].abs() <= 1e-3,
+        "{}",
+        result.allocation()[0]
+    );
+    let report = verify::kohlberg(&game, result.allocation(), Domain::Imputation).unwrap();
+    assert!(report.satisfied, "{:?}", report.reason);
+    assert!(
+        report.levels_checked <= n,
+        "{} 段を読んだ",
+        report.levels_checked
+    );
+    // 有理数の判定も同じ条件で打ち切る。
+    let exact = verify::certify(&game, result.allocation(), Domain::Imputation).unwrap();
+    assert!(exact.satisfied, "{:?}", exact.reason);
+    assert!(
+        exact.levels_checked <= n,
+        "有理数の判定が {} 段を読んだ",
+        exact.levels_checked
     );
 }

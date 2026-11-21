@@ -1,12 +1,17 @@
 /-
-Kohlberg 基準の判定 (src/verify/kohlberg.rs, src/verify/exact.rs) が使う 2 つの変形の証明。
+Kohlberg 基準の判定 (src/levels.rs, src/verify/exact.rs) が使う 2 つの変形の証明。
 
-* `PosCombination.mono_of_span_eq_top` : 族が全空間を張って平衡なら、それを含むどの族も平衡である
-  (`PosCombination.union_of_mem_span` から導く)。判定はこれを根拠に、族の階数が n に達した段で打ち切る。
+* `PosCombination.mono_of_span_insert_eq_top` : 族が正の重みで `b - r` を表し、族と `b` が全空間を張るなら、
+  それを含むどの族も、ある正の数 `μ` について正の重みで `b - μ • r` を表す
+  (`PosCombination.union_of_mem_span_insert` から導く)。判定はこれを根拠に、族と `1_N` の階数が n に達した段で
+  打ち切る。
 * `posCombination_iff_ge_one`        : 「正の重みで b を表せる」ことは、
   「1 以上の重みで b の正数倍を表せる」ことと同値である。`is_balanced` はこの形を LP で判定する。
 
-ベクトル `a i` が提携の特性ベクトル、`b` が `1_N` (仁の場合は下限に張り付いた単集合の分を引いたもの) に当たる。
+ベクトル `a i` が提携の特性ベクトル、`b` が `1_N` に当たる。`r` は、仁の場合に下限に張り付いた単集合に
+非負の重みを付けた和に当たる (プレ仁では 0)。`μ • r` も同じ単集合に非負の重みを付けた和なので、
+正の重みで `b - μ • r` を表せることは、その族が平衡であることを意味する。
+`posCombination_iff_ge_one` では、`b` が `1_N` から `r` を引いたものに当たる。
 Kohlberg 基準そのもの (平衡性と仁・プレ仁の同値) は文献の定理であり、ここでは証明していない。
 -/
 import Mathlib
@@ -22,72 +27,101 @@ def PosCombination (s : Finset ι) (a : ι → V) (b : V) : Prop :=
   ∃ w : ι → ℝ, (∀ i ∈ s, 0 < w i) ∧ ∑ i ∈ s, w i • a i = b
 
 omit [DecidableEq ι] in
-/-- 有限個の正の数 `w i` に対して、`ε * c i < w i` を全て満たす正の `ε` がある。 -/
-theorem exists_small_step (s : Finset ι) (w c : ι → ℝ) (hw : ∀ i ∈ s, 0 < w i) :
-    ∃ ε : ℝ, 0 < ε ∧ ∀ i ∈ s, ε * c i < w i := by
+/-- 有限個の正の数 `w i` と実数 `β` に対して、`ε * c i < w i` を全て満たし、`0 < 1 + ε * β` も満たす
+正の `ε` がある。 -/
+theorem exists_small_step (s : Finset ι) (w c : ι → ℝ) (hw : ∀ i ∈ s, 0 < w i) (β : ℝ) :
+    ∃ ε : ℝ, 0 < ε ∧ (∀ i ∈ s, ε * c i < w i) ∧ 0 < 1 + ε * β := by
   have hterm : ∀ j ∈ s, 0 ≤ |c j| / w j := fun j hj => div_nonneg (abs_nonneg _) (hw j hj).le
   have hnn : 0 ≤ ∑ j ∈ s, |c j| / w j := Finset.sum_nonneg hterm
-  have hpos : 0 < 1 + ∑ j ∈ s, |c j| / w j := by linarith
-  refine ⟨(1 + ∑ j ∈ s, |c j| / w j)⁻¹, inv_pos.mpr hpos, ?_⟩
-  intro i hi
-  rw [inv_mul_lt_iff₀ hpos]
-  have hle : |c i| / w i ≤ ∑ j ∈ s, |c j| / w j :=
-    Finset.single_le_sum (f := fun j => |c j| / w j) hterm hi
-  have hci : |c i| ≤ (∑ j ∈ s, |c j| / w j) * w i := by
-    have := mul_le_mul_of_nonneg_right hle (hw i hi).le
-    rwa [div_mul_cancel₀ _ (hw i hi).ne'] at this
-  nlinarith [le_abs_self (c i), hw i hi]
+  have hβ : 0 ≤ |β| := abs_nonneg β
+  have hpos : 0 < 1 + |β| + ∑ j ∈ s, |c j| / w j := by linarith
+  have hε : 0 < (1 + |β| + ∑ j ∈ s, |c j| / w j)⁻¹ := inv_pos.mpr hpos
+  refine ⟨(1 + |β| + ∑ j ∈ s, |c j| / w j)⁻¹, hε, ?_, ?_⟩
+  · intro i hi
+    rw [inv_mul_lt_iff₀ hpos]
+    have hle : |c i| / w i ≤ ∑ j ∈ s, |c j| / w j :=
+      Finset.single_le_sum (f := fun j => |c j| / w j) hterm hi
+    have hci : |c i| ≤ (∑ j ∈ s, |c j| / w j) * w i := by
+      have := mul_le_mul_of_nonneg_right hle (hw i hi).le
+      rwa [div_mul_cancel₀ _ (hw i hi).ne'] at this
+    nlinarith [le_abs_self (c i), hw i hi, mul_nonneg hβ (hw i hi).le]
+  · have hlt : (1 + |β| + ∑ j ∈ s, |c j| / w j)⁻¹ * |β| < 1 := by
+      rw [inv_mul_lt_iff₀ hpos]
+      linarith
+    have hge : 0 ≤ (1 + |β| + ∑ j ∈ s, |c j| / w j)⁻¹ * (β + |β|) :=
+      mul_nonneg hε.le (by linarith [neg_abs_le β])
+    nlinarith
 
-/-- 族の張る空間に入るベクトルを 1 つ足しても、正の重みで `b` を表せる。 -/
-theorem PosCombination.insert_of_mem_span {s : Finset ι} {a : ι → V} {b : V}
-    (h : PosCombination s a b) {j : ι}
-    (hj : a j ∈ Submodule.span ℝ (a '' (s : Set ι))) :
-    PosCombination (insert j s) a b := by
+/-- 張る空間に `b` も数えてよい。族 `s` が正の重みで `b - r` を表し、`a j` が `s` と `b` の張る空間に入るなら、
+ある正の数 `μ` について、`j` を足した族は正の重みで `b - μ • r` を表す。 -/
+theorem PosCombination.insert_of_mem_span_insert {s : Finset ι} {a : ι → V} {b r : V}
+    (h : PosCombination s a (b - r)) {j : ι}
+    (hj : a j ∈ Submodule.span ℝ (insert b (a '' (s : Set ι)))) :
+    ∃ μ : ℝ, 0 < μ ∧ PosCombination (insert j s) a (b - μ • r) := by
   by_cases hjs : j ∈ s
-  · rwa [Finset.insert_eq_of_mem hjs]
+  · exact ⟨1, one_pos, by rwa [Finset.insert_eq_of_mem hjs, one_smul]⟩
   obtain ⟨w, hw, hsum⟩ := h
-  obtain ⟨c, hc⟩ := (Submodule.mem_span_image_finset_iff_exists_fun' ℝ).mp hj
-  obtain ⟨ε, hε, hsmall⟩ := exists_small_step s w c hw
-  refine ⟨fun i => if i = j then ε else w i - ε * c i, ?_, ?_⟩
+  obtain ⟨β, z, hz, hjeq⟩ := Submodule.mem_span_insert.mp hj
+  obtain ⟨c, hc⟩ := (Submodule.mem_span_image_finset_iff_exists_fun' ℝ).mp hz
+  obtain ⟨ε, hε, hsmall, hscale⟩ := exists_small_step s w c hw β
+  -- `ε • a j + Σ (w i - ε c i) • a i = (1 + ε β) • b - r` を `1 + ε β` で割る。
+  set μ : ℝ := (1 + ε * β)⁻¹ with hμdef
+  have hμ : 0 < μ := inv_pos.mpr hscale
+  have hμone : μ * ε * β + μ = 1 := by
+    have : μ * ε * β + μ = μ * (1 + ε * β) := by ring
+    rw [this, hμdef, inv_mul_cancel₀ hscale.ne']
+  refine ⟨μ, hμ, fun i => if i = j then μ * ε else μ * (w i - ε * c i), ?_, ?_⟩
   · intro i hi
     rcases Finset.mem_insert.mp hi with rfl | his
-    · simpa using hε
+    · simpa using mul_pos hμ hε
     · have hne : i ≠ j := fun h => hjs (h ▸ his)
-      simpa [hne] using hsmall i his
+      have hpos : 0 < w i - ε * c i := by linarith [hsmall i his]
+      simpa [hne] using mul_pos hμ hpos
   · rw [Finset.sum_insert hjs]
-    have hrest : ∑ i ∈ s, (if i = j then ε else w i - ε * c i) • a i
-        = ∑ i ∈ s, (w i • a i - ε • (c i • a i)) := by
+    have hrest : ∑ i ∈ s, (if i = j then μ * ε else μ * (w i - ε * c i)) • a i
+        = μ • (∑ i ∈ s, w i • a i) - (μ * ε) • ∑ i ∈ s, c i • a i := by
+      rw [Finset.smul_sum, Finset.smul_sum, ← Finset.sum_sub_distrib]
       apply Finset.sum_congr rfl
       intro i his
       have hne : i ≠ j := fun h => hjs (h ▸ his)
-      simp [hne, sub_smul, mul_smul]
-    rw [hrest, Finset.sum_sub_distrib, ← Finset.smul_sum, hc, hsum]
-    simp
+      simp [hne, sub_smul, mul_smul, mul_sub]
+    rw [hrest, hc, hsum, hjeq]
+    simp only [ite_true]
+    calc (μ * ε) • (β • b + z) + (μ • (b - r) - (μ * ε) • z)
+        = (μ * ε * β + μ) • b - μ • r := by
+          simp only [smul_add, smul_sub, smul_smul, add_smul]
+          abel
+      _ = b - μ • r := by rw [hμone, one_smul]
 
-/-- 族 `s` が正の重みで `b` を表し、`u` の全てのベクトルが `s` の張る空間に入るなら、
-`s ∪ u` も正の重みで `b` を表す。`s` が全空間を張れば、`u` は任意でよい。 -/
-theorem PosCombination.union_of_mem_span {s : Finset ι} {a : ι → V} {b : V}
-    (h : PosCombination s a b) (u : Finset ι)
-    (hu : ∀ j ∈ u, a j ∈ Submodule.span ℝ (a '' (s : Set ι))) :
-    PosCombination (s ∪ u) a b := by
+/-- 族 `s` が正の重みで `b - r` を表し、`u` の全てのベクトルが `s` と `b` の張る空間に入るなら、
+ある正の数 `μ` について、`s ∪ u` は正の重みで `b - μ • r` を表す。 -/
+theorem PosCombination.union_of_mem_span_insert {s : Finset ι} {a : ι → V} {b r : V}
+    (h : PosCombination s a (b - r)) (u : Finset ι)
+    (hu : ∀ j ∈ u, a j ∈ Submodule.span ℝ (insert b (a '' (s : Set ι)))) :
+    ∃ μ : ℝ, 0 < μ ∧ PosCombination (s ∪ u) a (b - μ • r) := by
   induction u using Finset.induction_on with
-  | empty => simpa using h
+  | empty => exact ⟨1, one_pos, by simpa using h⟩
   | insert j u _ ih =>
-    have ih' := ih (fun k hk => hu k (Finset.mem_insert_of_mem hk))
-    have hj : a j ∈ Submodule.span ℝ (a '' ((s ∪ u : Finset ι) : Set ι)) := by
+    obtain ⟨μ, hμ, ih'⟩ := ih (fun k hk => hu k (Finset.mem_insert_of_mem hk))
+    have hj : a j ∈ Submodule.span ℝ (insert b (a '' ((s ∪ u : Finset ι) : Set ι))) := by
       refine Submodule.span_mono ?_ (hu j (Finset.mem_insert_self j u))
+      apply Set.insert_subset_insert
       apply Set.image_mono
       exact_mod_cast Finset.subset_union_left
-    have := ih'.insert_of_mem_span hj
-    rwa [Finset.union_insert]
+    obtain ⟨ν, hν, hins⟩ := ih'.insert_of_mem_span_insert hj
+    refine ⟨ν * μ, mul_pos hν hμ, ?_⟩
+    rw [Finset.union_insert, mul_smul]
+    exact hins
 
-/-- 打ち切りの根拠。族 `s` が全空間を張って正の重みで `b` を表すなら、
-`s` を含むどの族も正の重みで `b` を表す。 -/
-theorem PosCombination.mono_of_span_eq_top {s t : Finset ι} {a : ι → V} {b : V}
-    (h : PosCombination s a b) (hspan : Submodule.span ℝ (a '' (s : Set ι)) = ⊤)
-    (hst : s ⊆ t) : PosCombination t a b := by
-  have := h.union_of_mem_span t (fun j _ => by rw [hspan]; exact Submodule.mem_top)
-  rwa [Finset.union_eq_right.mpr hst] at this
+/-- 打ち切りの根拠。族 `s` が正の重みで `b - r` を表し、`s` と `b` が全空間を張るなら、
+`s` を含むどの族も、ある正の数 `μ` について正の重みで `b - μ • r` を表す。 -/
+theorem PosCombination.mono_of_span_insert_eq_top {s t : Finset ι} {a : ι → V} {b r : V}
+    (h : PosCombination s a (b - r))
+    (hspan : Submodule.span ℝ (insert b (a '' (s : Set ι))) = ⊤)
+    (hst : s ⊆ t) : ∃ μ : ℝ, 0 < μ ∧ PosCombination t a (b - μ • r) := by
+  obtain ⟨μ, hμ, hunion⟩ :=
+    h.union_of_mem_span_insert t (fun j _ => by rw [hspan]; exact Submodule.mem_top)
+  exact ⟨μ, hμ, by rwa [Finset.union_eq_right.mpr hst] at hunion⟩
 
 omit [DecidableEq ι] in
 /-- `is_balanced` の LP の形。空でない族 `s` について、正の重みで `b` を表せることは、

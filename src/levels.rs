@@ -118,8 +118,10 @@ pub(crate) struct KohlbergCheck {
 ///
 /// 和・個人合理性を `tolerance` で確かめ、超過が先頭から `tolerance` 以内の提携を同じ段として読み、
 /// 段を上から順に合わせた提携族がどれも平衡かを LP で判定する。仁では、`x_i <= v({i}) + tolerance` の
-/// 1 人提携を重み 0 以上で加えてよい。提携族の特性ベクトルが `R^n` を張った段で打ち切る
-/// (張って平衡なら、それ以降の段も平衡になる)。下限にいるプレイヤーの 1 人提携は、張る空間には数えない。
+/// 1 人提携を重み 0 以上で加えてよい。提携族の特性ベクトルと `1_N` が `R^n` を張った段で打ち切る
+/// (張って平衡なら、それ以降の段も平衡になる。Lean による証明: リポジトリの `proofs/` の
+/// `PosCombination.mono_of_span_insert_eq_top`)。下限にいるプレイヤーの 1 人提携は、張る空間には数えない
+/// (重みが 0 でもよいので、それを使って表した提携に正の重みを移せない)。
 /// `x` の長さがプレイヤー数と異なる・成分が有限でない場合は不成立にする。
 pub(crate) fn kohlberg_at(
     game: &ExplicitGame,
@@ -152,7 +154,9 @@ pub(crate) fn kohlberg_at(
 
     let mut counter = Counter::default();
     let mut collection: Vec<Coalition> = Vec::new();
+    // 打ち切りの判定に使う、提携族と `1_N` の張る空間。
     let mut span = Span::new(n);
+    span.insert(&vec![1.0; n]);
     let mut levels_checked = 0;
     let mut start = 0;
     while start < order.len() {

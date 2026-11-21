@@ -16,8 +16,8 @@ coopgame がリポジトリ内で導いて使っている数学的な主張の�
 | 空港ゲームの費用 `max` は劣モジュラで、節約ゲームは凸 | `src/games/airport.rs` (`ConvexGame` の `Proven`) | `airportCost_submodular`、`airportSavings_supermodular` (`Structural.lean`) |
 | 凸ゲームでは、最大余剰の目的関数 `T ↦ -(v(T ∪ {i}) - x(T ∪ {i}))` は劣モジュラ | `src/nucleolus/convex.rs` | `surplus_objective_submodular` (`Structural.lean`) |
 | `x(A) <= f(A)` (全ての `A`) なら、`x` の負の成分の和は `f` の最小値の下界。この前提は凸結合で保たれる | `src/submodular.rs` (双対ギャップによる停止) | `negPart_sum_le`、`polymatroid_ineq_convex_comb` (`Structural.lean`) |
-| 提携の族が全空間を張って平衡なら、それを含むどの族も平衡 | `src/verify/kohlberg.rs`、`src/verify/exact.rs` (Kohlberg 判定の打ち切り) | `PosCombination.mono_of_span_eq_top` (`Balanced.lean`) |
-| 「正の重みで `1_N` を表せる」は「1 以上の重みで `1_N` の正数倍を表せる」と同値。族が空でなければ倍率は 1 以上 | `src/verify/exact.rs`・`src/verify/kohlberg.rs` の `is_balanced` (平衡性の LP) | `posCombination_iff_ge_one`、`one_le_scale_of_ge_one` (`Balanced.lean`) |
+| 提携の族が平衡で、族と `1_N` が全空間を張るなら、それを含むどの族も平衡 (仁の場合に重み 0 以上で加える下限の単集合は、張る空間に数えない) | `src/levels.rs` (`kohlberg_at`)、`src/verify/exact.rs` (Kohlberg 判定の打ち切り) | `PosCombination.mono_of_span_insert_eq_top` (`Balanced.lean`) |
+| 「正の重みで `1_N` を表せる」は「1 以上の重みで `1_N` の正数倍を表せる」と同値。族が空でなければ倍率は 1 以上 | `src/verify/exact.rs`・`src/levels.rs` の `is_balanced` (平衡性の LP) | `posCombination_iff_ge_one`、`one_le_scale_of_ge_one` (`Balanced.lean`) |
 | 確定した提携の張る空間が全空間でなければ、未確定の 1 人提携とその補集合があり、段の値は下に有界 | `src/nucleolus/mod.rs`・`exact.rs`・`oracle.rs` (逐次 LP の有界性) | `exists_single_not_mem`、`mem_of_compl_mem`、`level_lower_bound` (`SequentialLp.lean`) |
 | 破産ゲームの超過は `max(-x(S), (E - D) + Σ_{i ∈ S} (d_i - x_i))` | `src/games/bankruptcy.rs` (オラクル) | `bankruptcy_excess` (`Identities.lean`) |
 | 節約ゲームの超過は、費用の分担 `y_i = c_i - x_i` が提携の費用を超える額 `y(S) - c(S)` に等しい | `src/games/cost.rs` | `savings_excess_eq`、`savings_efficient_iff` (`Identities.lean`) |
@@ -26,7 +26,8 @@ coopgame がリポジトリ内で導いて使っている数学的な主張の�
 | 抜ける傾向は、不満 `f = e(S, x) / b(S)` を使って `-1/f - 1` と書ける (`x(S) ≠ v(S)` のとき)。この関数は `f < 0` で狭義単調増加 | `src/nucleolus/variants.rs` (`disruption_nucleolus`) | `disruption_eq`、`disruption_strictMono` (`Identities.lean`) |
 
 定理は全て名前空間 `Coopgame` にある。
-Kohlberg 判定の 2 つの定理では、ベクトル `a i` が提携の特性ベクトル、`b` が `1_N` (仁の場合は、下限に張り付いた単集合に非負の重みを付けた分を引いたもの) に当たる。
+Kohlberg 判定の定理では、ベクトル `a i` が提携の特性ベクトル、`b` が `1_N`、`r` が (仁の場合に) 下限に張り付いた単集合に非負の重みを付けた和に当たる。
+`posCombination_iff_ge_one` の `b` は、`1_N` から `r` を引いたものに当たる。
 
 ## 証明の対象にしていないこと
 

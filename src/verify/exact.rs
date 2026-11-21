@@ -338,7 +338,9 @@ pub fn kohlberg_exact(game: &ExactGame, x: &[Rational], domain: Domain) -> Exact
     order.sort_by(|a, b| excess[*b].cmp(&excess[*a]));
 
     let mut collection: Vec<Coalition> = Vec::new();
+    // 打ち切りの判定に使う、提携族と `1_N` の張る空間。
     let mut span = ExactEchelon::default();
+    span.insert(indicator(grand, n), n);
     let mut levels_checked = 0;
     let mut start = 0;
     while start < order.len() {
@@ -358,7 +360,7 @@ pub fn kohlberg_exact(game: &ExactGame, x: &[Rational], domain: Domain) -> Exact
                 levels_checked,
             );
         }
-        // 族が R^n を張って平衡なら、それ以降の段も平衡 (kohlberg モジュールの説明を参照)。
+        // 族と `1_N` が R^n を張って平衡なら、それ以降の段も平衡 (`verify::kohlberg` の説明を参照)。
         if span.rank() == n {
             break;
         }
