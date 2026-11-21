@@ -59,8 +59,9 @@ impl ExactReport {
 ///   (各成分の差の絶対値の最大。有理数で計算する) が `T` 以下のときだけ合格にする。`x*` が仁でも、
 ///   `x` が `T` より離れていれば不合格にする。
 /// - 段の読み取りの許容誤差: 同じ段とみなす超過の差と、下限に張り付いた (`x_i = v({i})`) とみなす
-///   `|x_i - v({i})|` の上限。`T` から 1/100 ずつ小さくしながら、超過を浮動小数点数で計算したときの丸め誤差の目安
-///   `4 n ε (max|v(S)| + Σ|x_i|)` (`ε` は `f64::EPSILON`) を下回らない範囲で試し、判定に合格した最初の `x*` を使う。
+///   `|x_i - v({i})|` の上限。`T` から 1/10 ずつ小さくしながら、超過を浮動小数点数で計算したときの丸め誤差の目安
+///   `4 n ε (max|v(S)| + Σ|x_i|)` (`ε` は `f64::EPSILON`) を下回らない範囲で試し、最後に目安そのものでも試す。
+///   判定に合格した最初の `x*` を使う。
 ///   値の大きいゲームでは超過の差が `T` 以下の別の段があり、`T` で読むとそれらを 1 つの段にまとめて
 ///   誤った `x*` を復元するためである。読み取りの許容誤差を変えても判定と合格の条件は変わらないので、
 ///   試す回数を増やしても誤った配分を合格にすることはない。
@@ -158,17 +159,21 @@ pub(crate) fn certify_tolerance(game: &ExplicitGame) -> f64 {
 }
 
 /// 段の読み取りの許容誤差を 1 回ごとに小さくする比。
-const READING_STEP: f64 = 1e-2;
+const READING_STEP: f64 = 1e-1;
 
 /// 段の読み取りを試す回数の上限。
 ///
 /// 値が 0 でないゲームでは、`tolerance = 1e-6 * max|v(S)|` と丸め誤差の目安 `4 n ε (max|v(S)| + Σ|x_i|)` の比が
-/// `1.2e9` 以下なので、目安を下回らない読み取りは 5 回以内になる。全ての値と `x` が 0 で目安が 0 になる場合にも
-/// 止まるよう、上限を置く。
-const MAX_READINGS: usize = 6;
+/// `1.2e9` 以下なので、目安を下回らない読み取りは 10 回以内、目安そのものを加えて 11 回以内になる。
+/// 全ての値と `x` が 0 で目安が 0 になる場合にも止まるよう、上限を置く。
+const MAX_READINGS: usize = 12;
 
 /// 段の読み取りに使う許容誤差の列 (大きい順)。`tolerance` から [`READING_STEP`] 倍ずつ小さくし、
-/// 超過の丸め誤差の目安を下回ったら止める。`tolerance` は必ず含める。
+/// 超過の丸め誤差の目安を下回る前に止めて、最後に目安そのものを加える。`tolerance` は必ず含める。
+///
+/// 目安そのものを加えるのは、超過の段の間隔が目安の数倍しかないゲーム (値が 1e12 程度の整数ゲームなど) で、
+/// [`READING_STEP`] 倍の列が段の間隔を飛び越えるからである (6 人で値が 6e12 なら目安は 0.064 で、
+/// 列は 6 の次が 0.6、その次の 0.06 は目安を下回る。段の間隔が 0.25 のゲームは 0.6 でも分かれない)。
 fn reading_tolerances(game: &ExplicitGame, x: &[f64], tolerance: f64) -> Vec<f64> {
     // x(S) は最大 n 項の和なので、超過 v(S) - x(S) の丸め誤差は n ε (max|v| + Σ|x_i|) 程度になる。
     let magnitude = game.max_abs_value() + x.iter().map(|v| v.abs()).sum::<f64>();
@@ -178,6 +183,9 @@ fn reading_tolerances(game: &ExplicitGame, x: &[f64], tolerance: f64) -> Vec<f64
     while reading > 0.0 && reading >= floor && readings.len() < MAX_READINGS {
         readings.push(reading);
         reading *= READING_STEP;
+    }
+    if floor > 0.0 && readings.last().is_some_and(|last| *last > floor) {
+        readings.push(floor);
     }
     readings
 }
@@ -588,7 +596,14 @@ mod tests {
         let readings = reading_tolerances(&game, &[1.0, 1e7 + 1.0], tolerance);
         assert_eq!(readings[0], tolerance);
         assert!(readings.windows(2).all(|pair| pair[1] < pair[0]));
-        assert!((2..=5).contains(&readings.len()), "{readings:?}");
+        // 1/10 より粗い飛ばし方をせず、最後に丸め誤差の目安そのものを試す。
+        assert!(
+            readings.windows(2).all(|pair| pair[1] >= pair[0] * 0.099),
+            "{readings:?}"
+        );
+        let floor = 4.0 * 2.0 * f64::EPSILON * (1e7 + 2.0 + 1.0 + 1e7 + 1.0);
+        assert_eq!(*readings.last().unwrap(), floor, "{readings:?}");
+        assert!(readings.len() < MAX_READINGS, "{readings:?}");
         // 全ての値と配分が 0 なら丸め誤差の目安も 0 になるが、上限で止まる。
         let zero = ExplicitGame::from_binary(&[0.0; 7]).unwrap();
         let readings = reading_tolerances(&zero, &[0.0; 3], certify_tolerance(&zero));

@@ -226,6 +226,68 @@ fn nucleoli_of_random_large_integer_games_are_certified() {
     }
 }
 
+/// 値が 1e12 程度の 6 人の整数ゲーム。許容誤差 (`6e6`) と超過の丸め誤差の目安 (`0.064`) の比が大きく、
+/// 超過の段の間隔 (1 以下) は、目安のすぐ上の許容誤差で読まないと分かれない。
+/// 厳密な仁での超過の段の間隔が目安の 2 倍を超えるゲームでは、有理数で求めた仁が合格する。
+#[test]
+fn nucleoli_of_integer_games_near_rounding_limit_are_certified() {
+    use coopgame::Coalition;
+    use coopgame::num_traits::{ToPrimitive, Zero};
+    let mut state = 11u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let n = 6;
+    let mut separable = 0;
+    for case in 0..24 {
+        let values: Vec<f64> = (1usize..1 << n)
+            .map(|mask| {
+                let size = mask.count_ones() as f64;
+                if size == 1.0 {
+                    0.0
+                } else {
+                    1e12 * size + (next() % 7) as f64
+                }
+            })
+            .collect();
+        let game = ExplicitGame::from_binary(&values).unwrap();
+        let exact = ExactGame::from_explicit(&game).unwrap();
+        let truth = nucleolus::exact::nucleolus(&exact, Domain::Imputation)
+            .unwrap()
+            .allocation;
+        let x = to_f64(&truth);
+        // 厳密な仁での超過 (有理数) の、異なる値の間隔の最小値。
+        let mut excesses: Vec<Rational> = (1u64..(1 << n) - 1)
+            .map(|mask| {
+                let sum = (0..n)
+                    .filter(|i| mask >> i & 1 == 1)
+                    .fold(Rational::zero(), |sum, i| sum + &truth[i]);
+                exact.value(Coalition(mask)) - sum
+            })
+            .collect();
+        excesses.sort();
+        excesses.dedup();
+        let gap = excesses
+            .windows(2)
+            .map(|pair| (&pair[1] - &pair[0]).to_f64().unwrap())
+            .fold(f64::INFINITY, f64::min);
+        let magnitude = game.max_abs_value() + x.iter().map(|v| v.abs()).sum::<f64>();
+        let rounding = 4.0 * n as f64 * f64::EPSILON * magnitude;
+        if gap <= 2.0 * rounding {
+            continue;
+        }
+        separable += 1;
+        let check =
+            verify::check_exact(&exact, &x, Domain::Imputation, VerifyOptions::default()).unwrap();
+        assert_eq!(check, Check::Certified { exact: truth }, "case {case}");
+    }
+    // 半数以上のゲームは段の間隔が目安の 2 倍を超える (条件を満たすゲームがなければ、何も確かめていない)。
+    assert!(separable >= 12, "{separable}");
+}
+
 // ---------------------------------------------------------------- 許容誤差の境目
 
 /// 厳密な仁 `(1/2, 1/2, 3/2, 3/2, 2)` から、許容誤差 (`1e-6 * 6`) の 0.9 倍ずらした点。
