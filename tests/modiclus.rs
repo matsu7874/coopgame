@@ -136,6 +136,12 @@ fn modiclus_of_meinhardt_table_4_1() {
         1e-9,
         "modiclus",
     );
+    // Theorem 2.4 の平衡性: modiclus では成り立ち、CoopGame 0.2.2 が返す (7, 3, 3, 3) では成り立たない。
+    assert!(bi_excess_families_are_balanced(&game, &modiclus));
+    assert!(!bi_excess_families_are_balanced(
+        &game,
+        &[7.0, 3.0, 3.0, 3.0]
+    ));
     assert_close(
         nucleolus::prenucleolus(&game).unwrap().allocation(),
         &[44.0 / 9.0, 4.0, 32.0 / 9.0, 32.0 / 9.0],
