@@ -616,7 +616,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             let started = Instant::now();
             let mut set = kernel::kernel_set(&game, args.domain(), options)?;
             if args.has("--merge") {
-                set = set.merge_collinear_segments(10.0 * options.tolerance);
+                set = set.merge_collinear_segments(10.0 * options.tolerance)?;
             }
             eprintln!(
                 "time={:.6}s pieces={} nodes={} lp_solves={}",
@@ -701,7 +701,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             let domain = args.domain();
             let report = verify::kohlberg(&game, &x, domain)?;
             let tolerance = 10.0 * default_tolerance(&game);
-            let in_kernel = kernel::is_in_kernel(&game, &x, domain, tolerance);
+            let in_kernel = kernel::is_in_kernel(&game, &x, domain, tolerance)?;
             println!(
                 "kohlberg={} ({} levels, {} LPs){}",
                 report.satisfied,

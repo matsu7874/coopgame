@@ -1029,8 +1029,8 @@ use coopgame::{Coalition, ExplicitGame, properties};
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let tolerance = coopgame::game::default_tolerance(&game);
-    let nucleolus_in_core = properties::is_in_core(&game, &[2.0, 4.0, 6.0], tolerance);
-    let other_in_core = properties::is_in_core(&game, &[6.0, 3.0, 3.0], tolerance);
+    let nucleolus_in_core = properties::is_in_core(&game, &[2.0, 4.0, 6.0], tolerance)?;
+    let other_in_core = properties::is_in_core(&game, &[6.0, 3.0, 3.0], tolerance)?;
     println!("{nucleolus_in_core} {other_in_core}"); // true false
 
     let report = explain::report(&game, &[6.0, 3.0, 3.0], ExplainOptions::default())?;

@@ -363,7 +363,10 @@ fn kernel_set_agrees_with_kernel_point_on_nearly_empty_imputation_set() {
             (Ok(set), Ok(point)) => {
                 assert!(tolerance >= 1e-8);
                 assert_eq!(set.pieces.len(), 1, "{set:?}");
-                assert!(set.contains(point.allocation(), 1e-12), "{set:?} {point:?}");
+                assert!(
+                    set.contains(point.allocation(), 1e-12).unwrap(),
+                    "{set:?} {point:?}"
+                );
             }
             (set, point) => panic!("tolerance {tolerance}: {set:?} / {point:?}"),
         }

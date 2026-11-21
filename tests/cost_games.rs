@@ -152,7 +152,7 @@ fn owen_allocation_lies_in_core() {
             "case {case}"
         );
         assert!(
-            properties::is_in_core(&explicit, &x, 1e-6 * total.max(1.0)),
+            properties::is_in_core(&explicit, &x, 1e-6 * total.max(1.0)).unwrap(),
             "case {case}"
         );
     }

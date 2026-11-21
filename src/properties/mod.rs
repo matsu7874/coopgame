@@ -29,7 +29,9 @@ mod proof;
 pub(crate) use proof::Sealed;
 pub use proof::{Assume, Assumed, ConvexChecked, ConvexGame, Convexity, ProofKind, Proven};
 
+use crate::error::Result;
 use crate::game::allocation::allocation_defect;
+use crate::game::scale::check_tolerance;
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 
 /// 互いに素な `S, T` について `v(S ∪ T) >= v(S) + v(T)`。計算量は `3^n`。
@@ -90,26 +92,50 @@ pub fn is_zero_monotonic(game: &ExplicitGame) -> bool {
     })
 }
 
-/// `x` がコアに属するか。
+/// `x` がコアに属するか (効率性と、全ての提携の超過が 0 以下であることを `tolerance` の範囲で確かめる)。
 ///
-/// 長さがプレイヤー数と異なる `x` や、有限でない成分 (NaN など) を含む `x` は属さない (`false`)。
-pub fn is_in_core(game: &ExplicitGame, x: &[f64], tolerance: f64) -> bool {
+/// 長さがプレイヤー数と異なる `x` や、有限でない成分 (NaN など) を含む `x` は属さない (`Ok(false)`)。
+///
+/// `tolerance` が有限で 0 以上でないときは [`crate::Error::InvalidArgument`] を返す。
+/// 無限大ではどの配分も属することになり、負の値ではコアの点も属さないことになるためである。
+pub fn is_in_core(game: &ExplicitGame, x: &[f64], tolerance: f64) -> Result<bool> {
+    check_tolerance(tolerance)?;
     if allocation_defect(game.players(), x).is_some() {
-        return false;
+        return Ok(false);
     }
     let total: f64 = x.iter().sum();
     if (total - game.value(game.grand())).abs() > tolerance {
-        return false;
+        return Ok(false);
     }
-    crate::game::excess_table(game, x)
+    Ok(crate::game::excess_table(game, x)
         .iter()
-        .all(|e| *e <= tolerance)
+        .all(|e| *e <= tolerance))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::generators;
+
+    #[test]
+    fn is_in_core_rejects_invalid_tolerance() {
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
+        // 無限大ではどの配分も「属する」になり、負ではコアの点も「属さない」になっていた。
+        for tolerance in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, -1.0] {
+            for x in [[2.0, 2.0, 0.0], [9.0, 9.0, 9.0]] {
+                let result = is_in_core(&game, &x, tolerance);
+                assert!(
+                    matches!(result, Err(crate::Error::InvalidArgument(_))),
+                    "tolerance {tolerance}: {result:?}"
+                );
+            }
+        }
+        assert!(is_in_core(&game, &[2.0, 2.0, 0.0], 0.0).unwrap());
+        assert!(!is_in_core(&game, &[0.0, 2.0, 2.0], 1e-9).unwrap());
+        // 不正な配分は、許容誤差が正しければ「属さない」。
+        assert!(!is_in_core(&game, &[f64::NAN, 2.0, 0.0], 1e-9).unwrap());
+        assert!(!is_in_core(&game, &[2.0, 2.0], 1e-9).unwrap());
+    }
 
     #[test]
     fn classifies_known_games() {

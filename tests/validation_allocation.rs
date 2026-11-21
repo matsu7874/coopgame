@@ -19,25 +19,15 @@ fn pair_game() -> ExplicitGame {
 fn nan_allocation_is_not_in_kernel() {
     let game = pair_game();
     for domain in [Domain::Imputation, Domain::Preimputation] {
-        assert!(!kernel::is_in_kernel(&game, &[f64::NAN; 3], domain, 1e-6));
-        assert!(!kernel::is_in_kernel(
-            &game,
-            &[2.0, 2.0, f64::NAN],
-            domain,
-            1e-6
-        ));
+        assert!(!kernel::is_in_kernel(&game, &[f64::NAN; 3], domain, 1e-6).unwrap());
+        assert!(!kernel::is_in_kernel(&game, &[2.0, 2.0, f64::NAN], domain, 1e-6).unwrap());
         assert_eq!(
             kernel::kernel_violation(&game, &[f64::NAN; 3], domain),
             f64::INFINITY
         );
     }
-    // 許容誤差が NaN でも「属する」とは判定しない。
-    assert!(!kernel::is_in_kernel(
-        &game,
-        &[2.0, 2.0, 0.0],
-        Domain::Imputation,
-        f64::NAN
-    ));
+    // 許容誤差が NaN なら「属する」とも「属さない」とも判定せず、エラーにする。
+    assert!(kernel::is_in_kernel(&game, &[2.0, 2.0, 0.0], Domain::Imputation, f64::NAN).is_err());
 }
 
 #[test]
@@ -87,10 +77,10 @@ fn plot_rejects_non_finite_points() {
 #[test]
 fn core_membership_requires_matching_length() {
     let game = pair_game();
-    assert!(properties::is_in_core(&game, &[2.0, 2.0, 0.0], 1e-9));
-    assert!(!properties::is_in_core(&game, &[2.0, 2.0], 1e-9));
-    assert!(!properties::is_in_core(&game, &[2.0, 2.0, 0.0, 0.0], 1e-9));
-    assert!(!properties::is_in_core(&game, &[f64::NAN; 3], 1e-9));
+    assert!(properties::is_in_core(&game, &[2.0, 2.0, 0.0], 1e-9).unwrap());
+    assert!(!properties::is_in_core(&game, &[2.0, 2.0], 1e-9).unwrap());
+    assert!(!properties::is_in_core(&game, &[2.0, 2.0, 0.0, 0.0], 1e-9).unwrap());
+    assert!(!properties::is_in_core(&game, &[f64::NAN; 3], 1e-9).unwrap());
 }
 
 #[test]
@@ -120,12 +110,7 @@ fn kernel_violation_of_wrong_length_is_infinite() {
         kernel::kernel_violation(&game, &[1.0; 4], Domain::Preimputation),
         f64::INFINITY
     );
-    assert!(!kernel::is_in_kernel(
-        &game,
-        &[2.0, 2.0],
-        Domain::Imputation,
-        1e-6
-    ));
+    assert!(!kernel::is_in_kernel(&game, &[2.0, 2.0], Domain::Imputation, 1e-6).unwrap());
 }
 
 #[test]

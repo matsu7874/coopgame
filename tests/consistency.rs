@@ -48,7 +48,7 @@ fn nucleoli_satisfy_kohlberg_and_lie_in_kernel() {
             );
             let tolerance = 1e-6 * game.max_abs_value().max(1.0);
             assert!(
-                kernel::is_in_kernel(&game, x, domain, tolerance),
+                kernel::is_in_kernel(&game, x, domain, tolerance).unwrap(),
                 "{name} {domain:?}: violation {}",
                 kernel::kernel_violation(&game, x, domain)
             );
@@ -87,7 +87,8 @@ fn transfer_scheme_reaches_kernel() {
             let result = kernel::kernel_point(&game, domain, None, options).unwrap();
             assert!(result.converged(), "{name} {domain:?}: {result:?}");
             assert!(
-                kernel::is_in_kernel(&game, result.allocation(), domain, 10.0 * options.tolerance),
+                kernel::is_in_kernel(&game, result.allocation(), domain, 10.0 * options.tolerance)
+                    .unwrap(),
                 "{name} {domain:?}"
             );
         }

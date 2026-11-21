@@ -33,6 +33,19 @@ def test_certify_rejects_non_finite_allocations(bad):
         coopgame.certify_rational([0, 0, 4, 0, 3, 2, 6], [bad, 2, 1])
 
 
+# ---------------------------------------------------------------- 許容誤差つきの判定
+
+
+@pytest.mark.parametrize("bad", [math.inf, -math.inf, math.nan, -1.0])
+def test_membership_checks_reject_invalid_tolerance(bad):
+    # 無限大ではどの配分も「属する」、負では仁も「属さない」と返していた。
+    with pytest.raises(ValueError, match="許容誤差"):
+        coopgame.is_in_kernel(GAME, [3, 2, 1], tolerance=bad)
+    with pytest.raises(ValueError, match="許容誤差"):
+        GAME.is_in_core([3, 2, 1], tolerance=bad)
+    assert coopgame.is_in_kernel(GAME, [3, 2, 1], tolerance=1e-9)
+
+
 # ---------------------------------------------------------------- 感度
 
 

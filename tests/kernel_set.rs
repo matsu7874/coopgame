@@ -48,7 +48,7 @@ fn check(name: &str, game: &ExplicitGame, domain: Domain) -> KernelSet {
         assert!(!vertices.is_empty(), "{name} {domain:?}");
         for vertex in vertices {
             assert!(
-                kernel::is_in_kernel(game, vertex, domain, tolerance),
+                kernel::is_in_kernel(game, vertex, domain, tolerance).unwrap(),
                 "{name} {domain:?}: 頂点 {vertex:?} がカーネル条件を満たさない (violation {})",
                 kernel::kernel_violation(game, vertex, domain)
             );
@@ -57,7 +57,7 @@ fn check(name: &str, game: &ExplicitGame, domain: Domain) -> KernelSet {
             .map(|i| vertices.iter().map(|v| v[i]).sum::<f64>() / vertices.len() as f64)
             .collect();
         assert!(
-            kernel::is_in_kernel(game, &centroid, domain, tolerance),
+            kernel::is_in_kernel(game, &centroid, domain, tolerance).unwrap(),
             "{name} {domain:?}: 重心 {centroid:?}"
         );
     }
@@ -69,7 +69,7 @@ fn check(name: &str, game: &ExplicitGame, domain: Domain) -> KernelSet {
     .unwrap()
     .into_allocation();
     assert!(
-        set.contains(&nucleolus, tolerance),
+        set.contains(&nucleolus, tolerance).unwrap(),
         "{name} {domain:?}: 仁 {nucleolus:?} を含まない"
     );
 
@@ -81,7 +81,8 @@ fn check(name: &str, game: &ExplicitGame, domain: Domain) -> KernelSet {
                 .unwrap();
         if point.converged() {
             assert!(
-                set.contains(point.allocation(), 1e-5 * scale(game)),
+                set.contains(point.allocation(), 1e-5 * scale(game))
+                    .unwrap(),
                 "{name} {domain:?}: transfer scheme の点 {:?} を含まない",
                 point.allocation()
             );
@@ -147,7 +148,7 @@ fn superadditive_game_with_segment_kernel() {
     let tolerance = 1e-6 * scale(&game);
     for piece in &set.pieces {
         for vertex in piece.vertices.as_ref().unwrap() {
-            assert!(coopgame::properties::is_in_core(&game, vertex, tolerance));
+            assert!(coopgame::properties::is_in_core(&game, vertex, tolerance).unwrap());
         }
     }
 }
@@ -185,7 +186,7 @@ fn kernel_equals_prekernel_for_zero_monotonic_games() {
             for piece in &from.pieces {
                 for vertex in piece.vertices.as_ref().unwrap() {
                     assert!(
-                        to.contains(vertex, tolerance),
+                        to.contains(vertex, tolerance).unwrap(),
                         "{name}: {label} が {vertex:?} で不成立"
                     );
                 }

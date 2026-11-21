@@ -4,7 +4,7 @@ use microlp::Variable;
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::allocation::lower_bounds;
+use crate::game::allocation::{allocation_defect, lower_bounds};
 use crate::game::scale::check_tolerance;
 use crate::game::{Coalition, ExplicitGame, PlayerSet, default_tolerance};
 use crate::linalg::{Span, for_each_combination, solve_square};
@@ -55,10 +55,22 @@ impl KernelPiece {
         }
     }
 
-    pub fn contains(&self, x: &[f64], tolerance: f64) -> bool {
-        self.equalities
-            .iter()
-            .all(|row| (row.lhs(x) - row.rhs).abs() <= tolerance)
+    /// `x` がこの多面体に属するか (等式と不等式を `tolerance` の範囲で確かめる)。
+    ///
+    /// 長さが違う `x` や、有限でない成分を含む `x` は属さない (`Ok(false)`)。
+    /// `tolerance` が有限で 0 以上でないときは [`Error::InvalidArgument`] を返す。
+    pub fn contains(&self, x: &[f64], tolerance: f64) -> Result<bool> {
+        check_tolerance(tolerance)?;
+        Ok(self.contains_within(x, tolerance))
+    }
+
+    /// [`KernelPiece::contains`] の本体。`tolerance` は検証済みとする。
+    fn contains_within(&self, x: &[f64], tolerance: f64) -> bool {
+        allocation_defect(self.point.len(), x).is_none()
+            && self
+                .equalities
+                .iter()
+                .all(|row| (row.lhs(x) - row.rhs).abs() <= tolerance)
             && self
                 .inequalities
                 .iter()
@@ -77,8 +89,15 @@ pub struct KernelSet {
 }
 
 impl KernelSet {
-    pub fn contains(&self, x: &[f64], tolerance: f64) -> bool {
-        self.pieces.iter().any(|piece| piece.contains(x, tolerance))
+    /// `x` がどれかの多面体に属するか ([`KernelPiece::contains`] と同じ基準)。
+    ///
+    /// `tolerance` が有限で 0 以上でないときは [`Error::InvalidArgument`] を返す。
+    pub fn contains(&self, x: &[f64], tolerance: f64) -> Result<bool> {
+        check_tolerance(tolerance)?;
+        Ok(self
+            .pieces
+            .iter()
+            .any(|piece| piece.contains_within(x, tolerance)))
     }
 
     /// 同じ直線上にあり、重なるか端点を共有する線分 (頂点が 2 つの 1 次元の多面体) を 1 本にまとめる。
@@ -87,7 +106,11 @@ impl KernelSet {
     /// 場合分けの境界で複数の多面体に分かれることがある。まとめた線分は、元の線分の等式
     /// (アフィン包) と、直線の向き `d` に沿った 2 本の不等式 `t_min <= d . x <= t_max` で表す。
     /// 他の形の多面体はそのまま残す。
-    pub fn merge_collinear_segments(&self, tolerance: f64) -> KernelSet {
+    ///
+    /// `tolerance` (同じ直線上にあるか、つながっているかの判定に使う) が有限で 0 以上でないときは
+    /// [`Error::InvalidArgument`] を返す。
+    pub fn merge_collinear_segments(&self, tolerance: f64) -> Result<KernelSet> {
+        check_tolerance(tolerance)?;
         let mut segments: Vec<Segment> = Vec::new();
         let mut others: Vec<KernelPiece> = Vec::new();
         for piece in &self.pieces {
@@ -114,11 +137,11 @@ impl KernelSet {
         let mut pieces: Vec<KernelPiece> = segments.into_iter().map(Segment::into_piece).collect();
         pieces.extend(others);
         pieces.sort_by_key(|piece| std::cmp::Reverse(piece.dimension));
-        KernelSet {
+        Ok(KernelSet {
             pieces,
             nodes: self.nodes,
             lp_solves: self.lp_solves,
-        }
+        })
     }
 }
 
@@ -740,7 +763,7 @@ fn remove_contained(mut pieces: Vec<KernelPiece>, tolerance: f64) -> Vec<KernelP
             Some(vertices) => kept.iter().any(|other| {
                 vertices
                     .iter()
-                    .all(|vertex| other.contains(vertex, tolerance))
+                    .all(|vertex| other.contains_within(vertex, tolerance))
             }),
             None => false,
         };
@@ -779,6 +802,41 @@ fn combinations_count(n: usize, k: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn membership_and_merge_reject_invalid_tolerance() {
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
+        let set = kernel_set(&game, Domain::Imputation, SetOptions::for_game(&game)).unwrap();
+        let point = [2.0, 2.0, 0.0]; // カーネルは 1 点
+        // 無限大ではどの点も「含む」になり、負ではカーネルの点も「含まない」になっていた。
+        for tolerance in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, -1.0] {
+            let invalid = |result: Result<bool>| matches!(result, Err(Error::InvalidArgument(_)));
+            assert!(invalid(set.contains(&point, tolerance)), "{tolerance}");
+            assert!(
+                invalid(set.contains(&[9.0, 9.0, 9.0], tolerance)),
+                "{tolerance}"
+            );
+            assert!(
+                invalid(set.pieces[0].contains(&point, tolerance)),
+                "{tolerance}"
+            );
+            assert!(
+                matches!(
+                    set.merge_collinear_segments(tolerance),
+                    Err(Error::InvalidArgument(_))
+                ),
+                "{tolerance}"
+            );
+        }
+        assert!(set.contains(&point, 1e-9).unwrap());
+        assert!(set.pieces[0].contains(&point, 1e-9).unwrap());
+        assert!(!set.contains(&[1.0, 3.0, 0.0], 1e-9).unwrap());
+        // 長さの違う点・非有限の成分を含む点は、許容誤差が正しければ「含まない」。
+        assert!(!set.contains(&[2.0, 2.0], 1e-9).unwrap());
+        assert!(!set.contains(&[2.0, 2.0, 0.0, 0.0], 1e-9).unwrap());
+        assert!(!set.contains(&[f64::NAN, 2.0, 0.0], 1e-9).unwrap());
+        assert_eq!(set.merge_collinear_segments(1e-9).unwrap().pieces.len(), 1);
+    }
 
     #[test]
     fn counts_combinations() {
@@ -852,25 +910,25 @@ mod tests {
             nodes: 0,
             lp_solves: 0,
         };
-        let merged = set.merge_collinear_segments(1e-9);
+        let merged = set.merge_collinear_segments(1e-9).unwrap();
         assert_eq!(merged.pieces.len(), 3, "{merged:?}");
         let long = merged
             .pieces
             .iter()
-            .find(|piece| piece.contains(&[3.0, 0.0, 0.0], 1e-9))
+            .find(|piece| piece.contains(&[3.0, 0.0, 0.0], 1e-9).unwrap())
             .expect("合わせた線分");
         let mut ends = long.vertices.clone().unwrap();
         ends.sort_by(|a, b| a[0].total_cmp(&b[0]));
         assert_eq!(ends, vec![vec![0.0, 1.5, 1.5], vec![3.0, 0.0, 0.0]]);
         for x in [[0.0, 1.5, 1.5], [1.2, 0.9, 0.9], [3.0, 0.0, 0.0]] {
-            assert!(long.contains(&x, 1e-9));
+            assert!(long.contains(&x, 1e-9).unwrap());
         }
-        assert!(!long.contains(&[3.2, -0.1, -0.1], 1e-9));
-        assert!(!long.contains(&[1.0, 2.0, 0.0], 1e-9));
+        assert!(!long.contains(&[3.2, -0.1, -0.1], 1e-9).unwrap());
+        assert!(!long.contains(&[1.0, 2.0, 0.0], 1e-9).unwrap());
         // 元の和集合に含まれる点は、まとめた後も含まれる
         for piece in &set.pieces {
             for vertex in piece.vertices.as_ref().unwrap() {
-                assert!(merged.contains(vertex, 1e-9));
+                assert!(merged.contains(vertex, 1e-9).unwrap());
             }
         }
     }

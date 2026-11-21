@@ -64,7 +64,7 @@ fn modiclus_lies_in_core_of_convex_games() {
         let x = variants::modiclus(&game).unwrap().into_allocation();
         let tolerance = 1e-6 * game.max_abs_value().max(1.0);
         assert!(
-            properties::is_in_core(&game, &x, tolerance),
+            properties::is_in_core(&game, &x, tolerance).unwrap(),
             "seed {seed}: {x:?}"
         );
     }
@@ -86,19 +86,13 @@ fn per_capita_and_proportional_lie_in_nonempty_core() {
             let tolerance = 1e-6 * game.max_abs_value().max(1.0);
             let per_capita = variants::per_capita_nucleolus(&game, Domain::Imputation).unwrap();
             assert!(per_capita.levels()[0] <= tolerance);
-            assert!(properties::is_in_core(
-                &game,
-                per_capita.allocation(),
-                tolerance
-            ));
+            assert!(properties::is_in_core(&game, per_capita.allocation(), tolerance).unwrap());
             if game.values().iter().all(|v| *v >= 0.0) {
                 let proportional =
                     variants::proportional_nucleolus(&game, Domain::Imputation).unwrap();
-                assert!(properties::is_in_core(
-                    &game,
-                    proportional.allocation(),
-                    tolerance
-                ));
+                assert!(
+                    properties::is_in_core(&game, proportional.allocation(), tolerance).unwrap()
+                );
             }
             checked += 1;
         }
@@ -152,7 +146,7 @@ fn bargaining_set_equals_core_for_convex_games() {
         let game = generators::random_convex(n, seed).unwrap();
         let tolerance = 1e-6 * game.max_abs_value().max(1.0);
         let shapley = values::shapley(&game);
-        assert!(properties::is_in_core(&game, &shapley, tolerance));
+        assert!(properties::is_in_core(&game, &shapley, tolerance).unwrap());
         assert!(bargaining::is_in_bargaining_set(&game, &shapley, Domain::Imputation).unwrap());
         // ランダムな配分 (各人に v({i}) と、残りをランダムな割合で)
         let singles = game.singleton_values();
@@ -166,7 +160,7 @@ fn bargaining_set_equals_core_for_convex_games() {
                 .zip(&weights)
                 .map(|(v, w)| v + surplus * w / total)
                 .collect();
-            let in_core = properties::is_in_core(&game, &x, tolerance);
+            let in_core = properties::is_in_core(&game, &x, tolerance).unwrap();
             let in_bargaining =
                 bargaining::is_in_bargaining_set(&game, &x, Domain::Imputation).unwrap();
             assert_eq!(in_core, in_bargaining, "seed {seed}: {x:?}");

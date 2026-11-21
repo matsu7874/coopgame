@@ -200,7 +200,7 @@ impl Game {
     #[pyo3(signature = (x, tolerance = 1e-9))]
     fn is_in_core(&self, x: Vec<f64>, tolerance: f64) -> PyResult<bool> {
         check_length(self, &x)?;
-        Ok(properties::is_in_core(&self.inner, &x, tolerance))
+        properties::is_in_core(&self.inner, &x, tolerance).map_err(to_py_err)
     }
 
     fn __repr__(&self) -> String {
@@ -424,12 +424,7 @@ fn kernel_violation(game: &Game, x: Vec<f64>, domain: &str) -> PyResult<f64> {
 #[pyo3(signature = (game, x, domain = "imputation", tolerance = None))]
 fn is_in_kernel(game: &Game, x: Vec<f64>, domain: &str, tolerance: Option<f64>) -> PyResult<bool> {
     let tolerance = tolerance.unwrap_or_else(|| coopgame::game::default_tolerance(&game.inner));
-    Ok(kernel::is_in_kernel(
-        &game.inner,
-        &x,
-        parse_domain(domain)?,
-        tolerance,
-    ))
+    kernel::is_in_kernel(&game.inner, &x, parse_domain(domain)?, tolerance).map_err(to_py_err)
 }
 
 fn rows<'py>(py: Python<'py>, rows: &[Row]) -> PyResult<Vec<Bound<'py, PyTuple>>> {
@@ -467,7 +462,9 @@ fn kernel_set<'py>(
     let mut set =
         kernel::kernel_set(&game.inner, parse_domain(domain)?, options).map_err(to_py_err)?;
     if merge {
-        set = set.merge_collinear_segments(10.0 * options.tolerance);
+        set = set
+            .merge_collinear_segments(10.0 * options.tolerance)
+            .map_err(to_py_err)?;
     }
     let pieces = set
         .pieces

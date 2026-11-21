@@ -91,7 +91,7 @@ fn inspect(game: &ExplicitGame, label: &str, x: &[f64]) -> coopgame::Result<Find
     print_top_excesses(game, x, 3);
 
     // 2. コアに入るか (全ての提携の超過が 0 以下か)。
-    let in_core = properties::is_in_core(game, x, tolerance);
+    let in_core = properties::is_in_core(game, x, tolerance)?;
     println!("  コア: {}", if in_core { "入る" } else { "入らない" });
 
     // 3. Kohlberg 基準 (浮動小数点)。仁であることの必要十分条件である。
@@ -117,7 +117,7 @@ fn inspect(game: &ExplicitGame, label: &str, x: &[f64]) -> coopgame::Result<Find
     println!("  事後検証: {}", describe(&check));
 
     // 6. カーネルの条件: どの 2 人の間でも最大余剰が釣り合っているか。
-    let in_kernel = kernel::is_in_kernel(game, x, Domain::Imputation, tolerance);
+    let in_kernel = kernel::is_in_kernel(game, x, Domain::Imputation, tolerance)?;
     println!(
         "  カーネル: {}",
         if in_kernel { "入る" } else { "入らない" }

@@ -828,7 +828,7 @@ mod tests {
         assert!(!figure.core_vertices.is_empty());
         for x in &figure.core_vertices {
             assert!((x.iter().sum::<f64>() - 5.0).abs() < 1e-9);
-            assert!(crate::properties::is_in_core(&game, x, 1e-7));
+            assert!(crate::properties::is_in_core(&game, x, 1e-7).unwrap());
         }
         assert_eq!(figure.points[0].0, Point::Nucleolus);
         assert!(figure.svg.contains("仁: (2.6667, 0.6667, 1.6667)"));
@@ -877,7 +877,7 @@ mod tests {
         assert!(figure.core_vertices.len() >= 4);
         assert!(figure.svg.contains(r#"<line class="core-edge""#));
         for x in &figure.core_vertices {
-            assert!(crate::properties::is_in_core(&game, x, 1e-7));
+            assert!(crate::properties::is_in_core(&game, x, 1e-7).unwrap());
         }
     }
 

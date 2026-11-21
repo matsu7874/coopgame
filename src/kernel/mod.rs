@@ -93,10 +93,19 @@ pub fn kernel_violation(game: &ExplicitGame, x: &[f64], domain: Domain) -> f64 {
 }
 
 /// `x` が効率性・領域条件を満たし、不釣り合いが `tolerance` 以下かを判定する。
-/// 長さがプレイヤー数と異なる `x` や、有限でない成分 (NaN など) を含む `x` は属さない (`false`)。
-pub fn is_in_kernel(game: &ExplicitGame, x: &[f64], domain: Domain, tolerance: f64) -> bool {
-    feasibility_violation(game, x, domain, tolerance).is_none()
-        && kernel_violation(game, x, domain) <= tolerance
+/// 長さがプレイヤー数と異なる `x` や、有限でない成分 (NaN など) を含む `x` は属さない (`Ok(false)`)。
+///
+/// `tolerance` が有限で 0 以上でないときは [`Error::InvalidArgument`] を返す。
+/// 無限大ではどの配分も属することになり、負の値ではカーネルの点も属さないことになるためである。
+pub fn is_in_kernel(
+    game: &ExplicitGame,
+    x: &[f64],
+    domain: Domain,
+    tolerance: f64,
+) -> Result<bool> {
+    check_tolerance(tolerance)?;
+    Ok(feasibility_violation(game, x, domain, tolerance).is_none()
+        && kernel_violation(game, x, domain) <= tolerance)
 }
 
 /// 各プレイヤーに `v({i})` を与え、残りを等分した配分。
@@ -188,6 +197,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn is_in_kernel_rejects_invalid_tolerance() {
+        let game = ExplicitGame::from_binary(&[0.0, 0.0, 4.0, 0.0, 3.0, 2.0, 6.0]).unwrap();
+        let point = [3.0, 2.0, 1.0]; // 仁 (カーネルの点)
+        // 無限大では和の合わない配分も「属する」になり、負ではカーネルの点も「属さない」になっていた。
+        for tolerance in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, -1.0] {
+            for x in [&point[..], &[9.0, 9.0, 9.0][..]] {
+                let result = is_in_kernel(&game, x, Domain::Imputation, tolerance);
+                assert!(
+                    matches!(result, Err(Error::InvalidArgument(_))),
+                    "tolerance {tolerance}: {result:?}"
+                );
+            }
+        }
+        assert!(is_in_kernel(&game, &point, Domain::Imputation, 0.0).unwrap());
+        assert!(!is_in_kernel(&game, &[9.0, 9.0, 9.0], Domain::Imputation, 1e-9).unwrap());
+        // 不正な配分は、許容誤差が正しければ「属さない」。
+        assert!(!is_in_kernel(&game, &[f64::NAN, 2.0, 1.0], Domain::Imputation, 1e-9).unwrap());
+        assert!(!is_in_kernel(&game, &[3.0, 2.0], Domain::Imputation, 1e-9).unwrap());
+    }
+
+    #[test]
     fn kernel_point_rejects_invalid_tolerance() {
         // 無限大の許容誤差では、初期点がそのまま「収束した厳密な点」として返っていた。
         let game = ExplicitGame::from_binary(&[0.0, 0.0, 4.0, 0.0, 3.0, 2.0, 6.0]).unwrap();
@@ -218,12 +248,7 @@ mod tests {
         )
         .unwrap();
         assert!(result.converged);
-        assert!(is_in_kernel(
-            &game,
-            &result.allocation,
-            Domain::Imputation,
-            1e-6
-        ));
+        assert!(is_in_kernel(&game, &result.allocation, Domain::Imputation, 1e-6).unwrap());
         // このゲームのカーネルは仁 (2, 2, 0) の 1 点。
         for (a, e) in result.allocation.iter().zip([2.0, 2.0, 0.0]) {
             assert!((a - e).abs() < 1e-6);
@@ -233,12 +258,7 @@ mod tests {
     #[test]
     fn rejects_unbalanced_point() {
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
-        assert!(!is_in_kernel(
-            &game,
-            &[1.0, 3.0, 0.0],
-            Domain::Imputation,
-            1e-6
-        ));
+        assert!(!is_in_kernel(&game, &[1.0, 3.0, 0.0], Domain::Imputation, 1e-6).unwrap());
         assert!(
             (kernel_violation(&game, &[1.0, 3.0, 0.0], Domain::Imputation) - 2.0).abs() < 1e-12
         );
