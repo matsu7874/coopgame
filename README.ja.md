@@ -44,7 +44,7 @@ LP ソルバーは純 Rust の [microlp](https://crates.io/crates/microlp) を�
 
 ```toml
 [dependencies]
-coopgame = "0.3"
+coopgame = "0.4"
 ```
 
 JSON・CSV でゲームを読み書きする `io` モジュールは、feature `io` で有効にする。
