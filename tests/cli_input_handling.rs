@@ -373,6 +373,41 @@ fn lex_is_rejected_for_table_input() {
     );
 }
 
+/// --missing は JSON・CSV で値が分からない提携の扱いなので、1 行 1 値の入力に付けるとエラーにする
+/// (--lex と同じく、効果のないオプションを黙って無視しない。既定と同じ --missing error も同じ)。
+#[test]
+fn missing_is_rejected_for_vector_input() {
+    let cli = Cli::new("missing_vector");
+    cli.file("v.txt", V_TXT).file("sol.txt", "3\n2\n1\n").file(
+        "game.csv",
+        "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|2,3\n1|2,2\n0|1|2,6\n",
+    );
+    for args in [
+        &["nucleolus", "v.txt", "--missing", "zero"][..],
+        &["nucleolus", "v.txt", "--missing", "ignore"],
+        &["nucleolus", "v.txt", "--missing", "error"],
+        &["nucleolus", "v.txt", "--missing", "zero", "--exact"],
+        &["shapley", "v.txt", "--missing", "zero"],
+        &[
+            "certify",
+            "v.txt",
+            "sol.txt",
+            "--missing",
+            "zero",
+            "--rational",
+        ],
+    ] {
+        let stderr = cli.run(args).error().to_string();
+        assert!(stderr.contains("--missing"), "{args:?}: {stderr}");
+        assert!(stderr.contains("JSON・CSV"), "{args:?}: {stderr}");
+    }
+    // JSON・CSV の入力では使える。
+    for policy in ["error", "zero", "ignore"] {
+        let run = cli.run(&["nucleolus", "game.csv", "--missing", policy]);
+        assert_eq!(run.values(), vec![3.0, 2.0, 1.0], "{policy}");
+    }
+}
+
 /// compare は、計算できない解 (人数の上限を超える modiclus など) を省き、省いた解と理由を標準エラーに出す。
 #[test]
 fn compare_reports_solutions_it_omits() {

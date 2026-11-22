@@ -69,7 +69,7 @@ const USAGE: &str = "\
 
   v.txt    特性関数を 1 行 1 値で書いたファイル (既定はビット順、--lex で辞書式順)。
            拡張子が .json・.csv なら提携ごとの値を書いた形式で読む (提携はプレイヤーの番号で書く。--lex は使えない)
-  --missing error|zero|ignore  JSON・CSV で値が分からない提携の扱い (既定 error)。
+  --missing error|zero|ignore  JSON・CSV で値が分からない提携の扱い (既定 error。1 行 1 値のファイルには使えない)。
            zero は 0 とみなす (費用のゲームでは費用 0 とみなすので、その提携の節約は 1 人提携の費用の和になる)。
            ignore は nucleolus (--exact なし) だけで使え、値が分かる提携だけで解く (63 人まで)。
            ignore で値が分からない提携があるときは --full を使えない。費用なら 1 人提携の費用が全て必要
@@ -164,6 +164,8 @@ struct Args {
     command: String,
     /// JSON・CSV で値が分からない提携の扱い (`--missing`)。
     missing: MissingPolicy,
+    /// `--missing` を書いたか (1 行 1 値の入力では効果がないので、書いたらエラーにする)。
+    missing_given: bool,
 }
 
 impl Args {
@@ -210,8 +212,10 @@ impl Args {
                 return Err(format!("{flag} が 2 回以上指定されている (1 回だけ指定する)").into());
             }
         }
-        // --missing はどのコマンドでも使える (JSON・CSV の入力で、値が分からない提携の扱い)。
+        // --missing はどのコマンドでも書ける (JSON・CSV の入力で、値が分からない提携の扱い。
+        // 1 行 1 値の入力に付けるとゲームを読むときにエラーにする)。
         let mut missing = MissingPolicy::Error;
+        let missing_given = flags.iter().any(|(flag, _)| flag == "--missing");
         if let Some(position) = flags.iter().position(|(flag, _)| flag == "--missing") {
             let (_, value) = flags.remove(position);
             missing = match value.as_deref() {
@@ -226,6 +230,7 @@ impl Args {
             flags,
             command: command.to_string(),
             missing,
+            missing_given,
         })
     }
 
@@ -1075,10 +1080,18 @@ fn is_table(path: &str) -> bool {
     path.ends_with(".json") || path.ends_with(".csv")
 }
 
-/// 提携ごとの値を書いた形式 (JSON・CSV) か。--lex は 1 行 1 値の並び順の指定で JSON・CSV では意味を
-/// 持たないので、付いていればエラーにする (黙って無視しない)。
+/// 提携ごとの値を書いた形式 (JSON・CSV) か。入力の形式で効果のないオプションは、黙って無視せずエラーにする。
+/// --lex は 1 行 1 値の並び順の指定で JSON・CSV では意味を持たず、--missing は JSON・CSV で値が分からない
+/// 提携の扱いで 1 行 1 値 (全提携の値を書く) では意味を持たない (既定と同じ --missing error も同じ)。
 fn is_table_input(args: &Args, path: &str) -> CliResult<bool> {
     if !is_table(path) {
+        if args.missing_given {
+            return Err(format!(
+                "{path}: --missing は JSON・CSV で値が分からない提携の扱いの指定で、\
+                 1 行 1 値のファイルには使えない (1 行 1 値のファイルは全提携の値を書く)"
+            )
+            .into());
+        }
         return Ok(false);
     }
     if args.has("--lex") {

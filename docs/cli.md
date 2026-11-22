@@ -93,7 +93,7 @@ coopgame convex-nucleolus v.txt             # 凸ゲームの手法で仁 (凸�
 | `--full` | 全提携の行を最初から入れる LP で解く (制約生成との比較用) |
 | `--tolerance T` | 逐次 LP の許容誤差を値の単位で指定し、1 回だけ解く (`--exact` とは併用できない)。`auto` は、指定しない場合と同じ既定の手順を明示して選ぶ |
 | `--rel-tolerance R` | 逐次 LP の許容誤差を `max\|v(S)\|` に対する比で指定し、1 回だけ解く (`--tolerance` とはどちらか一方) |
-| `--missing zero\|ignore` | 値が分からない提携の扱い ([入力形式](input-format.md#値が分からない提携))。`ignore` は `nucleolus` (`--exact` なし) だけで使える |
+| `--missing zero\|ignore` | JSON・CSV で値が分からない提携の扱い ([入力形式](input-format.md#値が分からない提携))。`ignore` は `nucleolus` (`--exact` なし) だけで使える。1 行 1 値のファイルには使えない |
 
 `--tolerance`・`--rel-tolerance` を指定しなければ、正しい仁を返すことを優先する。
 比 `1e-7` の許容誤差で解いた配分が、Kohlberg 基準を細かい許容誤差でも満たすかを確かめる (20 人まで)。
@@ -125,6 +125,7 @@ time=0.000167s lp_solves=3 rows_added=0 solver=lp tolerance=6e-7 refinements=0 g
 
 同じオプションを 2 回書くとエラーにする (どちらの値を使うかが曖昧になるため)。
 `--lex` は 1 行 1 値のファイル (`v.txt`) の並び順の指定なので、JSON・CSV の入力に付けるとエラーにする (どのコマンドでも同じ)。
+`--missing` は JSON・CSV で値が分からない提携の扱いの指定なので、1 行 1 値のファイルに付けるとエラーにする (既定と同じ `--missing error` も同じ。どのコマンドでも同じ)。
 
 ## 特定のゲームを解く
 
