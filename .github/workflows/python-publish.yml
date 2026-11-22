@@ -109,9 +109,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 対応する最小の版 (Python 3.9) でテストする。setup-python は Ubuntu 26.04 向けの Python 3.9 を
-          # 用意していないので、Linux は ubuntu-24.04 で動かす。
-          - os: ubuntu-24.04
+          - os: ubuntu-latest
             artifact: wheels-linux-x86_64
           - os: macos-latest
             artifact: wheels-macos-aarch64
@@ -120,9 +118,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+      # 対応する最小の版でテストする。
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.9"
+          python-version: "3.10"
       - uses: actions/download-artifact@v4
         with:
           name: ${{ matrix.artifact }}
