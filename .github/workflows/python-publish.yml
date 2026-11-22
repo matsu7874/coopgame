@@ -47,7 +47,7 @@ jobs:
 
   macos:
     needs: check-version
-    runs-on: macos-14
+    runs-on: macos-latest
     strategy:
       matrix:
         target: [x86_64, aarch64]
@@ -109,7 +109,7 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact: wheels-linux-x86_64
-          - os: macos-14
+          - os: macos-latest
             artifact: wheels-macos-aarch64
           - os: windows-latest
             artifact: wheels-windows-x64
