@@ -12,6 +12,11 @@
 //! 値の大きさによらず同じ精度で解けるよう、[`Separation::value_scale`] 以下で最大の 2 のべき乗で
 //! 値を割ったゲームを解き、結果を元の大きさに戻す ([`crate::nucleolus`] と同じ正規化)。
 //!
+//! LP の行にするのは、値が有限の提携だけである。値が分からない提携 (値が分かる提携だけを持つ
+//! [`crate::io::PartialGame`] では NaN) はそのゲームの制約として存在しないので、最初の LP に入れる
+//! 1 人提携とその補集合や、確定判定で目的にする提携の補集合であっても、行にしない。
+//! 分離オラクルが値の有限でない提携を返したときは、契約違反として [`Error::InvalidArgument`] を返す。
+//!
 //! 結果の保証は、オラクルが全ての真部分提携について答えるか ([`Separation::covers_all_coalitions`]) で決まる。
 //! 答えるなら [`Guarantee::Exact`]、一部の提携だけなら (サンプルした提携だけを持つ
 //! [`crate::nucleolus::sampled::SampledGame`] など) 元のゲームの仁とは限らないので [`Guarantee::Approximate`]。
@@ -134,6 +139,18 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
             return Err(Error::InvalidArgument("プレイヤーがいない".into()));
         }
         let grand = PlayerSet::grand(n);
+        if !game.value(&grand).is_finite() {
+            return Err(Error::InvalidArgument(
+                "全体提携の値が有限の数ではない".into(),
+            ));
+        }
+        if domain == Domain::Imputation
+            && (0..n).any(|i| !game.value(&PlayerSet::singleton(n, i)).is_finite())
+        {
+            return Err(Error::InvalidArgument(
+                "配分集合で解くには、1 人提携の値が全て有限の数である必要がある".into(),
+            ));
+        }
         let lower = lower_bounds(game, std::slice::from_ref(&grand), domain, tolerance)?;
         let mut span = Span::new(n);
         span.insert(&grand.indicator());
@@ -150,7 +167,7 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
             pool: Vec::new(),
             in_pool: HashSet::new(),
         };
-        // 1 人提携とその補集合があれば、最初の LP は有界になる。
+        // 1 人提携とその補集合があれば、最初の LP は有界になる (値が分からないものは remember が除く)。
         for i in 0..n {
             let single = PlayerSet::singleton(n, i);
             solver.remember(single.complement());
@@ -204,8 +221,13 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
         (singles >= self.game.value(&PlayerSet::grand(self.n))).then(|| lower.clone())
     }
 
+    /// 提携を LP の行の候補に加える。値が有限でない提携 (値が分からない提携) はゲームの制約として
+    /// 存在しないので加えない。
     fn remember(&mut self, coalition: PlayerSet) {
-        if coalition.is_proper() && !self.in_pool.contains(&coalition) {
+        if coalition.is_proper()
+            && !self.in_pool.contains(&coalition)
+            && self.game.value(&coalition).is_finite()
+        {
             self.in_pool.insert(coalition.clone());
             self.pool.push(coalition);
         }
@@ -301,6 +323,11 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
             }
             for coalition in violated {
                 let (terms, rhs) = self.row(&x, form, &coalition);
+                if !rhs.is_finite() {
+                    return Err(Error::InvalidArgument(format!(
+                        "分離オラクルが値の有限でない提携 {coalition} を返した"
+                    )));
+                }
                 solution = lp::add_to_solution(solution, terms, Cmp::Ge, rhs)?;
                 in_lp.insert(coalition.clone());
                 self.remember(coalition);
@@ -332,6 +359,8 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
             this.add_fixed(&mut problem, &x);
             (problem, x, RowForm::AtMost(bound))
         };
+        // 補集合の行は x(target) の上限を直接与える。値が分からなければ remember が除く
+        // (除いても、1 人提携とその補集合の行があれば LP は有界)。
         let seed = [target.clone(), target.complement()];
         let (solution, x, _) = self.solve_rows(build, &seed)?;
         Ok((
@@ -508,5 +537,74 @@ mod tests {
         let small = crate::ExplicitGame::from_lex(&[-1.7e300, -1.7e300, 1.7e300]).unwrap();
         assert!(prenucleolus(&small).is_ok());
         assert!(least_core(&small, Domain::Preimputation).is_ok());
+    }
+
+    /// 値が有限でない提携を行にしない。分離オラクルが返したらエラー、全体提携・1 人提携 (配分集合のとき) の値が
+    /// 有限でなければ LP を組む前にエラーにする。
+    #[test]
+    fn non_finite_values_never_become_rows() {
+        /// 3 人ゲーム。`v({0, 1})` だけ NaN で、分離オラクルは NaN の提携も違反として返す。
+        struct Broken {
+            nan: PlayerSet,
+            grand: f64,
+            single: f64,
+        }
+        impl crate::SetFunction for Broken {
+            fn players(&self) -> usize {
+                3
+            }
+            fn value(&self, coalition: &PlayerSet) -> f64 {
+                if *coalition == self.nan {
+                    f64::NAN
+                } else if coalition.is_full() {
+                    self.grand
+                } else if coalition.len() == 1 {
+                    self.single
+                } else {
+                    1.0
+                }
+            }
+        }
+        impl Separation for Broken {
+            fn violated(
+                &self,
+                _x: &[f64],
+                _bound: f64,
+                skip: &dyn Fn(&PlayerSet) -> bool,
+                _limit: usize,
+            ) -> Vec<(PlayerSet, f64)> {
+                if skip(&self.nan) {
+                    Vec::new()
+                } else {
+                    vec![(self.nan.clone(), f64::NAN)]
+                }
+            }
+            fn value_scale(&self) -> f64 {
+                1.0
+            }
+        }
+        let nan = PlayerSet::from_coalition(3, crate::Coalition::from_players(&[0, 1]));
+        let broken = |grand, single| Broken {
+            nan: nan.clone(),
+            grand,
+            single,
+        };
+        for domain in [Domain::Imputation, Domain::Preimputation] {
+            let result = nucleolus_with(&broken(3.0, 0.0), domain, 1e-7);
+            match result {
+                Err(Error::InvalidArgument(message)) => {
+                    assert!(message.contains("{0, 1}"), "{message}")
+                }
+                other => panic!("{domain:?}: {other:?}"),
+            }
+            assert!(matches!(
+                nucleolus_with(&broken(f64::NAN, 0.0), domain, 1e-7),
+                Err(Error::InvalidArgument(_))
+            ));
+        }
+        assert!(matches!(
+            nucleolus_with(&broken(3.0, f64::INFINITY), Domain::Imputation, 1e-7),
+            Err(Error::InvalidArgument(_))
+        ));
     }
 }

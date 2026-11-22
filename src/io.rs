@@ -1250,4 +1250,130 @@ mod tests {
         let no_single = parse_csv("coalition,cost\n0,5\n0|1,9\n").unwrap();
         assert!(no_single.savings().is_err());
     }
+
+    /// `|S| >= 2` なら `num(S)`、1 人提携は 0 で、`drop` の人数の提携の値を抜いた CSV。
+    fn csv_without_sizes(n: usize, drop: usize, num: impl Fn(&[usize]) -> f64) -> String {
+        let mut csv = String::from("coalition,value\n");
+        for mask in 1usize..(1 << n) {
+            let members: Vec<usize> = (0..n).filter(|i| mask >> i & 1 == 1).collect();
+            if members.len() == drop {
+                continue;
+            }
+            let value = if members.len() >= 2 {
+                num(&members)
+            } else {
+                0.0
+            };
+            let key: Vec<String> = members.iter().map(|i| i.to_string()).collect();
+            csv.push_str(&format!("{},{value}\n", key.join("|")));
+        }
+        csv
+    }
+
+    /// 値が分かる提携 `known` だけに限ったプレ仁かを、Kohlberg 基準で有理数のまま判定する。
+    ///
+    /// 超過の大きい順に提携を分けた `D_1, D_2, ...` について、各 `D_1 ∪ ... ∪ D_k` が釣り合っている
+    /// (`sum_S y_S 1_S = w 1_N` となる `y_S >= 1`, `w` がある) ことを確かめる。
+    /// どの段でも成り立てば、`x(N) = v(N)` の上で値が分かる提携の超過を辞書式に最小化した点である
+    /// (Kohlberg 1971 の基準。証明は超過の大きい提携から順に改善の方向がないことを示すだけなので、
+    /// 提携の集まりを値が分かるものに限っても同じく成り立つ)。
+    fn kohlberg_on_known(known: &HashMap<PlayerSet, f64>, x: &[f64]) -> bool {
+        use crate::rational::simplex::is_feasible;
+        use num_rational::BigRational;
+        let n = x.len();
+        let scale = known.values().fold(1.0f64, |acc, v| acc.max(v.abs()));
+        let tolerance = 1e-6 * scale;
+        let mut by_excess: Vec<(f64, &PlayerSet)> = known
+            .iter()
+            .filter(|(s, _)| s.is_proper())
+            .map(|(s, v)| (v - s.sum(x), s))
+            .collect();
+        by_excess.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let int = |v: i64| BigRational::from_integer(v.into());
+        let mut start = 0;
+        while start < by_excess.len() {
+            let level = by_excess[start].0;
+            let end = by_excess
+                .iter()
+                .position(|(e, _)| *e < level - tolerance)
+                .unwrap_or(by_excess.len());
+            let prefix: Vec<&PlayerSet> = by_excess[..end].iter().map(|(_, s)| *s).collect();
+            // 変数は y'_S = y_S - 1 >= 0 (S は prefix の順) と w+, w- >= 0。
+            let rows: Vec<Vec<BigRational>> = (0..n)
+                .map(|i| {
+                    let mut row: Vec<BigRational> = prefix
+                        .iter()
+                        .map(|s| int(i64::from(s.contains(i))))
+                        .collect();
+                    row.push(int(-1));
+                    row.push(int(1));
+                    row
+                })
+                .collect();
+            let rhs: Vec<BigRational> = (0..n)
+                .map(|i| int(-(prefix.iter().filter(|s| s.contains(i)).count() as i64)))
+                .collect();
+            if !is_feasible(&rows, &rhs) {
+                return false;
+            }
+            start = end;
+        }
+        true
+    }
+
+    /// 値が分かる提携の補集合の値が分からない入力でも解ける (分からない提携を LP の行に入れない)。
+    /// 5 人で `|S| >= 2` なら 1、3 人提携の値を全て抜いたゲームは、値が分かる提携の集まりがプレイヤーの
+    /// 入れ替えで不変で、1 人提携を含むので限った仁は 1 点に決まる。よって等分の 0.2 ずつ。
+    #[test]
+    fn partial_game_without_complements_of_known_coalitions() {
+        let data = parse_csv(&csv_without_sizes(5, 3, |_| 1.0)).unwrap();
+        let game = data.partial().unwrap();
+        for domain in [Domain::Imputation, Domain::Preimputation] {
+            let solved = game.nucleolus(domain).unwrap();
+            for share in solved.allocation() {
+                assert!((share - 0.2).abs() < 1e-7, "{domain:?}: {solved:?}");
+            }
+            assert!(kohlberg_on_known(&game.known, solved.allocation()));
+        }
+        // 判定が等分以外を退けることも確かめる。
+        assert!(!kohlberg_on_known(&game.known, &[0.3, 0.2, 0.2, 0.2, 0.1]));
+    }
+
+    /// 非対称な値でも、補集合の値が分からない提携があるゲームを解き、Kohlberg 基準を満たす。
+    /// 配分は 1 人提携の値 0 より大きく配分集合の内側にあるので、プレ仁の基準で仁も確かめられる。
+    #[test]
+    fn asymmetric_partial_game_without_complements() {
+        let csv = csv_without_sizes(5, 3, |s| 1.0 + 0.1 * s[0] as f64 + 0.05 * s.len() as f64);
+        let game = parse_csv(&csv).unwrap().partial().unwrap();
+        for domain in [Domain::Imputation, Domain::Preimputation] {
+            let solved = game.nucleolus(domain).unwrap();
+            assert!(solved.allocation().iter().all(|&v| v > 1e-3), "{solved:?}");
+            assert!(
+                kohlberg_on_known(&game.known, solved.allocation()),
+                "{solved:?}"
+            );
+        }
+    }
+
+    /// 巡回路の費用の一部 (3 人提携の費用がない 5 人) を節約ゲームに直して解く。
+    /// 節約ゲームでの配分が 1 人提携の節約 0 より大きいので、プレ仁の Kohlberg 基準で確かめる。
+    #[test]
+    fn partial_tour_costs_without_complements() {
+        let csv = "coalition,cost\n0,20.000\n1,24.739\n0|1,25.975\n2,30.000\n0|2,43.028\n\
+            1|2,44.340\n3,24.083\n0|3,42.166\n1|3,45.292\n2|3,37.042\n0|1|2|3,52.618\n4,26.833\n\
+            0|4,43.416\n1|4,49.216\n2|4,56.075\n0|1|2|4,68.993\n3|4,46.553\n0|1|3|4,68.998\n\
+            0|2|3|4,72.539\n1|2|3|4,73.851\n0|1|2|3|4,75.088\n";
+        let data = parse_csv(csv).unwrap();
+        let savings = data.savings().unwrap().partial().unwrap();
+        let standalone = data.singleton_values().unwrap();
+        for domain in [Domain::Imputation, Domain::Preimputation] {
+            let solved = data.partial_nucleolus(domain).unwrap();
+            let saved = solved.solved.allocation();
+            assert!(saved.iter().all(|&v| v > 1e-3), "{solved:?}");
+            assert!(kohlberg_on_known(&savings.known, saved), "{solved:?}");
+            for ((share, cost), saving) in solved.allocation.iter().zip(&standalone).zip(saved) {
+                assert!((share - (cost - saving)).abs() < 1e-9);
+            }
+        }
+    }
 }
