@@ -408,6 +408,44 @@ fn missing_is_rejected_for_vector_input() {
     }
 }
 
+/// ゲームのファイルを読まないコマンドは、ゲームの入力についてのオプション (--missing・--lex) を
+/// 受け付けない (効果のないオプションを黙って無視しない)。
+#[test]
+fn input_options_are_rejected_without_game_file() {
+    let cli = Cli::new("no_game_file");
+    for base in [
+        &["talmud", "--estate", "100", "--claims", "100,200,300"][..],
+        &["airport", "--costs", "1,2,3,6"],
+        &["generate", "--type", "1", "--n", "3"],
+        &[
+            "bench",
+            "--types",
+            "1",
+            "--n",
+            "3..3",
+            "--seeds",
+            "1",
+            "--methods",
+            "nucleolus",
+        ],
+    ] {
+        assert!(cli.run(base).success, "{base:?}");
+        for extra in [
+            &["--missing", "zero"][..],
+            &["--missing", "error"],
+            &["--lex"],
+        ] {
+            let mut args = base.to_vec();
+            args.extend_from_slice(extra);
+            let stderr = cli.run(&args).error().to_string();
+            assert!(
+                stderr.contains(&format!("未知のオプション {}", extra[0])),
+                "{args:?}: {stderr}"
+            );
+        }
+    }
+}
+
 /// compare は、計算できない解 (人数の上限を超える modiclus など) を省き、省いた解と理由を標準エラーに出す。
 #[test]
 fn compare_reports_solutions_it_omits() {
