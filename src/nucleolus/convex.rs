@@ -211,6 +211,26 @@ mod tests {
     use crate::nucleolus;
     use crate::properties::ConvexChecked;
 
+    /// 値が NaN の提携がある (例えば利用者の関数が失敗した) ゲームでは、止まらずにエラーを返す。
+    #[test]
+    fn non_finite_values_return_an_error() {
+        struct Broken;
+        impl SetFunction for Broken {
+            fn players(&self) -> usize {
+                6
+            }
+            fn value(&self, coalition: &PlayerSet) -> f64 {
+                if coalition.len() == 3 {
+                    f64::NAN
+                } else {
+                    coalition.len() as f64 * coalition.len() as f64
+                }
+            }
+        }
+        let assumed = crate::properties::Assume::convex(Broken);
+        assert!(nucleolus_with(&assumed, ConvexOptions::default()).is_err());
+    }
+
     #[test]
     fn matches_lp_nucleolus_on_random_convex_games() {
         for seed in 0..30 {

@@ -85,5 +85,5 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 - プレイヤーは 0 始まりの番号で表す。提携はプレイヤー番号のリスト (Python の関数にはタプル) で受け渡す。
 - `domain` は `"imputation"` (仁・カーネル) か `"preimputation"` (プレ仁・プレカーネル)。
 - 結果は辞書で返す。キーは Rust の結果の構造体のフィールド名と同じ。`guarantee` に保証の種類が入る。
-- Python の関数が例外を投げると、計算を打ち切ってその例外をそのまま送出する。
+- Python の関数が例外を投げると (Ctrl-C の `KeyboardInterrupt` を含む)、計算を打ち切ってその例外をそのまま送出する。関数が nan・inf を返した場合も、計算を打ち切って `ValueError` を送出する。
 - 入力の誤りは `ValueError`、LP の失敗などは `RuntimeError` になる。

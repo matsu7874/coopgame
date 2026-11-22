@@ -239,8 +239,13 @@ impl FunctionGame {
     }
 }
 
-/// Python の関数を [`SetFunction`] として呼ぶアダプタ。最初の例外を保存し、以降は NaN を返す。
-/// 関数が有限でない値 (nan・inf) を返した場合も ValueError として保存する。
+/// Python の関数を [`SetFunction`] として呼ぶアダプタ。
+///
+/// 関数が例外を投げた (Ctrl-C の KeyboardInterrupt を含む) か、有限でない値 (nan・inf) を返した
+/// (ValueError にする) ときは、例外を保存し、[`Abort`] を payload にして unwind する。
+/// [`with_set_function`] がそれを受け止めて例外を返すので、ライブラリの計算は残りを実行せずに終わる。
+/// [`SetFunction::value`] は失敗を返せない (`f64` を返す) ので、値の代わりに NaN を返し続けると、
+/// サンプリングなどが最後まで回り、凸ゲームの手法は止まらないことがある。
 struct Callback<'a, 'py> {
     py: Python<'py>,
     players: usize,
@@ -248,8 +253,15 @@ struct Callback<'a, 'py> {
     error: RefCell<Option<PyErr>>,
 }
 
+/// [`Callback`] が計算を打ち切るときの unwind の payload。
+///
+/// `std::panic::resume_unwind` で投げるので、panic hook (標準エラーへの出力) は呼ばれない。
+struct Abort;
+
 impl Callback<'_, '_> {
     fn call(&self, coalition: &PlayerSet) -> PyResult<f64> {
+        // 関数が Python のバイトコードを実行しない場合 (組み込み関数など) にも Ctrl-C で止まるようにする。
+        self.py.check_signals()?;
         let members: Vec<usize> = coalition.members().collect();
         let value = self
             .function
@@ -263,14 +275,6 @@ impl Callback<'_, '_> {
         }
         Ok(value)
     }
-
-    /// 呼び出し中に起きた例外があれば返す。
-    fn finish<T>(self, result: T) -> PyResult<T> {
-        match self.error.into_inner() {
-            Some(error) => Err(error),
-            None => Ok(result),
-        }
-    }
 }
 
 impl SetFunction for Callback<'_, '_> {
@@ -279,20 +283,22 @@ impl SetFunction for Callback<'_, '_> {
     }
 
     fn value(&self, coalition: &PlayerSet) -> f64 {
-        if coalition.is_empty() || self.error.borrow().is_some() {
-            return if coalition.is_empty() { 0.0 } else { f64::NAN };
+        if coalition.is_empty() {
+            return 0.0;
         }
         match self.call(coalition) {
             Ok(value) => value,
             Err(error) => {
                 *self.error.borrow_mut() = Some(error);
-                f64::NAN
+                std::panic::resume_unwind(Box::new(Abort))
             }
         }
     }
 }
 
-/// [`Game`] と [`FunctionGame`] のどちらかを受け取り、[`SetFunction`] として計算を実行する。
+/// [`Game`]・[`GraphGame`]・[`FunctionGame`] のいずれかを受け取り、[`SetFunction`] として計算を実行する。
+///
+/// [`FunctionGame`] の関数が例外を投げたら、計算を打ち切ってその例外を返す ([`Callback`])。
 fn with_set_function<T>(
     game: &Bound<'_, PyAny>,
     run: impl FnOnce(&dyn SetFunction) -> PyResult<T>,
@@ -311,10 +317,16 @@ fn with_set_function<T>(
             function: &function.function,
             error: RefCell::new(None),
         };
-        let result = run(&callback);
+        // unwind した計算の途中の状態は捨てるので、UnwindSafe でない値を閉じ込めても問題ない。
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&callback)));
         return match result {
-            Ok(value) => callback.finish(value),
-            Err(error) => callback.finish(()).and(Err(error)),
+            Ok(result) => result,
+            Err(payload) if payload.is::<Abort>() => Err(callback
+                .error
+                .into_inner()
+                .expect("Abort は例外を保存してから投げる")),
+            // ライブラリの panic (不具合) はそのまま伝える (PyO3 が PanicException にする)。
+            Err(payload) => std::panic::resume_unwind(payload),
         };
     }
     Err(PyValueError::new_err(

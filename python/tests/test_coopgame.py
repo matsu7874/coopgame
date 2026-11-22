@@ -5,6 +5,7 @@ Rust 側のテスト (tests/literature.rs など) で確かめた文献の数値
 """
 import itertools
 import math
+import time
 from fractions import Fraction
 
 import pytest
@@ -160,6 +161,47 @@ def test_callback_exception_is_raised():
         coopgame.shapley_sampling(coopgame.FunctionGame(4, broken), 10)
     with pytest.raises(KeyError):
         coopgame.sampled_nucleolus(coopgame.FunctionGame(4, broken), 10)
+
+
+# FunctionGame を受け付ける全ての関数 (README の表)。凸ゲームの手法は、凸な値 |S|^2 で途中まで進ませる。
+FUNCTION_GAME_RUNS = {
+    "shapley_sampling": (2000, lambda game: coopgame.shapley_sampling(game, 10**7)),
+    "banzhaf_sampling": (2000, lambda game: coopgame.banzhaf_sampling(game, 10**6)),
+    "sampled_nucleolus": (2000, lambda game: coopgame.sampled_nucleolus(game, 10**4)),
+    "sampled_least_core": (2000, lambda game: coopgame.sampled_least_core(game, 10**4)),
+    "convex_nucleolus": (12, lambda game: coopgame.convex_nucleolus(game, assume=True)),
+    "convex_nucleolus(verify=False)": (
+        12,
+        lambda game: coopgame.convex_nucleolus(game, assume=True, verify=False),
+    ),
+    "verify_solution": (20, lambda game: coopgame.verify_solution(game, [20.0] * 20)),
+}
+
+
+@pytest.mark.parametrize("name", list(FUNCTION_GAME_RUNS))
+@pytest.mark.parametrize("error", [RuntimeError, KeyboardInterrupt])
+def test_callback_exception_aborts_computation(name, error):
+    """関数が例外 (Ctrl-C の KeyboardInterrupt を含む) を投げたら、計算を打ち切ってすぐ送出する。
+
+    以前は例外を保存したまま NaN で計算を続けていた (shapley_sampling は全順列を回り、凸ゲームの手法は止まらなかった)。
+    続けた計算は関数を呼ばないので、呼び出し回数では見分けられない。打ち切らない場合に数十秒以上かかる規模にして、
+    十分に緩い時間の上限で確かめる。
+    """
+    players, run = FUNCTION_GAME_RUNS[name]
+    calls = 0
+
+    def value(coalition):
+        nonlocal calls
+        calls += 1
+        if calls == 50:
+            raise error("stop")
+        return float(len(coalition)) ** 2
+
+    start = time.perf_counter()
+    with pytest.raises(error, match="stop"):
+        run(coopgame.FunctionGame(players, value))
+    assert time.perf_counter() - start < 5.0
+    assert calls == 50
 
 
 @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
