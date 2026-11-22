@@ -99,3 +99,17 @@ flowchart TD
 | それ以上 (データ評価など) | `values::shapley_sampling`、`nucleolus::sampled::nucleolus` で近似 |
 
 詳しくは [大きいゲーム](large-games.md) と [性能と制約](performance.md) を参照。
+
+## 機械学習の特徴量・データ、ネットワークの頂点を評価するとき
+
+特徴量・訓練データ・データの提供者・グラフの頂点をプレイヤーとし、その部分集合の働きを特性関数 `v(S)` にする。
+
+| 状況 | 方法 |
+|---|---|
+| `v(S)` の作り方 | 例: 特徴量 (データ) `S` だけで学習したモデルの検証スコアから、何も使わないモデルのスコアを引く。ライブラリは `v(空集合) = 0` を前提にするので、基準のスコアは利用者が引く |
+| 貢献で分ける | Shapley 値。Data Shapley ([GZ2019](references.md) の式 (1)) は、データ点をプレイヤーとした Shapley 値の定数倍である。20 人程度までは全提携を評価して `values::shapley` (Python は `Game.from_function` と `shapley`、`v` の評価は `2^n - 1` 回)、それ以上は `values::shapley_sampling` (Python は `FunctionGame` と `shapley_sampling`) で推定し、標準誤差で精度を見る |
+| 安定性で分ける | プレ仁 (`nucleolus::prenucleolus`、Python は `prenucleolus`) か、サンプルした提携によるプレ仁 (`nucleolus::sampled`)。学習のスコアは 1 人ずつの値の和が全体の値を超えることが多く、そのとき配分集合 (`x_i >= v({i})` かつ和が `v(N)`) が空になり、仁 (`nucleolus::nucleolus`) はエラーを返す |
+| グラフの頂点 | 協力できる相手が辺で決まるなら Myerson 値 (`communication::myerson`)。辺の重みの和を値にするゲームは誘導部分グラフゲーム (`games::graph::InducedSubgraphGame`、凸なので `nucleolus::convex::nucleolus` で大きくても解ける) |
+| 評価にノイズがある | 区間で与えて配分の揺れを見る (`analysis::uncertainty::monte_carlo`) |
+
+`v` の評価が高価なときは、ライブラリは評価の結果を保存しないので、同じ提携を何度も評価しないように利用者がキャッシュする (Python なら `functools.lru_cache`)。
