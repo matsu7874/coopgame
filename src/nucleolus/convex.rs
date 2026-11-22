@@ -67,7 +67,11 @@ pub struct ConvexStats {
     pub transfers: usize,
     /// 劣モジュラ最小化の回数。
     pub minimizations: usize,
-    /// 特性関数を評価した回数。
+    /// 特性関数 ([`SetFunction::value`]) を呼んだ回数。
+    ///
+    /// 値の大きさの目安 ([`value_scale`]) と全体提携の値、劣モジュラ最小化の中と外 (1 人提携) の評価を全て含む。
+    /// 空提携は `v(∅) = 0` ([`SetFunction`] の約束) として呼ばない。
+    /// [`crate::Unverified::verify`] などの事後検証での評価は含まない。
     pub evaluations: usize,
 }
 
@@ -102,7 +106,6 @@ fn max_surplus<G: SetFunction + ?Sized>(
     j: usize,
     tolerance: f64,
     max_iterations: usize,
-    evaluations: &Cell<usize>,
 ) -> Result<f64> {
     let n = game.players();
     let others: Vec<usize> = (0..n).filter(|&k| k != i && k != j).collect();
@@ -113,7 +116,6 @@ fn max_surplus<G: SetFunction + ?Sized>(
                 coalition.insert(*k);
             }
         }
-        evaluations.set(evaluations.get() + 1);
         -(game.value(&coalition) - coalition.sum(x))
     };
     let minimum = submodular::minimize(others.len(), &mut f, tolerance, max_iterations)?;
@@ -122,21 +124,47 @@ fn max_surplus<G: SetFunction + ?Sized>(
     Ok(single - minimum.value)
 }
 
+/// 特性関数を呼んだ回数を数える ([`ConvexStats::evaluations`])。
+/// 空提携は `v(∅) = 0` ([`SetFunction`] の約束) として呼ばない。
+struct Counted<'a, G: ?Sized> {
+    game: &'a G,
+    calls: Cell<usize>,
+}
+
+impl<G: SetFunction + ?Sized> SetFunction for Counted<'_, G> {
+    fn players(&self) -> usize {
+        self.game.players()
+    }
+
+    fn value(&self, coalition: &PlayerSet) -> f64 {
+        if coalition.is_empty() {
+            return 0.0;
+        }
+        self.calls.set(self.calls.get() + 1);
+        self.game.value(coalition)
+    }
+}
+
 fn prekernel_point<G: SetFunction + ?Sized>(
     game: &G,
     options: ConvexOptions,
 ) -> Result<(Vec<f64>, ConvexStats)> {
-    let scale = value_scale(game);
+    let counted = Counted {
+        game,
+        calls: Cell::new(0),
+    };
+    let scale = value_scale(&counted);
     let divisor = normalizer(scale);
     let tolerance = normalized_tolerance(options.tolerance.unwrap_or(1e-9 * scale), divisor)?;
     let options = ConvexOptions {
         tolerance: Some(tolerance),
         ..options
     };
-    let (mut x, stats) = normalized_prekernel_point(&Scaled::new(game, divisor), options)?;
+    let (mut x, mut stats) = normalized_prekernel_point(&Scaled::new(&counted, divisor), options)?;
     for value in &mut x {
         *value *= divisor;
     }
+    stats.evaluations = counted.calls.get();
     Ok((x, stats))
 }
 
@@ -158,30 +186,15 @@ fn normalized_prekernel_point<G: SetFunction + ?Sized>(
     let tolerance = options.tolerance.expect("prekernel_point が設定する");
     // 最大余剰はこの許容誤差より十分細かく求める。
     let sfm_tolerance = 1e-3 * tolerance;
-    let evaluations = Cell::new(0);
     for _ in 0..options.max_sweeps {
         stats.sweeps += 1;
         let mut moved = false;
         for i in 0..n {
             for j in i + 1..n {
-                let forward = max_surplus(
-                    game,
-                    &x,
-                    i,
-                    j,
-                    sfm_tolerance,
-                    options.max_sfm_iterations,
-                    &evaluations,
-                )?;
-                let backward = max_surplus(
-                    game,
-                    &x,
-                    j,
-                    i,
-                    sfm_tolerance,
-                    options.max_sfm_iterations,
-                    &evaluations,
-                )?;
+                let forward =
+                    max_surplus(game, &x, i, j, sfm_tolerance, options.max_sfm_iterations)?;
+                let backward =
+                    max_surplus(game, &x, j, i, sfm_tolerance, options.max_sfm_iterations)?;
                 stats.minimizations += 2;
                 let gap = forward - backward;
                 if gap.abs() > tolerance {
@@ -194,7 +207,6 @@ fn normalized_prekernel_point<G: SetFunction + ?Sized>(
             }
         }
         if !moved {
-            stats.evaluations = evaluations.get();
             return Ok((x, stats));
         }
     }
@@ -210,6 +222,43 @@ mod tests {
     use crate::generators;
     use crate::nucleolus;
     use crate::properties::ConvexChecked;
+
+    /// `evaluations` は特性関数を実際に呼んだ回数と一致し、空提携は呼ばない (1 人のゲームでは値の大きさの目安が空提携を含む)。
+    #[test]
+    fn evaluations_count_actual_calls() {
+        struct Counting<'a> {
+            game: &'a crate::ExplicitGame,
+            calls: Cell<usize>,
+        }
+        impl SetFunction for Counting<'_> {
+            fn players(&self) -> usize {
+                self.game.players()
+            }
+            fn value(&self, coalition: &PlayerSet) -> f64 {
+                assert!(!coalition.is_empty(), "空提携を呼んだ");
+                self.calls.set(self.calls.get() + 1);
+                SetFunction::value(self.game, coalition)
+            }
+        }
+        let single = crate::ExplicitGame::from_lex(&[3.0]).unwrap();
+        let mut games = vec![single];
+        games.extend((2..8).map(|n| generators::random_convex(n, n as u64).unwrap()));
+        for game in &games {
+            let counting = Counting {
+                game,
+                calls: Cell::new(0),
+            };
+            let assumed = crate::properties::Assume::convex(&counting);
+            let (_, stats) = nucleolus_with(&assumed, ConvexOptions::default()).unwrap();
+            assert_eq!(
+                stats.evaluations,
+                counting.calls.get(),
+                "n = {}",
+                game.players()
+            );
+            assert!(stats.evaluations > 0);
+        }
+    }
 
     /// 値が NaN の提携がある (例えば利用者の関数が失敗した) ゲームでは、止まらずにエラーを返す。
     #[test]

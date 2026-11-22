@@ -1507,6 +1507,7 @@ fn solution_dict<'py>(
 ///   `certified` なら配分は厳密な配分になり、`guarantee` は `"certified"` になる。
 ///   `reference` は事後検証の基準の仁の求め方 (`verify_solution` と同じ `"auto"`・`"exact"`・`"lp"`。
 ///   指定しなければ `"auto"`)。事後検証をしない呼び方 (`assume=False` か `verify=False`) で指定すると ValueError。
+/// - `evaluations` は凸ゲームの手法で値の関数を呼んだ回数 (事後検証での評価は含まない)。
 #[pyfunction]
 #[pyo3(signature = (game, assume = false, verify = true, reference = None))]
 fn convex_nucleolus<'py>(

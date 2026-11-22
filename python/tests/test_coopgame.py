@@ -175,6 +175,20 @@ def test_sampling_evaluations_match_actual_calls(players):
         assert calls.count(tuple(range(players))) <= 1, run.__name__
 
 
+@pytest.mark.parametrize("players", [1, 2, 6])
+def test_convex_evaluations_match_actual_calls(players):
+    """convex_nucleolus の evaluations は、凸ゲームの手法で関数を実際に呼んだ回数 (事後検証は含まない)。"""
+    calls = 0
+
+    def value(coalition):
+        nonlocal calls
+        calls += 1
+        return float(len(coalition)) ** 2
+
+    result = coopgame.convex_nucleolus(coopgame.FunctionGame(players, value), assume=True, verify=False)
+    assert result["evaluations"] == calls > 0
+
+
 def test_callback_exception_is_raised():
     def broken(coalition):
         raise KeyError("broken")
