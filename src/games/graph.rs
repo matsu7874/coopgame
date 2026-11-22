@@ -3,10 +3,11 @@
 //! 辺の重みが非負なら凸 (優モジュラ) である。
 //! `v(S ∪ T) + v(S ∩ T) - v(S) - v(T)` は、`S \ T` と `T \ S` の間の辺の重みの和になるため。
 //! 構築時に非負を確かめるので、この型は [`ConvexGame`] を構造的に (`Proven`) 満たす。
+//! Lean による証明: リポジトリの `proofs/` の `inducedSubgraph_supermodular`。
 
 use crate::error::{Error, Result};
 use crate::game::{PlayerSet, SetFunction};
-use crate::properties::{ConvexGame, Proven};
+use crate::properties::{ConvexGame, Proven, Sealed};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct InducedSubgraphGame {
@@ -52,6 +53,8 @@ impl SetFunction for InducedSubgraphGame {
             .sum()
     }
 }
+
+impl Sealed for InducedSubgraphGame {}
 
 impl ConvexGame for InducedSubgraphGame {
     type Proof = Proven;

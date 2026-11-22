@@ -6,11 +6,11 @@ use num_traits::{One, Signed, Zero};
 
 use crate::Domain;
 use crate::error::{Error, Result};
+use crate::game::allocation::allocation_defect;
 use crate::game::exact::{ExactGame, Rational, format_rational, to_f64, to_rational};
-use crate::game::excess_table;
-use crate::game::scale::positive_scale;
+use crate::game::scale::{check_tolerance, positive_scale};
 use crate::game::{Coalition, ExplicitGame};
-use crate::linalg::Span;
+use crate::levels::{Reading, SortedExcess};
 use crate::rational::{ExactEchelon, Inserted, indicator, simplex};
 
 /// 厳密な検証の結果。
@@ -50,42 +50,104 @@ impl ExactReport {
 /// 判定は復元に使った段の読み取りに依存しない。読み取りを誤っても、誤った `x*` は判定で不合格になる。
 /// 仁は一意なので、判定に合格した `x*` が仁であり、`x*` と異なる配分は仁ではない。
 ///
-/// 復元と合格の判定には同じ許容誤差 `1e-6 * max|v(S)|` (全ての値が 0 なら `1e-6`) を使う。`x*` が仁でも、
-/// 入力の `x` が `x*` から許容誤差より離れていれば (各成分の差の最大で測る) 不合格にする。
+/// 許容誤差は 2 種類ある。
+///
+/// - 合格の許容誤差 `T = 1e-6 * max|v(S)|` (全ての値が 0 なら `1e-6`): 判定に合格した `x*` と入力の `x` の差
+///   (各成分の差の絶対値の最大。有理数で計算する) が `T` 以下のときだけ合格にする。`x*` が仁でも、
+///   `x` が `T` より離れていれば不合格にする。
+/// - 段の読み取りの許容誤差: 同じ段とみなす超過の差と、下限に張り付いた (`x_i = v({i})`) とみなす
+///   `|x_i - v({i})|` の上限。`T` から 1/10 ずつ小さくしながら、超過を浮動小数点数で計算したときの丸め誤差の目安
+///   `4 n ε (max|v(S)| + Σ|x_i|)` (`ε` は `f64::EPSILON`) を下回らない範囲で試し、最後に目安そのものでも試す。
+///   判定に合格した最初の `x*` を使う。
+///   値の大きいゲームでは超過の差が `T` 以下の別の段があり、`T` で読むとそれらを 1 つの段にまとめて
+///   誤った `x*` を復元するためである。読み取りの許容誤差を変えても判定と合格の条件は変わらないので、
+///   試す回数を増やしても誤った配分を合格にすることはない。
+///   `T` より小さい許容誤差での読み取りは、読み取った段を上から順に合わせた提携族がどれも平衡
+///   (浮動小数点数の LP で判定) のときだけ、復元と判定に進む。仁の段はこの条件 (Kohlberg 基準) を満たすので、
+///   満たさない読み取りは仁の段ではない。仁でない `x` について、有理数の計算を繰り返さないためである。
+///   このため、仁ではないが仁から `T` 以内にある `x` は、`T` での読み取りから仁を復元できなければ不合格になる
+///   ([`crate::verify::check`] は基準の仁からも厳密な配分を求めるので、基準の仁が求まれば、そのような `x` も合格にする)。
+///
+/// どの読み取りでも合格しなければ不合格 (`satisfied = false`) にする。`allocation` と `reason` には、
+/// 判定に合格した `x*` が `x` から離れていた場合はその `x*` と差を、そうでなければ最も大きい許容誤差の読み取りで
+/// 判定に不合格になった `x*` とその理由を、どの読み取りからも `x*` を得られなければ空の配分と復元できない旨を入れる。
 ///
 /// ゲームの値は浮動小数点数の 2 進数の値どおりの有理数として扱う。
+///
+/// # Errors
+///
+/// `x` の長さがプレイヤー数と異なるか、有限でない成分があれば [`Error::InvalidArgument`]。
+/// 段を読む超過に比較できない値 (NaN) があれば [`Error::Numerical`] (有限な値と配分からは生じない。
+/// 超過は大きすぎても `±inf` になるだけである)。
 pub fn certify(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<ExactReport> {
     certify_exact(&ExactGame::from_explicit(game)?, x, domain)
 }
 
-/// 有理数で構築したゲーム `exact` について、浮動小数点の配分 `x` を検証する。
+/// 有理数で構築したゲーム `exact` について、浮動小数点の配分 `x` を検証する ([`certify`] と同じ手順)。
 ///
 /// 段の読み取り (復元) には `exact` の値を浮動小数点数にしたゲームを使い、判定は `exact` の値で行う。
+///
+/// # Errors
+///
+/// [`certify`] と同じ。加えて、`exact` の値を浮動小数点数にできなければ (範囲を超える) エラーを返す。
 pub fn certify_exact(exact: &ExactGame, x: &[f64], domain: Domain) -> Result<ExactReport> {
     let game = exact.to_explicit()?;
+    check_allocation(game.players(), x)?;
     let tolerance = certify_tolerance(&game);
-    let Some(allocation) = recover_allocation(&game, exact, x, domain, tolerance)? else {
-        return Ok(ExactReport::fail(
+    let sorted = SortedExcess::new(&game, x);
+    let mut previous: Option<Reading> = None;
+    let mut rejected: Vec<Vec<Rational>> = Vec::new();
+    let mut first_failure: Option<ExactReport> = None;
+    for (attempt, reading_tolerance) in reading_tolerances(&game, x, tolerance)
+        .into_iter()
+        .enumerate()
+    {
+        let Some(reading) = sorted.read(&game, x, domain, reading_tolerance)? else {
+            continue;
+        };
+        // 許容誤差を小さくしても段の区切りが変わらなければ、同じ x* になる。
+        if previous.as_ref() == Some(&reading) {
+            continue;
+        }
+        // 2 回目以降の読み取りは、読み取った段が Kohlberg 基準を満たすときだけ復元して判定する。
+        let recovered = if attempt == 0 || sorted.levels_are_balanced(&reading, game.players()) {
+            solve(&sorted, exact, &reading)
+        } else {
+            None
+        };
+        previous = Some(reading);
+        let Some(allocation) = recovered else {
+            continue;
+        };
+        if rejected.contains(&allocation) {
+            continue;
+        }
+        let report = kohlberg_exact(exact, &allocation, domain);
+        if report.satisfied {
+            // 仁は一意なので、別の読み取りで判定に合格する配分もこれと同じになり、合否はここで決まる。
+            let (within, distance) = compare_distance(&report.allocation, x, tolerance)?;
+            if within {
+                return Ok(report);
+            }
+            return Ok(ExactReport::fail(
+                report.allocation,
+                format!(
+                    "復元した厳密な仁と入力の配分の差 {distance:e} が許容誤差 {tolerance:e} を超える"
+                ),
+                report.levels_checked,
+            ));
+        }
+        rejected.push(allocation);
+        first_failure.get_or_insert(report);
+    }
+    Ok(first_failure.unwrap_or_else(|| {
+        ExactReport::fail(
             Vec::new(),
-            "超過の段から厳密な配分を一意に復元できない".into(),
+            "超過の段から厳密な配分を復元できない (段の連立方程式の解が一意でないか、読み取った段が平衡でない)"
+                .into(),
             0,
-        ));
-    };
-    let report = kohlberg_exact(exact, &allocation, domain);
-    if !report.satisfied {
-        return Ok(report);
-    }
-    let distance = max_difference(&report.allocation, x)?;
-    if distance > tolerance {
-        return Ok(ExactReport::fail(
-            report.allocation,
-            format!(
-                "復元した厳密な仁と入力の配分の差 {distance:e} が許容誤差 {tolerance:e} を超える"
-            ),
-            report.levels_checked,
-        ));
-    }
-    Ok(report)
+        )
+    }))
 }
 
 /// 厳密な検証 ([`certify`]・[`crate::verify::check`]) の許容誤差: 値の最大絶対値の `1e-6` 倍 (全て 0 なら `1e-6`)。
@@ -93,10 +155,61 @@ pub(crate) fn certify_tolerance(game: &ExplicitGame) -> f64 {
     1e-6 * positive_scale(game.max_abs_value())
 }
 
+/// 段の読み取りの許容誤差を 1 回ごとに小さくする比。
+const READING_STEP: f64 = 1e-1;
+
+/// 段の読み取りを試す回数の上限。
+///
+/// 値が 0 でないゲームでは、`tolerance = 1e-6 * max|v(S)|` と丸め誤差の目安 `4 n ε (max|v(S)| + Σ|x_i|)` の比が
+/// `1.2e9` 以下なので、目安を下回らない読み取りは 10 回以内、目安そのものを加えて 11 回以内になる。
+/// 全ての値と `x` が 0 で目安が 0 になる場合にも止まるよう、上限を置く。
+const MAX_READINGS: usize = 12;
+
+/// 段の読み取りに使う許容誤差の列 (大きい順)。`tolerance` から [`READING_STEP`] 倍ずつ小さくし、
+/// 超過の丸め誤差の目安を下回る前に止めて、最後に目安そのものを加える。`tolerance` は必ず含める。
+///
+/// 目安そのものを加えるのは、超過の段の間隔が目安の数倍しかないゲーム (値が 1e12 程度の整数ゲームなど) で、
+/// [`READING_STEP`] 倍の列が段の間隔を飛び越えるからである (6 人で値が 6e12 なら目安は 0.064 で、
+/// 列は 6 の次が 0.6、その次の 0.06 は目安を下回る。段の間隔が 0.25 のゲームは 0.6 でも分かれない)。
+fn reading_tolerances(game: &ExplicitGame, x: &[f64], tolerance: f64) -> Vec<f64> {
+    // x(S) は最大 n 項の和なので、超過 v(S) - x(S) の丸め誤差は n ε (max|v| + Σ|x_i|) 程度になる。
+    let magnitude = game.max_abs_value() + x.iter().map(|v| v.abs()).sum::<f64>();
+    let floor = 4.0 * game.players() as f64 * f64::EPSILON * magnitude;
+    let mut readings = vec![tolerance];
+    let mut reading = tolerance * READING_STEP;
+    while reading > 0.0 && reading >= floor && readings.len() < MAX_READINGS {
+        readings.push(reading);
+        reading *= READING_STEP;
+    }
+    if floor > 0.0 && readings.last().is_some_and(|last| *last > floor) {
+        readings.push(floor);
+    }
+    readings
+}
+
+/// 配分の長さと有限性を確かめる。
+fn check_allocation(n: usize, x: &[f64]) -> Result<()> {
+    match allocation_defect(n, x) {
+        Some(defect) => Err(Error::InvalidArgument(defect)),
+        None => Ok(()),
+    }
+}
+
 /// 浮動小数点の配分 `x` の超過の段から、厳密な配分を復元する。一意に定まらなければ `None`。
 ///
-/// 未知数は `x_1..x_n` と各段の超過 `alpha_k`。超過の大きい段から順に、段の提携を全て方程式
-/// `x(S) + alpha_k = v(S)` として加え、提携の特性ベクトルが `R^n` を張った段で止める。
+/// 未知数は `x_1..x_n`。超過の大きい段から順に、段の提携の超過が等しいこと (段の先頭の提携 `S_0` との差の方程式
+/// `x(S) - x(S_0) = v(S) - v(S_0)`) と `x(N) = v(N)` を加え、提携の特性ベクトルが `R^n` を張った段で止める。
+/// 段の先頭の超過から `tolerance` 以内の提携を同じ段とし、仁 ([`Domain::Imputation`]) では
+/// `|x_i - v({i})| <= tolerance` のプレイヤーを下限に張り付いたとみなして `x_i = v({i})` も加える。
+///
+/// `game` は `exact` の値を浮動小数点数にしたゲーム (段の読み取りに使う)。方程式の右辺は `exact` の値を使う。
+///
+/// # Errors
+///
+/// `x` の長さがプレイヤー数と異なる、`x` に有限でない成分がある、`tolerance` が有限で 0 以上でない、
+/// または `game` と `exact` のプレイヤー数が異なれば [`Error::InvalidArgument`]。
+/// 段を読む超過に比較できない値 (NaN) があれば [`Error::Numerical`] (有限な値と配分からは生じない。
+/// 超過は大きすぎても `±inf` になるだけである)。
 pub fn recover_allocation(
     game: &ExplicitGame,
     exact: &ExactGame,
@@ -105,86 +218,70 @@ pub fn recover_allocation(
     tolerance: f64,
 ) -> Result<Option<Vec<Rational>>> {
     let n = game.players();
-    if x.len() != n {
+    if exact.players() != n {
         return Err(Error::InvalidArgument(format!(
-            "配分の長さ {} がプレイヤー数 {n} と異なる",
-            x.len()
+            "有理数のゲームのプレイヤー数 {} が {n} と異なる",
+            exact.players()
         )));
     }
-    let full = (1usize << n) - 1;
-    let excess = excess_table(game, x);
-    let mut order: Vec<usize> = (1..full).collect();
-    order.sort_by(|a, b| excess[*b].total_cmp(&excess[*a]));
-
-    // 段に分ける (段の先頭の超過から tolerance 以内を同じ段とする)。
-    let mut groups: Vec<Vec<usize>> = Vec::new();
-    let mut span = Span::new(n);
-    span.insert(&vec![1.0; n]);
-    let lower_bound: Vec<usize> = match domain {
-        Domain::Imputation => (0..n)
-            .filter(|&i| (x[i] - game.value(Coalition::singleton(i))).abs() <= tolerance)
-            .collect(),
-        Domain::Preimputation => Vec::new(),
-    };
-    for &i in &lower_bound {
-        span.insert_coalition(Coalition::singleton(i));
-    }
-    let mut start = 0;
-    while start < order.len() && !span.is_full() {
-        let head = excess[order[start]];
-        let mut end = start;
-        while end < order.len() && excess[order[end]] >= head - tolerance {
-            span.insert_coalition(Coalition(order[end] as u64));
-            end += 1;
-        }
-        groups.push(order[start..end].to_vec());
-        start = end;
-    }
-    if !span.is_full() {
+    check_allocation(n, x)?;
+    check_tolerance(tolerance)?;
+    let sorted = SortedExcess::new(game, x);
+    let Some(reading) = sorted.read(game, x, domain, tolerance)? else {
         return Ok(None);
-    }
+    };
+    Ok(solve(&sorted, exact, &reading))
+}
 
-    // 未知数 (x_1..x_n, alpha_1..alpha_K) と右辺からなる行を加える。
-    let unknowns = n + groups.len();
+/// 読み取った段の連立一次方程式を有理数で解き、配分を返す。矛盾するか一意に定まらなければ `None`。
+///
+/// 段 `k` の提携 `S` の式は `x(S) + alpha_k = v(S)` である。未知数 `alpha_k` は持たず、段の最初の提携 `S_0` との差
+/// `x(S) - x(S_0) = v(S) - v(S_0)` を加える (`alpha_k = v(S_0) - x(S_0)` は `x` から決まるので、`x` の解の集合は同じ)。
+/// 未知数が人数だけになり、段が多い読み取り (仁でない配分を粗い許容誤差で読んだ場合など) でも行が長くならない。
+fn solve(sorted: &SortedExcess, exact: &ExactGame, reading: &Reading) -> Option<Vec<Rational>> {
+    let n = exact.players();
+    // 未知数 x_1..x_n と右辺からなる行を加える。
     let mut echelon = ExactEchelon::default();
     let mut push = |mut row: Vec<Rational>, rhs: Rational| -> bool {
         row.push(rhs);
-        !matches!(echelon.insert(row, unknowns), Inserted::Inconsistent)
+        !matches!(echelon.insert(row, n), Inserted::Inconsistent)
     };
     let grand = Coalition::grand(n);
-    let mut efficiency = indicator(grand, n);
-    efficiency.resize(unknowns, Rational::zero());
-    if !push(efficiency, exact.value(grand).clone()) {
-        return Ok(None);
+    if !push(indicator(grand, n), exact.value(grand).clone()) {
+        return None;
     }
-    for &i in &lower_bound {
-        let mut row = vec![Rational::zero(); unknowns];
-        row[i] = Rational::one();
-        if !push(row, exact.value(Coalition::singleton(i)).clone()) {
-            return Ok(None);
+    for &i in &reading.lower_bound {
+        let single = Coalition::singleton(i);
+        if !push(indicator(single, n), exact.value(single).clone()) {
+            return None;
         }
     }
-    for (k, group) in groups.iter().enumerate() {
-        for &mask in group {
+    let mut start = 0;
+    for &end in &reading.ends {
+        let first = Coalition(sorted.order[start] as u64);
+        let first_row = indicator(first, n);
+        for &mask in &sorted.order[start + 1..end] {
             let coalition = Coalition(mask as u64);
-            let mut row = indicator(coalition, n);
-            row.resize(unknowns, Rational::zero());
-            row[n + k] = Rational::one();
-            if !push(row, exact.value(coalition).clone()) {
-                return Ok(None);
+            let row: Vec<Rational> = indicator(coalition, n)
+                .iter()
+                .zip(&first_row)
+                .map(|(a, b)| a - b)
+                .collect();
+            if !push(row, exact.value(coalition) - exact.value(first)) {
+                return None;
             }
         }
+        start = end;
     }
-    if echelon.rank() != unknowns {
-        return Ok(None);
+    if echelon.rank() != n {
+        return None;
     }
     // 全ての列がピボットなので、既約な行階段形の右辺が解になる。
-    let mut solution = vec![Rational::zero(); unknowns];
+    let mut solution = vec![Rational::zero(); n];
     for (pivot, row) in &echelon.rows {
-        solution[*pivot] = row[unknowns].clone();
+        solution[*pivot] = row[n].clone();
     }
-    solution.truncate(n);
-    Ok(Some(solution))
+    Some(solution)
 }
 
 /// 有理数の配分 `x` が仁 (プレ仁) であるかを Kohlberg 基準で厳密に判定する。
@@ -244,7 +341,9 @@ pub fn kohlberg_exact(game: &ExactGame, x: &[Rational], domain: Domain) -> Exact
     order.sort_by(|a, b| excess[*b].cmp(&excess[*a]));
 
     let mut collection: Vec<Coalition> = Vec::new();
+    // 打ち切りの判定に使う、提携族と `1_N` の張る空間。
     let mut span = ExactEchelon::default();
+    span.insert(indicator(grand, n), n);
     let mut levels_checked = 0;
     let mut start = 0;
     while start < order.len() {
@@ -264,7 +363,7 @@ pub fn kohlberg_exact(game: &ExactGame, x: &[Rational], domain: Domain) -> Exact
                 levels_checked,
             );
         }
-        // 族が R^n を張って平衡なら、それ以降の段も平衡 (kohlberg モジュールの説明を参照)。
+        // 族と `1_N` が R^n を張って平衡なら、それ以降の段も平衡 (`verify::kohlberg` の説明を参照)。
         if span.rank() == n {
             break;
         }
@@ -312,6 +411,11 @@ fn is_balanced(collection: &[Coalition], optional: &[Coalition], n: usize) -> bo
 
 /// `a` と `b` の差の最大値 (有理数で計算し、浮動小数点数で返す)。
 pub fn max_difference(a: &[Rational], b: &[f64]) -> Result<f64> {
+    Ok(to_f64(&[max_difference_exact(a, b)?])[0])
+}
+
+/// `a` と `b` の差の最大値 (有理数)。
+fn max_difference_exact(a: &[Rational], b: &[f64]) -> Result<Rational> {
     let mut worst = Rational::zero();
     for (x, y) in a.iter().zip(b) {
         let difference = (x - to_rational(*y)?).abs();
@@ -319,7 +423,17 @@ pub fn max_difference(a: &[Rational], b: &[f64]) -> Result<f64> {
             worst = difference;
         }
     }
-    Ok(to_f64(&[worst])[0])
+    Ok(worst)
+}
+
+/// `a` と `b` の差の最大値が `tolerance` 以下か (有理数で比べる) と、差を浮動小数点数にしたもの (表示用)。
+///
+/// 差を浮動小数点数に丸めてから比べると、`tolerance` をわずかに超える差が `tolerance` に丸められて
+/// 以下と判定されうるので、有理数のまま比べる。
+pub(crate) fn compare_distance(a: &[Rational], b: &[f64], tolerance: f64) -> Result<(bool, f64)> {
+    let distance = max_difference_exact(a, b)?;
+    let within = distance <= to_rational(tolerance)?;
+    Ok((within, to_f64(&[distance])[0]))
 }
 
 #[cfg(test)]
@@ -341,6 +455,93 @@ mod tests {
         assert_eq!(report.allocation, vec![r(8, 3), r(2, 3), r(5, 3)]);
     }
 
+    /// 段ごとの最大超過 `alpha_k` を未知数に持つ解き方 ([`solve`] と同じ解を返すことを確かめるための参照実装)。
+    fn solve_with_level_unknowns(
+        sorted: &SortedExcess,
+        exact: &ExactGame,
+        reading: &Reading,
+    ) -> Option<Vec<Rational>> {
+        let n = exact.players();
+        // 未知数 (x_1..x_n, alpha_1..alpha_K) と右辺からなる行を加える。
+        let unknowns = n + reading.ends.len();
+        let mut echelon = ExactEchelon::default();
+        let mut push = |mut row: Vec<Rational>, rhs: Rational| -> bool {
+            row.push(rhs);
+            !matches!(echelon.insert(row, unknowns), Inserted::Inconsistent)
+        };
+        let grand = Coalition::grand(n);
+        let mut efficiency = indicator(grand, n);
+        efficiency.resize(unknowns, Rational::zero());
+        if !push(efficiency, exact.value(grand).clone()) {
+            return None;
+        }
+        for &i in &reading.lower_bound {
+            let mut row = vec![Rational::zero(); unknowns];
+            row[i] = Rational::one();
+            if !push(row, exact.value(Coalition::singleton(i)).clone()) {
+                return None;
+            }
+        }
+        let mut start = 0;
+        for (k, &end) in reading.ends.iter().enumerate() {
+            for &mask in &sorted.order[start..end] {
+                let coalition = Coalition(mask as u64);
+                let mut row = indicator(coalition, n);
+                row.resize(unknowns, Rational::zero());
+                row[n + k] = Rational::one();
+                if !push(row, exact.value(coalition).clone()) {
+                    return None;
+                }
+            }
+            start = end;
+        }
+        if echelon.rank() != unknowns {
+            return None;
+        }
+        // 全ての列がピボットなので、既約な行階段形の右辺が解になる。
+        let mut solution = vec![Rational::zero(); unknowns];
+        for (pivot, row) in &echelon.rows {
+            solution[*pivot] = row[unknowns].clone();
+        }
+        solution.truncate(n);
+        Some(solution)
+    }
+
+    /// 段の差の式で解いた配分は、段ごとの未知数を持つ解き方と一致する (解けない場合も一致する)。
+    #[test]
+    fn solving_by_differences_matches_solving_with_level_unknowns() {
+        let mut solved = 0;
+        for seed in 0..40u64 {
+            let n = 3 + (seed % 4) as usize;
+            let game = crate::generators::bnf(1 + (seed % 4) as u8, n, seed)
+                .or_else(|_| crate::generators::bnf(1, n, seed))
+                .unwrap();
+            let exact = ExactGame::from_explicit(&game).unwrap();
+            let nucleolus = nucleolus::nucleolus(&game).unwrap().allocation;
+            let shapley = crate::values::shapley(&game);
+            for x in [&nucleolus, &shapley] {
+                let sorted = SortedExcess::new(&game, x);
+                for tolerance in [1e-9, 1e-3, 0.5, 5.0, 50.0] {
+                    for domain in [Domain::Imputation, Domain::Preimputation] {
+                        let Some(reading) = sorted.read(&game, x, domain, tolerance).unwrap()
+                        else {
+                            continue;
+                        };
+                        let by_differences = solve(&sorted, &exact, &reading);
+                        let reference = solve_with_level_unknowns(&sorted, &exact, &reading);
+                        assert_eq!(
+                            by_differences, reference,
+                            "seed {seed} tolerance {tolerance}"
+                        );
+                        solved += usize::from(by_differences.is_some());
+                    }
+                }
+            }
+        }
+        // 一意に解ける読み取りを含む (なければ、解の一致を確かめていない)。
+        assert!(solved >= 40, "{solved}");
+    }
+
     #[test]
     fn rejects_non_nucleolus_exactly() {
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
@@ -356,5 +557,37 @@ mod tests {
             Domain::Imputation,
         );
         assert!(!report.satisfied);
+    }
+
+    #[test]
+    fn reading_tolerances_decrease_and_are_bounded() {
+        let game = ExplicitGame::from_binary(&[0.0, 1e7, 1e7 + 2.0]).unwrap();
+        let tolerance = certify_tolerance(&game);
+        let readings = reading_tolerances(&game, &[1.0, 1e7 + 1.0], tolerance);
+        assert_eq!(readings[0], tolerance);
+        assert!(readings.windows(2).all(|pair| pair[1] < pair[0]));
+        // 1/10 より粗い飛ばし方をせず、最後に丸め誤差の目安そのものを試す。
+        assert!(
+            readings.windows(2).all(|pair| pair[1] >= pair[0] * 0.099),
+            "{readings:?}"
+        );
+        let floor = 4.0 * 2.0 * f64::EPSILON * (1e7 + 2.0 + 1.0 + 1e7 + 1.0);
+        assert_eq!(*readings.last().unwrap(), floor, "{readings:?}");
+        assert!(readings.len() < MAX_READINGS, "{readings:?}");
+        // 全ての値と配分が 0 なら丸め誤差の目安も 0 になるが、上限で止まる。
+        let zero = ExplicitGame::from_binary(&[0.0; 7]).unwrap();
+        let readings = reading_tolerances(&zero, &[0.0; 3], certify_tolerance(&zero));
+        assert_eq!(readings.len(), MAX_READINGS);
+    }
+
+    #[test]
+    fn distance_is_compared_exactly() {
+        // 1 + 2^-60 は浮動小数点数にすると 1 に丸められるが、許容誤差 1 を超える。
+        let above = [r(1, 1) + r(1, 1 << 60)];
+        assert_eq!(compare_distance(&above, &[0.0], 1.0).unwrap(), (false, 1.0));
+        assert_eq!(
+            compare_distance(&[r(1, 1)], &[0.0], 1.0).unwrap(),
+            (true, 1.0)
+        );
     }
 }

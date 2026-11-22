@@ -66,7 +66,7 @@ fn main() -> coopgame::Result<()> {
 
     let x = nucleolus::nucleolus(&game)?.into_allocation(); // nucleolus: [2, 2, 0]
     assert!(verify::kohlberg(&game, &x, Domain::Imputation)?.satisfied);
-    assert!(kernel::is_in_kernel(&game, &x, Domain::Imputation, 1e-9));
+    assert!(kernel::is_in_kernel(&game, &x, Domain::Imputation, 1e-9)?);
 
     let phi = values::shapley(&game); // Shapley value: [2, 2, 0]
     assert!(phi.iter().zip(&x).all(|(a, b)| (a - b).abs() < 1e-9));

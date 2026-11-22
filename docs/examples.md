@@ -334,12 +334,15 @@ print([round(v, 4) for v in result["allocation"]])  # => [2.0, 4.0, 6.0]
 ```
 
 このゲームでは仁と同じ配分になる。2 人の提携 3 つの超過を人数で割った値は、どれも -1 である。
+原典 (Young, Okada & Hashimoto 1982 の weak nucleolus) の定義は準配分の上の最小化 (`Domain::Preimputation`) で、
+`Domain::Imputation` は個人合理性を課した形である。このゲームではどちらも同じ配分になる。
 
 <!-- example: proportional -->
 ### 比例仁 (英: proportional nucleolus)
 
 3 人ゲームの比例仁を求める。
 超過を提携の値で割った値を辞書式に最小にする配分である。値が負の提携があるゲームでは定義されない。
+値が 0 の提携には x(S) ≥ 0 を課し、比例超過を辞書式に最小にした配分の中で、その x(S) を小さい順に並べたベクトルを辞書式に最大にする (Young, Okada & Hashimoto 1982 の取り決め)。
 
 ```rust
 use coopgame::nucleolus::variants;
@@ -365,12 +368,13 @@ print([round(v, 4) for v in result["allocation"]])  # => [1.3333, 4.0, 6.6667]
 ```
 
 2 人の提携 3 つの超過が、どれも提携の値の 1/3 だけ負になる (-4/3、-2、-8/3)。
+原典の定義は準配分の上の最小化 (`Domain::Preimputation`) で、このゲームでは `Domain::Imputation` と同じ配分になる。
 
 <!-- example: modiclus -->
 ### modiclus
 
 3 人ゲームの modiclus を求める。
-提携どうしの超過の差を辞書式に最小にする準配分 (英: preimputation) で、7 人までのゲームで計算できる。
+空提携と全体提携を含む全ての提携の組 (S, T) について、超過の差 e(S, x) - e(T, x) を辞書式に最小にする準配分 (英: preimputation) で、7 人までのゲームで計算できる。
 
 ```rust
 use coopgame::ExplicitGame;
@@ -379,10 +383,10 @@ use coopgame::nucleolus::variants;
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let result = variants::modiclus(&game)?;
-    println!("{:.4?}", result.allocation()); // [2.6667, 4.6667, 4.6667]
+    println!("{:.4?}", result.allocation()); // [4.0000, 4.0000, 4.0000]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(close(result.allocation(), &[8.0 / 3.0, 14.0 / 3.0, 14.0 / 3.0]));
+    assert!(close(result.allocation(), &[4.0, 4.0, 4.0]));
     Ok(())
 }
 ```
@@ -392,10 +396,13 @@ import coopgame
 
 game = coopgame.Game([0, 0, 0, 4, 6, 8, 12], order="lex")
 result = coopgame.modiclus(game)
-print([round(v, 4) for v in result["allocation"]])  # => [2.6667, 4.6667, 4.6667]
+print([round(v, 4) for v in result["allocation"]])  # => [4.0, 4.0, 4.0]
 ```
 
-仁 (2, 4, 6) と比べて、プレイヤー 2 の取り分が小さい。
+提携 {2} と {0, 1} の超過の和は 4 - 12 = -8 で配分によらないので、どちらかの超過は -4 以下になり、
+空提携の超過 0 との差は 4 以上になる。
+差の最大値が 4 になる準配分は、超過が全て -4 以上 0 以下になる (4, 4, 4) だけである。
+仁 (2, 4, 6) と異なり、3 人に等しく分ける。
 
 <!-- example: anti -->
 ### anti-nucleolus・anti-prenucleolus
@@ -1022,8 +1029,8 @@ use coopgame::{Coalition, ExplicitGame, properties};
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let tolerance = coopgame::game::default_tolerance(&game);
-    let nucleolus_in_core = properties::is_in_core(&game, &[2.0, 4.0, 6.0], tolerance);
-    let other_in_core = properties::is_in_core(&game, &[6.0, 3.0, 3.0], tolerance);
+    let nucleolus_in_core = properties::is_in_core(&game, &[2.0, 4.0, 6.0], tolerance)?;
+    let other_in_core = properties::is_in_core(&game, &[6.0, 3.0, 3.0], tolerance)?;
     println!("{nucleolus_in_core} {other_in_core}"); // true false
 
     let report = explain::report(&game, &[6.0, 3.0, 3.0], ExplainOptions::default())?;

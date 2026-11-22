@@ -9,7 +9,7 @@ mod common;
 use common::{assert_close, max_abs_difference};
 use coopgame::game::exact::ExactGame;
 use coopgame::kernel::{self, SetOptions, TransferOptions};
-use coopgame::nucleolus::{self, Method, Options, convex, exact, oracle, variants};
+use coopgame::nucleolus::{self, Method, Options, Tolerance, convex, exact, oracle, variants};
 use coopgame::num_traits::ToPrimitive;
 use coopgame::properties::ConvexChecked;
 use coopgame::verify::{self, Check, VerifyOptions};
@@ -30,7 +30,7 @@ fn exact_nucleolus(game: &ExplicitGame, domain: Domain) -> Vec<f64> {
 }
 
 fn with_method(game: &ExplicitGame, domain: Domain, method: Method) -> Vec<f64> {
-    let mut options = Options::new(game, domain);
+    let mut options = Options::new(domain);
     options.method = method;
     nucleolus::nucleolus_with(game, options)
         .unwrap_or_else(|err| panic!("{method:?} {domain:?}: {err}"))
@@ -93,6 +93,30 @@ fn nucleolus_of_tiny_game_is_exact() {
     assert_close(&x, &expected, tolerance, "oracle");
 }
 
+/// 値が非正規化数のゲームも、2 のべき乗で割って解く (有理数の逐次 LP に切り替えない 9 人のゲームで確かめる)。
+/// 配分は、縮める前の配分を同じ倍率で縮めたものと、非正規化数の刻みの範囲で一致する。
+#[test]
+fn nucleolus_of_subnormal_game_matches_the_scaled_nucleolus() {
+    let base = generators::bnf(1, 9, 0).unwrap();
+    let factor = 2f64.powi(-1060);
+    let game = scaled(&base, factor);
+    assert!(game.max_abs_value() < f64::MIN_POSITIVE);
+    for domain in [Domain::Imputation, Domain::Preimputation] {
+        let expected: Vec<f64> = nucleolus::nucleolus_with(&base, Options::new(domain))
+            .unwrap()
+            .allocation()
+            .iter()
+            .map(|v| v * factor)
+            .collect();
+        let actual = nucleolus::nucleolus_with(&game, Options::new(domain))
+            .unwrap_or_else(|err| panic!("{domain:?}: {err}"))
+            .into_allocation();
+        // 非正規化数の刻み (2^-1074) の数倍までの丸めを許す。
+        let grid = f64::from_bits(1);
+        assert_close(&actual, &expected, 4.0 * grid, &format!("{domain:?}"));
+    }
+}
+
 /// 2 のべき乗の倍率は浮動小数点数で丸めが起きないので、解もちょうど同じ倍率になる。
 #[test]
 fn power_of_two_scaling_gives_identical_results() {
@@ -103,14 +127,13 @@ fn power_of_two_scaling_gives_identical_results() {
                 let factor = 2f64.powi(exponent);
                 let game = scaled(&base, factor);
                 for domain in [Domain::Imputation, Domain::Preimputation] {
-                    let Ok(expected) =
-                        nucleolus::nucleolus_with(&base, Options::new(&base, domain))
+                    let Ok(expected) = nucleolus::nucleolus_with(&base, Options::new(domain))
                     else {
                         continue;
                     };
                     let expected: Vec<f64> =
                         expected.allocation().iter().map(|v| v * factor).collect();
-                    let actual = nucleolus::nucleolus_with(&game, Options::new(&game, domain))
+                    let actual = nucleolus::nucleolus_with(&game, Options::new(domain))
                         .unwrap()
                         .into_allocation();
                     assert_eq!(actual, expected, "bnf{kind} seed {seed} 2^{exponent}");
@@ -363,7 +386,10 @@ fn kernel_set_agrees_with_kernel_point_on_nearly_empty_imputation_set() {
             (Ok(set), Ok(point)) => {
                 assert!(tolerance >= 1e-8);
                 assert_eq!(set.pieces.len(), 1, "{set:?}");
-                assert!(set.contains(point.allocation(), 1e-12), "{set:?} {point:?}");
+                assert!(
+                    set.contains(point.allocation(), 1e-12).unwrap(),
+                    "{set:?} {point:?}"
+                );
             }
             (set, point) => panic!("tolerance {tolerance}: {set:?} / {point:?}"),
         }
@@ -512,4 +538,67 @@ fn partial_game_nucleolus_of_tiny_game_is_exact() {
         .into_allocation();
     let expected = exact_nucleolus(&game, Domain::Imputation);
     assert_close(&x, &expected, 1e-9 * game.max_abs_value(), "partial");
+}
+
+/// 値の大きさで割ると f64 の範囲を超える許容誤差 (値に比べて大きすぎる) は、値を正規化して解くどの関数でも
+/// `InvalidArgument` になる。
+#[test]
+fn tolerance_too_large_for_the_values_is_rejected() {
+    // v(S) = |S|^2 * 1e-300 (凸ゲーム)。
+    let game = scaled(
+        &ExplicitGame::from_lex(&[1.0, 1.0, 1.0, 4.0, 4.0, 4.0, 9.0]).unwrap(),
+        1e-300,
+    );
+    let huge = 1e10;
+    let rejected = |result: Result<(), Error>, what: &str| match result {
+        Err(Error::InvalidArgument(message)) => {
+            assert!(message.contains("大きすぎる"), "{what}: {message}");
+        }
+        other => panic!("{what}: {other:?}"),
+    };
+
+    let mut options = Options::new(Domain::Imputation);
+    options.tolerance = Tolerance::Absolute(huge);
+    rejected(
+        nucleolus::nucleolus_with(&game, options).map(|_| ()),
+        "nucleolus_with",
+    );
+    rejected(
+        oracle::nucleolus_with(&game, Domain::Imputation, huge).map(|_| ()),
+        "oracle::nucleolus_with",
+    );
+    let checked = ConvexChecked::new(game.clone()).expect("凸ゲーム");
+    let mut convex_options = convex::ConvexOptions::default();
+    convex_options.tolerance = Some(huge);
+    rejected(
+        convex::nucleolus_with(&checked, convex_options).map(|_| ()),
+        "convex::nucleolus_with",
+    );
+    let mut set_options = SetOptions::for_game(&game);
+    set_options.tolerance = huge;
+    rejected(
+        kernel::kernel_set(&game, Domain::Imputation, set_options).map(|_| ()),
+        "kernel_set",
+    );
+    let feasible = variants::Feasible {
+        total: 9e-300,
+        lower: None,
+        constraints: Vec::new(),
+    };
+    let complaints = [
+        variants::Complaint {
+            coefficients: vec![1.0, 0.0, 0.0],
+            constant: 1e-300,
+            weight: 1.0,
+        },
+        variants::Complaint {
+            coefficients: vec![0.0, 1.0, 1.0],
+            constant: 4e-300,
+            weight: 1.0,
+        },
+    ];
+    rejected(
+        variants::lexicographic_minimum(3, &feasible, &complaints, huge).map(|_| ()),
+        "lexicographic_minimum",
+    );
 }

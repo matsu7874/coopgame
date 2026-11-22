@@ -18,9 +18,9 @@ fn main() -> coopgame::Result<()> {
     for seed in 0..20 {
         let game = generators::random_convex(5, seed)?;
         assert!(properties::is_convex(&game));
-        assert!(properties::is_in_core(&game, &values::shapley(&game), 1e-7));
+        assert!(properties::is_in_core(&game, &values::shapley(&game), 1e-7)?);
         // コアが空でなければ、仁もコアに属する
-        assert!(properties::is_in_core(&game, &nucleolus::nucleolus(&game)?.into_allocation(), 1e-7));
+        assert!(properties::is_in_core(&game, &nucleolus::nucleolus(&game)?.into_allocation(), 1e-7)?);
     }
     Ok(())
 }
@@ -39,8 +39,8 @@ fn main() -> coopgame::Result<()> {
         left.min(right) as f64
     })?;
     assert!(!properties::is_convex(&gloves));
-    assert!(properties::is_in_core(&gloves, &[1.0, 0.0, 0.0], 1e-9));
-    assert!(!properties::is_in_core(&gloves, &values::shapley(&gloves), 1e-9));
+    assert!(properties::is_in_core(&gloves, &[1.0, 0.0, 0.0], 1e-9)?);
+    assert!(!properties::is_in_core(&gloves, &values::shapley(&gloves), 1e-9)?);
     Ok(())
 }
 ```
@@ -74,7 +74,7 @@ fn main() -> coopgame::Result<()> {
     assert!(!verify::kohlberg(&game, &[2.0, 0.0, 0.0], Domain::Imputation)?.satisfied);
 
     // 仁はカーネルに属する (Maschler, Peleg, Shapley 1979)
-    assert!(kernel::is_in_kernel(&game, &x, Domain::Imputation, 1e-7));
+    assert!(kernel::is_in_kernel(&game, &x, Domain::Imputation, 1e-7)?);
     Ok(())
 }
 ```

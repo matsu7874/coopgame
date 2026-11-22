@@ -160,7 +160,7 @@ fn literature_examples_lie_in_kernel_set() {
         let game = ExplicitGame::from_lex(values).unwrap();
         let set = kernel_set(&game, domain, SetOptions::for_game(&game)).unwrap();
         assert!(
-            set.contains(point, 1e-7),
+            set.contains(point, 1e-7).unwrap(),
             "{values:?} {domain:?}: {:?}",
             set.pieces
         );

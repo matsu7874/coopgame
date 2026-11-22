@@ -9,6 +9,7 @@
 
 use crate::error::Result;
 use crate::game::ExplicitGame;
+use crate::game::scale::difference_or_zero;
 use crate::{nucleolus, values};
 
 /// 全提携の費用を持つ費用ゲーム。
@@ -37,10 +38,13 @@ impl CostGame {
     }
 
     /// 節約ゲーム `s(S) = sum_{i in S} c({i}) - c(S)`。
+    ///
+    /// 差が和の丸め誤差の範囲に収まる提携 (費用が 1 人提携の費用の和に等しい提携など) の節約は、ちょうど 0 にする。
     pub fn savings_game(&self) -> Result<ExplicitGame> {
         let standalone = self.standalone();
         self.costs.map_values(|coalition, cost| {
-            coalition.members().map(|i| standalone[i]).sum::<f64>() - cost
+            let alone: f64 = coalition.members().map(|i| standalone[i]).sum();
+            difference_or_zero(alone, cost, coalition.len())
         })
     }
 

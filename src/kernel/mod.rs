@@ -18,6 +18,7 @@ pub use set::{KernelPiece, KernelSet, MAX_KERNEL_SET_PLAYERS, Row, SetOptions, k
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::{allocation_defect, check_imputation_set, feasibility_violation};
+use crate::game::scale::check_tolerance;
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::solution::Guarantee;
 use crate::surplus::max_surplus_flat;
@@ -25,7 +26,8 @@ use crate::surplus::max_surplus_flat;
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct TransferOptions {
-    /// `2 * max delta_ij` がこの値以下になったら停止する。
+    /// `2 * max delta_ij` がこの値以下になったら停止する。有限で 0 以上の値にする
+    /// (そうでなければ [`kernel_point`] は [`Error::InvalidArgument`] を返す)。
     pub tolerance: f64,
     pub max_iterations: usize,
 }
@@ -91,10 +93,19 @@ pub fn kernel_violation(game: &ExplicitGame, x: &[f64], domain: Domain) -> f64 {
 }
 
 /// `x` が効率性・領域条件を満たし、不釣り合いが `tolerance` 以下かを判定する。
-/// 長さがプレイヤー数と異なる `x` や、有限でない成分 (NaN など) を含む `x` は属さない (`false`)。
-pub fn is_in_kernel(game: &ExplicitGame, x: &[f64], domain: Domain, tolerance: f64) -> bool {
-    feasibility_violation(game, x, domain, tolerance).is_none()
-        && kernel_violation(game, x, domain) <= tolerance
+/// 長さがプレイヤー数と異なる `x` や、有限でない成分 (NaN など) を含む `x` は属さない (`Ok(false)`)。
+///
+/// `tolerance` が有限で 0 以上でないときは [`Error::InvalidArgument`] を返す。
+/// 無限大ではどの配分も属することになり、負の値ではカーネルの点も属さないことになるためである。
+pub fn is_in_kernel(
+    game: &ExplicitGame,
+    x: &[f64],
+    domain: Domain,
+    tolerance: f64,
+) -> Result<bool> {
+    check_tolerance(tolerance)?;
+    Ok(feasibility_violation(game, x, domain, tolerance).is_none()
+        && kernel_violation(game, x, domain) <= tolerance)
 }
 
 /// 各プレイヤーに `v({i})` を与え、残りを等分した配分。
@@ -109,12 +120,16 @@ pub fn equal_surplus_division(game: &ExplicitGame) -> Vec<f64> {
 ///
 /// `start` を省略すると [`equal_surplus_division`] から始める。
 /// 収束しないまま `max_iterations` に達した場合も `converged = false` で結果を返す。
+///
+/// 許容誤差が有限で 0 以上でないとき、初期配分の長さが違うか効率性・領域条件を満たさないときは
+/// [`Error::InvalidArgument`] を返す。
 pub fn kernel_point(
     game: &ExplicitGame,
     domain: Domain,
     start: Option<&[f64]>,
     options: TransferOptions,
 ) -> Result<KernelResult> {
+    check_tolerance(options.tolerance)?;
     check_imputation_set(game, domain, options.tolerance)?;
     let mut x = match start {
         Some(start) => start.to_vec(),
@@ -182,6 +197,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn is_in_kernel_rejects_invalid_tolerance() {
+        let game = ExplicitGame::from_binary(&[0.0, 0.0, 4.0, 0.0, 3.0, 2.0, 6.0]).unwrap();
+        let point = [3.0, 2.0, 1.0]; // 仁 (カーネルの点)
+        // 無限大では和の合わない配分も「属する」になり、負ではカーネルの点も「属さない」になっていた。
+        for tolerance in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, -1.0] {
+            for x in [&point[..], &[9.0, 9.0, 9.0][..]] {
+                let result = is_in_kernel(&game, x, Domain::Imputation, tolerance);
+                assert!(
+                    matches!(result, Err(Error::InvalidArgument(_))),
+                    "tolerance {tolerance}: {result:?}"
+                );
+            }
+        }
+        assert!(is_in_kernel(&game, &point, Domain::Imputation, 0.0).unwrap());
+        assert!(!is_in_kernel(&game, &[9.0, 9.0, 9.0], Domain::Imputation, 1e-9).unwrap());
+        // 不正な配分は、許容誤差が正しければ「属さない」。
+        assert!(!is_in_kernel(&game, &[f64::NAN, 2.0, 1.0], Domain::Imputation, 1e-9).unwrap());
+        assert!(!is_in_kernel(&game, &[3.0, 2.0], Domain::Imputation, 1e-9).unwrap());
+    }
+
+    #[test]
+    fn kernel_point_rejects_invalid_tolerance() {
+        // 無限大の許容誤差では、初期点がそのまま「収束した厳密な点」として返っていた。
+        let game = ExplicitGame::from_binary(&[0.0, 0.0, 4.0, 0.0, 3.0, 2.0, 6.0]).unwrap();
+        for tolerance in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, -1.0] {
+            let mut options = TransferOptions::for_game(&game);
+            options.tolerance = tolerance;
+            let result = kernel_point(&game, Domain::Imputation, Some(&[6.0, 0.0, 0.0]), options);
+            assert!(
+                matches!(&result, Err(Error::InvalidArgument(message)) if message.contains("許容誤差")),
+                "tolerance {tolerance}: {result:?}"
+            );
+        }
+        // 0 は受け付ける (反復の上限まで回り、収束していなければ converged = false)。
+        let mut options = TransferOptions::for_game(&game);
+        options.tolerance = 0.0;
+        options.max_iterations = 10;
+        assert!(kernel_point(&game, Domain::Imputation, None, options).is_ok());
+    }
+
+    #[test]
     fn pair_game_kernel() {
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
         let result = kernel_point(
@@ -192,12 +248,7 @@ mod tests {
         )
         .unwrap();
         assert!(result.converged);
-        assert!(is_in_kernel(
-            &game,
-            &result.allocation,
-            Domain::Imputation,
-            1e-6
-        ));
+        assert!(is_in_kernel(&game, &result.allocation, Domain::Imputation, 1e-6).unwrap());
         // このゲームのカーネルは仁 (2, 2, 0) の 1 点。
         for (a, e) in result.allocation.iter().zip([2.0, 2.0, 0.0]) {
             assert!((a - e).abs() < 1e-6);
@@ -207,12 +258,7 @@ mod tests {
     #[test]
     fn rejects_unbalanced_point() {
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
-        assert!(!is_in_kernel(
-            &game,
-            &[1.0, 3.0, 0.0],
-            Domain::Imputation,
-            1e-6
-        ));
+        assert!(!is_in_kernel(&game, &[1.0, 3.0, 0.0], Domain::Imputation, 1e-6).unwrap());
         assert!(
             (kernel_violation(&game, &[1.0, 3.0, 0.0], Domain::Imputation) - 2.0).abs() < 1e-12
         );

@@ -38,6 +38,10 @@ CoopGame の誤りと判定した 4 件について、超過を降順に並べ�
 | `data/bench/convex-graph.csv`、`data/bench/convex-bankruptcy.csv` | 凸ゲームの手法の計測 (同上) | 同上 | `bench_convex graph 10,16,24,32,48,64 3`、`bench_convex bankruptcy 10,20,30,40 3` (`cargo run --release --example ...`) |
 | `data/bench/auto-threshold.csv` | 自動選択の境目の計測 (同上) | 同上 | `cargo run --release --example bench_auto_threshold -- 8,10,12,14,16,18,20 3` |
 | `data/bench/exact-scaling.csv` | 有理数だけの仁のソルバーの計測 | 厳密なソルバーを追加したコミット | `cargo run --release --example bench_exact -- 3,4,5,6,7,8,9,10` |
+| `data/bench/exact-scaling-integer.csv` | 有理数だけの仁のソルバーの、整数ゲームでの計測 ([performance.md](performance.md) の「上限と既定値の根拠」) | 有理数への自動の切り替えを 8 人までにしたコミット | `cargo run --release --example bench_exact -- 7,8,9,10 integer > data/bench/exact-scaling-integer.csv` (10 人は各 scale で 1 ゲーム。Apple M4 Pro・macOS・rustc 1.99.1 で計測。秒の列は実行ごとに変わる) |
+| `data/bench/variant-limits.csv` | 仁の変種と交渉集合の判定の時間と最大メモリ (`docs/performance.md` の上限の根拠) | 上限を追加したコミット。上限より 1 人多い人数は `MAX_*_PLAYERS` を一時的に大きくしたビルド | `cargo run --release --example bench_limits > data/bench/variant-limits.csv` (Apple M4 Pro・macOS・rustc 1.99.1 で計測。最大メモリは `/usr/bin/time -l`) |
+| `data/analysis/tolerance-study.csv` | 仁の許容誤差の決め方の比較 ([performance.md](performance.md)) | 許容誤差の決め方を追加したコミット | `cargo run --release --example study_tolerance > data/analysis/tolerance-study.csv` (Apple M4 Pro・macOS・rustc 1.99.1 で計測。秒の列は実行ごとに変わる) |
+| `data/analysis/refinement-rows.csv` | 許容誤差を下げて解き直すときに追加する行の数 (同上) | 解き直しの行の上限を追加したコミット | `cargo run --release --example study_tolerance -- rows > data/analysis/refinement-rows.csv` (同じ環境で計測。秒の列は実行ごとに変わる) |
 | `data/analysis/counterexamples.txt` | 反例の探索と縮小の実例 | 反例探索を追加したコミット | `cargo run --release --example study_counterexamples` (約 1 分) |
 | `data/compare/small.csv` | 既存実装との比較 (n = 4-12) | coopgame-rs はコミット `3f85dc1` の CLI | `python3 scripts/compare/run.py work/small` |
 | `data/compare/tuglab-retry-tol1e-8.csv` | TUGLab の再実行 | 同上 | `IMPLS=TUGLab python3 scripts/compare/run.py <失敗したインスタンス> 1e-8` |
@@ -85,13 +89,13 @@ python3 scripts/compare/diff_results.py data/compare/large.csv large.csv
 
 | 対象 | 方法 | 結果 |
 |---|---|---|
-| ドキュメントの数値 | `scripts/verify_claims.py --instances scripts/compare/work` | 104 項目全てが一致 (当時の項目数。現在は 53 項目) |
+| ドキュメントの数値 | `scripts/verify_claims.py --instances scripts/compare/work` | 104 項目全てが一致 (当時の項目数) |
 | インスタンス | `make_instances.sh` で再生成し、比較に使ったファイルと照合 | 144 個全てが一致 (`instances.sha256` に記録) |
 | 比較: coopgame-rs・CoopGame | `run.py` で再実行し `diff_results.py` で照合 | small 756 件、large 72 件の状態と配分が全て一致 (CoopGame の誤った配分も同じ値で再現) |
 | 比較: TUGLab | 同上 | small 252 件は全て一致。large 36 件のうち 33 件が一致し、3 件は状態が変わった |
 | 明示ベクトルの計測 | `verify_claims.py` (件数と検証結果) | 540 件全てが検証済み |
 | Shapley 値・Banzhaf 値 | `scripts/compare/check_values.py` (CoopGame 0.2.2 と照合) | 12 ゲーム 24 件が相対 2.3e-15 以内で一致 |
-| per capita 仁・比例仁・modiclus | `scripts/compare/check_variants.py` (CoopGame 0.2.2 と照合) | 41 ゲームで 3 つとも一致 (比例仁の 1 件は両方とも計算しない)。相対 9.1e-14 以内 |
+| per capita 仁・比例仁・modiclus | `scripts/compare/check_variants.py` (CoopGame 0.2.2 と照合) | 41 ゲームで 3 つとも一致 (比例仁の 1 件は両方とも計算しない)。相対 9.1e-14 以内。当時の modiclus は CoopGame と同じく空でない真部分提携の組だけを使っていた。現在の modiclus は空提携と全体提携を含む組を使う文献の定義で、CoopGame とは一致しないので照合から外した |
 
 TUGLab の large で状態が変わった 3 件は、いずれもタイプ 4 の仁で、時間の上限 (300 秒) の境目によるものである。
 
@@ -100,3 +104,24 @@ TUGLab の large で状態が変わった 3 件は、いずれもタイプ 4 の
 
 今回完了した n = 15, 16 の配分は、coopgame-rs の配分 (Kohlberg 基準で検証済み) と最大 0.52、0.92 異なり、
 正しい仁ではなかった。`docs/comparison.md` の「TUGLab はタイプ 2, 4 で誤った仁を返す」という結論は変わらない。
+
+## 再実行の結果 (2026-11-21、macOS)
+
+逐次 LP の確定値の決め方、仁の変種の定義、入力の検証を変えた後に、別の環境で一部を再実行した。
+
+| 項目 | 版 |
+|---|---|
+| OS・CPU | macOS 27.2.1、Apple M4 Pro |
+| Rust | rustc 1.99.1 |
+| R | 4.6.2 (Homebrew) |
+| R パッケージ | geometry 0.5.2、gtools 3.9.5 (CRAN)、rcdd 1.6-1、CoopGame 0.2.2 (`scripts/compare/setup.sh` で固定したコミット) |
+
+| 対象 | 方法 | 結果 |
+|---|---|---|
+| インスタンス | `make_instances.sh` で再生成し、`instances.sha256` と照合 | 144 個全てが一致 |
+| 比較: coopgame-rs の仁・プレ仁 | `IMPLS=coopgame-rs,coopgame-rs-full` で `run.py` を再実行し、`diff_results.py` で `data/compare/` と照合 | small 504 件、large 72 件の状態と配分 (相対 1e-9) が全て一致 |
+| Shapley 値・Banzhaf 値 | `scripts/compare/check_values.py` | 12 ゲーム 24 件が相対 2.3e-15 以内で一致 |
+| per capita 仁・比例仁 | `scripts/compare/check_variants.py` | per capita 仁は 41 ゲームで一致。比例仁は 40 ゲームで一致し、1 件は両方とも計算しない。相対 9.1e-14 以内 |
+| modiclus | CoopGame の `modiclus` を直接実行 | 本実装と一致しない (値は [comparison.md](comparison.md#仁の変種-per-capita-仁比例仁modiclus)) |
+
+CoopGame と TUGLab の仁 (`run.py` の残りの実装) は再実行していない。

@@ -95,7 +95,7 @@ fn marginal_sums(game: &ExplicitGame, weight: impl Fn(usize) -> f64) -> Vec<f64>
 #[non_exhaustive]
 pub struct Estimate {
     pub(crate) values: Vec<f64>,
-    /// 各推定値の標準誤差 (標本標準偏差 / sqrt(標本数))。
+    /// 各推定値の標準誤差 (標本標準偏差 / sqrt(標本数))。標本が 1 個以下なら `inf`。
     pub(crate) standard_errors: Vec<f64>,
     /// 特性関数を評価した回数。
     pub(crate) evaluations: usize,
@@ -113,6 +113,8 @@ impl Estimate {
     }
 
     /// 各推定値の標準誤差 (標本標準偏差 / sqrt(標本数))。
+    ///
+    /// 標本標準偏差は標本が 2 個以上でないと定まらないので、標本が 0 個か 1 個なら全て `inf` にする。
     pub fn standard_errors(&self) -> &[f64] {
         &self.standard_errors
     }
@@ -175,7 +177,12 @@ impl Accumulator {
     }
 }
 
-/// ランダムな順列 `permutations` 個の限界貢献の平均で Shapley 値を推定する (評価回数は順列あたり n 回)。
+/// ランダムな順列 `permutations` 個の限界貢献の平均で Shapley 値を推定する
+/// (評価回数は空提携の 1 回と、順列あたり n 回)。
+///
+/// `permutations` が 0 なら、推定値は全て 0、標準誤差は全て `inf` になる (評価回数は 1)。
+/// 標本がないことを表す値なので、推定値として使わないこと。
+/// 標準誤差は `permutations` が 2 以上で有限になる (1 なら `inf`)。
 pub fn shapley_sampling<G: SetFunction + ?Sized>(
     game: &G,
     permutations: usize,
@@ -209,6 +216,10 @@ pub fn shapley_sampling<G: SetFunction + ?Sized>(
 /// ランダムな提携 `samples` 個に対する各人の限界貢献の平均で Banzhaf 値を推定する
 /// (評価回数は標本あたり n + 1 回)。各人を確率 1/2 で含めた提携 `S` について、
 /// `S` から `i` を除いた提携は他の人の部分集合として一様なので、`v(S ∪ {i}) - v(S \ {i})` は不偏推定量になる。
+///
+/// `samples` が 0 なら、推定値は全て 0、標準誤差は全て `inf` になる (評価回数は 0)。
+/// 標本がないことを表す値なので、推定値として使わないこと。
+/// 標準誤差は `samples` が 2 以上で有限になる (1 なら `inf`)。
 pub fn banzhaf_sampling<G: SetFunction + ?Sized>(game: &G, samples: usize, seed: u64) -> Estimate {
     let n = game.players();
     let mut rng = SplitMix64::new(seed);
@@ -312,5 +323,28 @@ mod tests {
         assert!(
             (shapley_estimate.values.iter().sum::<f64>() - game.value(game.grand())).abs() < 1e-6
         );
+    }
+
+    /// 標本が 0 個・1 個のときの戻り値 (文書に書いたとおり)。
+    #[test]
+    fn sampling_with_too_few_samples() {
+        let game = generators::bnf(2, 4, 5).unwrap();
+        let none = shapley_sampling(&game, 0, 1);
+        assert_eq!(none.values(), [0.0; 4]);
+        assert_eq!(none.standard_errors(), [f64::INFINITY; 4]);
+        assert_eq!(none.evaluations(), 1);
+        let none = banzhaf_sampling(&game, 0, 1);
+        assert_eq!(none.values(), [0.0; 4]);
+        assert_eq!(none.standard_errors(), [f64::INFINITY; 4]);
+        assert_eq!(none.evaluations(), 0);
+
+        let one = shapley_sampling(&game, 1, 1);
+        assert!(one.values().iter().all(|v| v.is_finite()));
+        assert_eq!(one.standard_errors(), [f64::INFINITY; 4]);
+        let one = banzhaf_sampling(&game, 1, 1);
+        assert!(one.values().iter().all(|v| v.is_finite()));
+        assert_eq!(one.standard_errors(), [f64::INFINITY; 4]);
+        let two = banzhaf_sampling(&game, 2, 1);
+        assert!(two.standard_errors().iter().all(|e| e.is_finite()));
     }
 }

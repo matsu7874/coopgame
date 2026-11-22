@@ -6,12 +6,44 @@ use crate::game::{ExplicitGame, PlayerSet, SetFunction};
 use crate::properties;
 use crate::solution::{Guarantee, Property, Unverified};
 
-/// 性質の根拠の種類。結果の型と保証を決める。
-pub trait ProofKind {
+mod sealed {
+    /// [`super::ProofKind`] と [`super::ConvexGame`] の上位トレイト。
+    ///
+    /// 公開しないモジュールに置くので、クレートの外からは名前を書けず、実装もできない。
+    /// 性質を持つと主張できる型は、このクレートで実装したものだけになる。
+    pub trait Sealed {}
+}
+
+pub(crate) use sealed::Sealed;
+
+/// 性質の根拠の種類。性質に基づく手法の結果の型と保証を決める。
+///
+/// 根拠は [`Proven`] (型の構造、または計算で確かめた) と [`Assumed`] (利用者の宣言) の 2 つだけで、
+/// クレートの外では実装できない。保証 ([`Guarantee`]) はライブラリが確かめた事実からだけ付くので、
+/// 利用者が独自の根拠を定義して保証を名乗ることはできない。
+///
+/// ```compile_fail,E0277
+/// use coopgame::properties::ProofKind;
+/// use coopgame::{Guarantee, Property};
+///
+/// enum Fake {}
+///
+/// impl ProofKind for Fake {
+///     type Output<T> = T;
+///     fn guarantee(_property: Property) -> Guarantee {
+///         Guarantee::Certified
+///     }
+///     fn wrap<T>(value: T, _property: Property) -> T {
+///         value
+///     }
+/// }
+/// ```
+pub trait ProofKind: Sealed {
     /// 結果 `T` を返すときの型。
     type Output<T>;
     /// 性質 `property` に基づく手法の結果の保証。
     fn guarantee(property: Property) -> Guarantee;
+    /// 結果を [`ProofKind::Output`] の型にする。
     fn wrap<T>(value: T, property: Property) -> Self::Output<T>;
 }
 
@@ -20,6 +52,10 @@ pub enum Proven {}
 
 /// 利用者が性質を宣言しただけ。
 pub enum Assumed {}
+
+impl Sealed for Proven {}
+
+impl Sealed for Assumed {}
 
 impl ProofKind for Proven {
     type Output<T> = T;
@@ -49,7 +85,83 @@ impl ProofKind for Assumed {
 ///
 /// 凸ゲームでは、カーネルは仁の 1 点に一致し (Maschler, Peleg & Shapley 1971)、
 /// 最大余剰は劣モジュラ関数の最小化で求められる。[`crate::nucleolus::convex`] の手法が使える。
-pub trait ConvexGame: SetFunction {
+///
+/// 凸だと主張できるのは次の型だけで、クレートの外では実装できない。
+/// 凸でないゲームを [`Proven`] として扱うと、凸ゲームの手法が返す誤った配分に `proven(convex)` が付くためである。
+///
+/// | 型 | 根拠 | [`ConvexGame::Proof`] |
+/// |---|---|---|
+/// | [`BankruptcyGame`]、[`InducedSubgraphGame`]、[`AirportGame`] | 型の構造から凸 | [`Proven`] |
+/// | [`ConvexChecked`] | 全提携で優モジュラ性を計算で確かめた | [`Proven`] |
+/// | [`Assume`] ([`Assume::convex`]) | 利用者が宣言した (確かめない) | [`Assumed`] |
+///
+/// 利用者が定義したゲームを凸として扱うには、次のどちらかを使う。
+///
+/// - [`Assume::convex`] で包む。結果は [`Unverified`] で返るので、[`Unverified::verify`] で検証してから使う。
+/// - 全提携の表 ([`ExplicitGame::tabulate`]、30 人まで) を作り、[`ConvexChecked::new`] で凸であることを確かめる。
+///
+/// ```
+/// use coopgame::nucleolus::convex;
+/// use coopgame::properties::{Assume, ConvexChecked};
+/// use coopgame::verify::{Verified, VerifyOptions};
+/// use coopgame::{ExplicitGame, Guarantee, PlayerSet, Property, SetFunction};
+///
+/// /// 提携の値が人数の 2 乗のゲーム (凸)。
+/// struct Square(usize);
+///
+/// impl SetFunction for Square {
+///     fn players(&self) -> usize {
+///         self.0
+///     }
+///     fn value(&self, coalition: &PlayerSet) -> f64 {
+///         (coalition.len() * coalition.len()) as f64
+///     }
+/// }
+///
+/// // 宣言して求め、検証してから使う。
+/// let unverified = convex::nucleolus(&Assume::convex(Square(4)))?;
+/// assert_eq!(unverified.peek().guarantee(), Guarantee::Assumed(Property::Convex));
+/// let Verified::Certified(solution) = unverified.verify(&Square(4), VerifyOptions::default())? else {
+///     panic!("凸ゲームなので合格する");
+/// };
+/// assert_eq!(solution.guarantee(), Guarantee::Certified);
+///
+/// // 全提携の表で凸であることを確かめる。
+/// let checked = ConvexChecked::new(ExplicitGame::tabulate(&Square(4))?).expect("凸");
+/// let solution = convex::nucleolus(&checked)?;
+/// assert_eq!(solution.guarantee(), Guarantee::Proven(Property::Convex));
+/// assert!(solution.allocation().iter().all(|x| (x - 4.0).abs() < 1e-9));
+/// # Ok::<(), coopgame::Error>(())
+/// ```
+///
+/// 利用者の型に `ConvexGame` を実装することはできない。
+///
+/// ```compile_fail,E0277
+/// use coopgame::properties::{ConvexGame, Proven};
+/// use coopgame::{PlayerSet, SetFunction};
+///
+/// /// 3 人の多数決ゲーム (凸でない)。
+/// struct Majority;
+///
+/// impl SetFunction for Majority {
+///     fn players(&self) -> usize {
+///         3
+///     }
+///     fn value(&self, coalition: &PlayerSet) -> f64 {
+///         if coalition.len() >= 2 { 1.0 } else { 0.0 }
+///     }
+/// }
+///
+/// impl ConvexGame for Majority {
+///     type Proof = Proven;
+/// }
+/// ```
+///
+/// [`BankruptcyGame`]: crate::games::bankruptcy::BankruptcyGame
+/// [`InducedSubgraphGame`]: crate::games::graph::InducedSubgraphGame
+/// [`AirportGame`]: crate::games::airport::AirportGame
+pub trait ConvexGame: SetFunction + Sealed {
+    /// 凸性の根拠 ([`Proven`] か [`Assumed`])。
     type Proof: ProofKind;
 }
 
@@ -83,6 +195,8 @@ impl SetFunction for ConvexChecked {
         SetFunction::value(&self.game, coalition)
     }
 }
+
+impl Sealed for ConvexChecked {}
 
 impl ConvexGame for ConvexChecked {
     type Proof = Proven;
@@ -128,6 +242,8 @@ impl<P, G: SetFunction> SetFunction for Assume<P, G> {
         self.game.value(coalition)
     }
 }
+
+impl<G: SetFunction> Sealed for Assume<Convexity, G> {}
 
 impl<G: SetFunction> ConvexGame for Assume<Convexity, G> {
     type Proof = Assumed;

@@ -94,7 +94,7 @@ fn kernel_in_core(game: &ExplicitGame, set: &KernelSet) -> &'static str {
         };
         all &= vertices
             .iter()
-            .all(|v| properties::is_in_core(game, v, tolerance));
+            .all(|v| properties::is_in_core(game, v, tolerance).expect("許容誤差は有限で 0 以上"));
     }
     if all { "yes" } else { "no" }
 }

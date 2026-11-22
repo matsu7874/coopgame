@@ -128,6 +128,14 @@ impl SampledGame {
     pub fn coalitions(&self) -> &[PlayerSet] {
         &self.coalitions
     }
+
+    /// 配分 `x` での、サンプルした真部分提携の超過の最大値。
+    fn max_excess(&self, x: &[f64]) -> f64 {
+        self.coalitions
+            .iter()
+            .map(|set| self.values[set] - set.sum(x))
+            .fold(f64::NEG_INFINITY, f64::max)
+    }
 }
 
 impl SetFunction for SampledGame {
@@ -164,6 +172,12 @@ impl OracleGame for SampledGame {
     fn scale(&self) -> f64 {
         self.scale
     }
+
+    /// サンプルした提携だけを返すので `false`。このゲームで求めた仁・最小コアは近似になる
+    /// (全提携をサンプルした場合も、サンプルしたゲームとして扱う)。
+    fn lists_all_coalitions(&self) -> bool {
+        false
+    }
 }
 
 /// サンプリングによる近似の結果。
@@ -186,11 +200,15 @@ impl SampledNucleolus {
         self.allocation
     }
 
-    /// サンプルした提携での最小コアの値 (最大超過の最小値)。
+    /// サンプルした提携での最小コアの値 (`domain` の配分のうちで、サンプルした提携の最大超過の最小値)。
+    ///
+    /// 配分集合が 1 点で LP を解かなかったとき ([`SampledNucleolus::levels`] が空) は、
+    /// その点でのサンプルした提携の最大超過。
     pub fn epsilon(&self) -> f64 {
         self.epsilon
     }
 
+    /// 各段の最適な最大超過 (サンプルした提携での値。[`NucleolusResult::levels`] と同じ)。
     pub fn levels(&self) -> &[f64] {
         &self.levels
     }
@@ -214,18 +232,23 @@ pub fn nucleolus<G: SetFunction + ?Sized>(
     domain: Domain,
 ) -> Result<SampledNucleolus> {
     let sampled = SampledGame::sample(game, pairs, seed)?;
+    // SampledGame は全提携を返さないオラクルなので、保証は近似になる。
     let result: NucleolusResult =
         oracle::nucleolus_with(&sampled, domain, oracle::default_tolerance(&sampled))?;
+    let epsilon = match result.levels.first() {
+        Some(level) => *level,
+        None => sampled.max_excess(&result.allocation),
+    };
     Ok(SampledNucleolus {
-        epsilon: result.levels.first().copied().unwrap_or(0.0),
+        epsilon,
         allocation: result.allocation,
         levels: result.levels,
         evaluations: sampled.evaluations(),
-        guarantee: Guarantee::Approximate,
+        guarantee: result.guarantee,
     })
 }
 
-/// 提携を `pairs` 組サンプルし、制限したゲームの最小コアの配分を 1 つ求める。
+/// 提携を `pairs` 組サンプルし、制限したゲームの最小コアの配分を 1 つ求める。保証は [`Guarantee::Approximate`]。
 pub fn least_core<G: SetFunction + ?Sized>(
     game: &G,
     pairs: usize,
@@ -233,8 +256,7 @@ pub fn least_core<G: SetFunction + ?Sized>(
     domain: Domain,
 ) -> Result<(LeastCore, usize)> {
     let sampled = SampledGame::sample(game, pairs, seed)?;
-    let mut least = oracle::least_core(&sampled, domain)?;
-    least.guarantee = Guarantee::Approximate;
+    let least = oracle::least_core(&sampled, domain)?;
     Ok((least, sampled.evaluations()))
 }
 
@@ -255,10 +277,9 @@ mod tests {
             let sampled = SampledGame::from_coalitions(&game, all).unwrap();
             assert_eq!(sampled.evaluations(), (1 << n) - 1);
             for domain in [Domain::Imputation, Domain::Preimputation] {
-                let expected =
-                    nucleolus::nucleolus_with(&game, nucleolus::Options::new(&game, domain))
-                        .unwrap()
-                        .allocation;
+                let expected = nucleolus::nucleolus_with(&game, nucleolus::Options::new(domain))
+                    .unwrap()
+                    .allocation;
                 let actual = oracle::nucleolus_with(&sampled, domain, 1e-7 * game.max_abs_value())
                     .unwrap()
                     .allocation;
@@ -270,6 +291,22 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// 1 人提携の値の和が `v(N)` に等しいと、配分集合は 1 点 `x = (1, 1, 1)` で LP を解かない。
+    /// そのときも `epsilon` は返す配分でのサンプルした提携の最大超過 (提携 {0, 1} の `5 - 2 = 3`) で、
+    /// サンプルした提携での最小コアの値と一致する。
+    #[test]
+    fn epsilon_on_single_point_imputation_set() {
+        let game = crate::ExplicitGame::from_lex(&[1.0, 1.0, 1.0, 5.0, 2.0, 2.0, 3.0]).unwrap();
+        let result = nucleolus(&game, 50, 0, Domain::Imputation).unwrap();
+        assert!(result.levels().is_empty());
+        assert_eq!(result.allocation(), &[1.0, 1.0, 1.0]);
+        assert_eq!(result.epsilon(), 3.0);
+        let (least, _) = least_core(&game, 50, 0, Domain::Imputation).unwrap();
+        assert!((least.epsilon() - result.epsilon()).abs() < 1e-9);
+        assert_eq!(result.guarantee(), Guarantee::Approximate);
+        assert_eq!(least.guarantee(), Guarantee::Approximate);
     }
 
     #[test]

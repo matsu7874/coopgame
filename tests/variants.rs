@@ -1,6 +1,7 @@
 //! per capita 仁・比例仁・modiclus と交渉集合を、文献の値・手計算・定理と突き合わせる。
 //!
-//! CoopGame 0.2.2 との数値の照合は `scripts/compare/check_variants.py` で行う (R が必要なのでテストには含めない)。
+//! per capita 仁・比例仁の CoopGame 0.2.2 との数値の照合は `scripts/compare/check_variants.py` で行う
+//! (R が必要なのでテストには含めない)。modiclus の文献の数値例と定義どおりの値は `tests/modiclus.rs` にある。
 
 mod common;
 
@@ -9,22 +10,6 @@ use coopgame::generators::{self, SplitMix64};
 use coopgame::kernel::{self, TransferOptions};
 use coopgame::nucleolus::variants;
 use coopgame::{Domain, ExplicitGame, bargaining, nucleolus, properties, values};
-
-/// CoopGame の `modiclus` のヘルプにある 4 人ゲームの値 (4.25, 5.25, 5.75, 5.75)。
-#[test]
-fn modiclus_documented_example() {
-    let game = ExplicitGame::from_lex(&[
-        0.0, 0.0, 0.0, 0.0, 5.0, 5.0, 8.0, 9.0, 10.0, 8.0, 13.0, 15.0, 16.0, 17.0, 21.0,
-    ])
-    .unwrap();
-    let result = variants::modiclus(&game).unwrap();
-    assert_close(
-        result.allocation(),
-        &[4.25, 5.25, 5.75, 5.75],
-        1e-9,
-        "modiclus",
-    );
-}
 
 /// Young (1985) の費用分担の例 (CoopGame の `perCapitaNucleolus` のヘルプが引用)。
 /// 費用 C = (15, 20, 55, 35, 61, 65, 78) の節約ゲームは v(13) = 9, v(23) = 10, v(N) = 12、他は 0。
@@ -79,7 +64,7 @@ fn modiclus_lies_in_core_of_convex_games() {
         let x = variants::modiclus(&game).unwrap().into_allocation();
         let tolerance = 1e-6 * game.max_abs_value().max(1.0);
         assert!(
-            properties::is_in_core(&game, &x, tolerance),
+            properties::is_in_core(&game, &x, tolerance).unwrap(),
             "seed {seed}: {x:?}"
         );
     }
@@ -101,19 +86,13 @@ fn per_capita_and_proportional_lie_in_nonempty_core() {
             let tolerance = 1e-6 * game.max_abs_value().max(1.0);
             let per_capita = variants::per_capita_nucleolus(&game, Domain::Imputation).unwrap();
             assert!(per_capita.levels()[0] <= tolerance);
-            assert!(properties::is_in_core(
-                &game,
-                per_capita.allocation(),
-                tolerance
-            ));
+            assert!(properties::is_in_core(&game, per_capita.allocation(), tolerance).unwrap());
             if game.values().iter().all(|v| *v >= 0.0) {
                 let proportional =
                     variants::proportional_nucleolus(&game, Domain::Imputation).unwrap();
-                assert!(properties::is_in_core(
-                    &game,
-                    proportional.allocation(),
-                    tolerance
-                ));
+                assert!(
+                    properties::is_in_core(&game, proportional.allocation(), tolerance).unwrap()
+                );
             }
             checked += 1;
         }
@@ -132,7 +111,7 @@ fn kernel_points_lie_in_bargaining_set() {
             for seed in 0..3 {
                 let game = generators::bnf(kind, n, seed).unwrap();
                 for domain in [Domain::Imputation, Domain::Preimputation] {
-                    let options = nucleolus::Options::new(&game, domain);
+                    let options = nucleolus::Options::new(domain);
                     let Ok(result) = nucleolus::nucleolus_with(&game, options) else {
                         continue;
                     };
@@ -167,7 +146,7 @@ fn bargaining_set_equals_core_for_convex_games() {
         let game = generators::random_convex(n, seed).unwrap();
         let tolerance = 1e-6 * game.max_abs_value().max(1.0);
         let shapley = values::shapley(&game);
-        assert!(properties::is_in_core(&game, &shapley, tolerance));
+        assert!(properties::is_in_core(&game, &shapley, tolerance).unwrap());
         assert!(bargaining::is_in_bargaining_set(&game, &shapley, Domain::Imputation).unwrap());
         // ランダムな配分 (各人に v({i}) と、残りをランダムな割合で)
         let singles = game.singleton_values();
@@ -181,7 +160,7 @@ fn bargaining_set_equals_core_for_convex_games() {
                 .zip(&weights)
                 .map(|(v, w)| v + surplus * w / total)
                 .collect();
-            let in_core = properties::is_in_core(&game, &x, tolerance);
+            let in_core = properties::is_in_core(&game, &x, tolerance).unwrap();
             let in_bargaining =
                 bargaining::is_in_bargaining_set(&game, &x, Domain::Imputation).unwrap();
             assert_eq!(in_core, in_bargaining, "seed {seed}: {x:?}");

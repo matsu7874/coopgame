@@ -31,7 +31,7 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 
 | 対象 | 関数 | 手法 |
 |---|---|---|
-| 仁・プレ仁 | `nucleolus::nucleolus`, `nucleolus::prenucleolus`, `nucleolus::nucleolus_with` | 逐次 LP (Kopelowitz 方式) + 制約生成 |
+| 仁・プレ仁 | `nucleolus::nucleolus`, `nucleolus::prenucleolus`, `nucleolus::nucleolus_with` | 逐次 LP (Kopelowitz 方式) + 制約生成。許容誤差の決め方は `nucleolus::Tolerance` で選ぶ (既定の `Auto` は、解いた配分が Kohlberg 基準を細かい許容誤差でも満たすかを確かめ、満たさなければ解き直すか、8 人以下なら有理数で解く。`Absolute`・`Relative` は 1 回だけ解く) |
 | 最小コア | `nucleolus::least_core` | LP 1 回 |
 | 仁・プレ仁の厳密な計算 (10 人まで) | `nucleolus::exact::nucleolus` | 逐次 LP を有理数の 2 段階単体法 (Bland の規則) と制約生成で解く。許容誤差を使わない |
 | カーネル・プレカーネルの 1 点 | `kernel::kernel_point` | Maschler/Stearns の transfer scheme |
@@ -41,8 +41,8 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 | tau 値・Gately 点 | `compromise::{tau_value, gately_point, utopia_payoffs, minimal_rights}` | 理想の支払い `M_i = v(N) - v(N \ {i})` と最小の権利から閉じた形で求める。tau 値は準平衡なゲームだけで定義し、それ以外はエラー (Tijs 1981、Gately 1974) |
 | Myerson 値 | `communication::{myerson, graph_restricted}` | 通信グラフで制限したゲーム (連結成分ごとの値の和) の Shapley 値 (Myerson 1977) |
 | 投票力指数 | `power::SimpleGame::{johnston, deegan_packel, public_good, coleman_prevent, coleman_initiative, coleman_collectivity}` | 単純ゲームの勝利提携・最小勝利提携・決定票を数えて求める。Shapley–Shubik 指数と Banzhaf 指数は `values` |
-| per capita 仁・比例仁・modiclus | `nucleolus::variants::{per_capita_nucleolus, proportional_nucleolus, modiclus}` | 不満をアフィン関数に一般化した逐次 LP (`nucleolus::variants::lexicographic_minimum`)。modiclus は 7 人まで |
-| disruption nucleolus | `nucleolus::variants::disruption_nucleolus` | 抜ける傾向を、コアの上で `e(S, x) / (v(N) - v(S) - v(N \ S))` の辞書式最小化に直して同じ逐次 LP で解く (Littlechild & Vaidya 1976)。コアが空でないゲームに限る |
+| per capita 仁・比例仁・modiclus | `nucleolus::variants::{per_capita_nucleolus, proportional_nucleolus, modiclus}` | 不満をアフィン関数に一般化した逐次 LP (`nucleolus::variants::lexicographic_minimum`)。比例仁は `v(S) = 0` の提携を、比例超過の後に `-x(S)` で順序づける (Young, Okada & Hashimoto 1982)。modiclus は空提携と全体提携を含む全ての提携の組の超過の差を使う (Sudhölter & Peleg)。per capita 仁・比例仁は 17 人まで、modiclus は 7 人まで |
+| disruption nucleolus | `nucleolus::variants::disruption_nucleolus` | 抜ける傾向を、コアの上で `e(S, x) / (v(N) - v(S) - v(N \ S))` の辞書式最小化に直して同じ逐次 LP で解く (Littlechild & Vaidya 1976)。コアが空でないゲームに限る。16 人まで |
 | anti-prenucleolus・anti-nucleolus | `nucleolus::variants::{anti_prenucleolus, anti_nucleolus}`、`ExplicitGame::dual` | 超過を小さい順に辞書式に最大化する解。双対ゲーム `v*(S) = v(N) - v(N \ S)` のプレ仁・仁として求める (Funaki & Meinhardt 2006) |
 | 提携構造・事前の連合 | `partition::{CoalitionStructure, aumann_dreze, owen, nucleolus, quotient_game}` | Aumann–Drèze 値 (ブロック内の Shapley 値)、提携構造つきの仁 (各ブロックで `x(B) = v(B)`)、Owen 値 (事前の連合) |
 | 超過・最大余剰 `s_ij` | `surplus::{excess, excesses, excess_order, max_surplus}`、`game::oracle::OracleGame::excess_order` | `excesses` は空でない全提携の超過をビット順に返す。超過の大きい順に見るには `excess_order` (読んだ分だけ並べ替えるイテレーター)。最大余剰も同じく超過の上位の提携だけを並べ替えて走査 |
@@ -54,9 +54,9 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 | 仁・プレ仁の検証 | `verify::kohlberg` | Kohlberg 基準 |
 | 仁・プレ仁の厳密な検証 | `verify::{certify, certify_exact, kohlberg_exact, recover_allocation}` | 超過の段から厳密な配分を有理数で復元し、有理数の単体法 (Bland の規則) で Kohlberg 基準を判定。`game::exact::ExactGame` で値を有理数のまま構築できる |
 | カーネル・プレカーネルの検証 | `kernel::is_in_kernel`, `kernel::kernel_violation` | 最大余剰の釣り合い条件 |
-| 交渉集合・プレ交渉集合への所属 | `bargaining::{check, is_in_bargaining_set}` | 組 `(i, j)` と提携 `S` ごとに、反論のない異議があるかを LP で判定。異議があればその支払いを返す |
-| ゲームの性質 | `properties::{is_superadditive, is_convex, is_zero_monotonic, is_in_core}`、`nucleolus::has_nonempty_core` | 定義どおりの判定、コアが空でないかは最小コアの LP |
-| 結果の事後検証 | `verify::{check, check_exact}`、`Unverified::verify` | 配分 `&[f64]` と `Domain` (仁は `Imputation`、プレ仁は `Preimputation`) を受け取る。20 人以下は有理数の厳密な検証、26 人以下は組ごとのカーネル条件で否定。保証を `certified` に上げるのは `Unverified::verify`・`verify_exact` だけ |
+| 交渉集合・プレ交渉集合への所属 | `bargaining::{check, is_in_bargaining_set}` | 組 `(i, j)` と提携 `S` ごとに、反論のない異議があるかを LP で判定。異議があればその支払いを返す。11 人まで |
+| ゲームの性質 | `properties::{is_superadditive, is_convex, is_zero_monotonic, is_in_core}`、`nucleolus::has_nonempty_core` | 定義どおりの判定、コアが空でないかは最小コアの LP。最小コアの `epsilon` が許容誤差以内で 0 に近いときは、9 人までは有理数の LP で `epsilon` を厳密に求め、入力の丸めの大きさと比べる |
+| 結果の事後検証 | `verify::{check, check_exact}`、`Unverified::verify` | 配分 `&[f64]` と `Domain` (仁は `Imputation`、プレ仁は `Preimputation`) を受け取る。20 人以下は有理数の厳密な検証 (基準の仁の求め方は `VerifyOptions::reference`)、26 人以下は組ごとのカーネル条件で否定。保証を `certified` に上げるのは `Unverified::verify`・`verify_exact` だけ |
 | 保証のある手法の自動選択 | `auto::AutoNucleolus` | ゲームの型から、保証のある手法のうち最も速いものを選ぶ |
 
 結果に付く保証の種類 (`exact`・`proven`・`assumed`・`certified`・`approximate`) は [保証の種類と、性質に基づく手法の使い分け](guarantees.md) を参照。
@@ -65,7 +65,7 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 
 | 対象 | 関数 | 手法 |
 |---|---|---|
-| 仁・プレ仁・最小コア (オラクル) | `nucleolus::oracle::{nucleolus, prenucleolus, least_core}` | 超過の大きい順に提携を返すオラクルで制約生成。破産ゲーム (`games::bankruptcy`)・重み付き投票ゲーム (`games::voting`) のオラクルを用意 |
+| 仁・プレ仁・最小コア (オラクル) | `nucleolus::oracle::{nucleolus, prenucleolus, least_core}` | 超過の大きい順に提携を返すオラクルで制約生成。破産ゲーム (`games::bankruptcy`)・重み付き投票ゲーム (`games::voting`) のオラクルを用意。一部の提携だけを扱うオラクル (`lists_all_coalitions` が `false`) では保証は近似 |
 | 凸ゲームの仁 | `nucleolus::convex::nucleolus` | カーネル = 仁 (凸ゲーム) を使い、最大余剰を劣モジュラ最小化で求める transfer scheme |
 | サンプリングした提携による仁・最小コア | `nucleolus::sampled::{nucleolus, least_core, SampledGame}` | 提携とその補集合を組でサンプルし、サンプルした提携だけで逐次 LP を解く。全提携をサンプルすれば真の仁に一致 |
 
@@ -87,7 +87,7 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 | 対象 | 関数 | 手法 |
 |---|---|---|
 | 配分の説明・比較 | `analysis::explain::{report, render, compare, render_comparison}` | 不満 (超過) の大きい提携の段、コアに属するか、最小コアの値、プレイヤーごとの最も不満な提携。複数の配分を安定性で比べる (結果は入力と同じ順)。文章ではプレイヤーを「プレイヤー 0」、提携を `{0, 2}` と書く |
-| 値の不確かさの分析 | `analysis::uncertainty::{monte_carlo, IntervalGame, interval_monte_carlo, influence, key_coalitions}` | 値の分布・区間から配分の分布 (平均・標準偏差・分位点) を求め、どの提携の値が配分を決めているかを感度 `dx/dv(S)` で示す |
+| 値の不確かさの分析 | `analysis::uncertainty::{monte_carlo, IntervalGame, interval_monte_carlo, influence, key_coalitions, solver, solver_with}` | 値の分布・区間から配分の分布 (平均・標準偏差・分位点) を求め、どの提携の値が配分を決めているかを感度 `dx/dv(S)` で示す。解く関数は `solver` (仁は比 `1e-7` の許容誤差で 1 回) か `solver_with` (許容誤差の決め方を指定) で選ぶ |
 | 配分集合の図 | `analysis::plot::{imputation_figure, PlotOptions, core_vertices}` | 3-4 人のゲームの配分集合 (三角形・四面体) にコア・カーネル・仁・Shapley 値・任意の点 (`PlotOptions::points`) を描いた SVG。頂点のラベルはプレイヤーの番号。ライト・ダークの両方に対応 |
 | 反例の探索と縮小 | `analysis::search::{search, shrink}` | 性質を満たさないゲームをランダムに探し、プレイヤーの除去・値の単純化で反例を小さくする。実例は `examples/study_counterexamples.rs`・`data/analysis/counterexamples.txt` |
 
@@ -95,7 +95,7 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 
 | 対象 | 関数 | 手法 |
 |---|---|---|
-| JSON・CSV の入出力 (feature `io`) | `io::{parse_json, parse_csv, GameData, PartialGame}` | 提携をプレイヤーの番号 (0 始まり) で書いた JSON・CSV を読み書きする。値が分からない提携はエラー・0・分かる提携だけで解く、から選ぶ ([入力形式](input-format.md)) |
+| JSON・CSV の入出力 (feature `io`) | `io::{parse_json, parse_csv, GameData, PartialGame}` | 提携をプレイヤーの番号 (0 始まり) で書いた JSON・CSV を読み書きする。値が分からない提携はエラー・0・分かる提携だけで解く (`GameData::partial_nucleolus`。費用のゲームは節約ゲームで解く)、から選ぶ ([入力形式](input-format.md)) |
 | ゲーム生成 | `generators::{bnf, bankruptcy, weighted_voting, random_convex, random_superadditive, random_weighted_voting}` | BNF 実装と同じ分布など |
 
 ## 保証の種類ごとのアルゴリズム

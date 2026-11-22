@@ -81,7 +81,9 @@ fn main() {
                 let options = SetOptions::for_game(&game);
                 let set = kernel_set(&game, domain, options).expect("分析で計算できたゲーム");
                 assert_eq!(set.pieces.len(), count, "分析の CSV と多面体の数が一致する");
-                let merged = set.merge_collinear_segments(10.0 * options.tolerance);
+                let merged = set
+                    .merge_collinear_segments(10.0 * options.tolerance)
+                    .expect("許容誤差は有限で 0 以上");
                 let dimensions: Vec<String> = merged
                     .pieces
                     .iter()

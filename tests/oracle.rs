@@ -47,10 +47,9 @@ fn bankruptcy_oracle_matches_explicit_solver() {
         let oracle = BankruptcyGame::new(estate, claims.clone()).unwrap();
         let explicit = generators::bankruptcy(estate, &claims).unwrap();
         for domain in [Domain::Imputation, Domain::Preimputation] {
-            let expected =
-                nucleolus::nucleolus_with(&explicit, nucleolus::Options::new(&explicit, domain))
-                    .unwrap()
-                    .into_allocation();
+            let expected = nucleolus::nucleolus_with(&explicit, nucleolus::Options::new(domain))
+                .unwrap()
+                .into_allocation();
             let actual = oracle_nucleolus::nucleolus_with(
                 &oracle,
                 domain,
@@ -82,12 +81,10 @@ fn voting_oracle_matches_explicit_solver() {
             )
             .unwrap();
             for domain in [Domain::Imputation, Domain::Preimputation] {
-                let expected = nucleolus::nucleolus_with(
-                    &explicit,
-                    nucleolus::Options::new(&explicit, domain),
-                )
-                .unwrap()
-                .into_allocation();
+                let expected =
+                    nucleolus::nucleolus_with(&explicit, nucleolus::Options::new(domain))
+                        .unwrap()
+                        .into_allocation();
                 let actual = oracle_nucleolus::nucleolus_with(&oracle, domain, 1e-7)
                     .unwrap()
                     .into_allocation();

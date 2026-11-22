@@ -48,7 +48,7 @@ fn nucleoli_satisfy_kohlberg_and_lie_in_kernel() {
             );
             let tolerance = 1e-6 * game.max_abs_value().max(1.0);
             assert!(
-                kernel::is_in_kernel(&game, x, domain, tolerance),
+                kernel::is_in_kernel(&game, x, domain, tolerance).unwrap(),
                 "{name} {domain:?}: violation {}",
                 kernel::kernel_violation(&game, x, domain)
             );
@@ -87,7 +87,8 @@ fn transfer_scheme_reaches_kernel() {
             let result = kernel::kernel_point(&game, domain, None, options).unwrap();
             assert!(result.converged(), "{name} {domain:?}: {result:?}");
             assert!(
-                kernel::is_in_kernel(&game, result.allocation(), domain, 10.0 * options.tolerance),
+                kernel::is_in_kernel(&game, result.allocation(), domain, 10.0 * options.tolerance)
+                    .unwrap(),
                 "{name} {domain:?}"
             );
         }
@@ -143,10 +144,12 @@ fn cost_game_via_negation() {
 
 #[test]
 fn constraint_generation_matches_full_lp() {
-    use coopgame::nucleolus::{Method, Options};
+    use coopgame::nucleolus::{Method, Options, Tolerance};
     for (name, game) in random_games() {
         for domain in [Domain::Imputation, Domain::Preimputation] {
-            let mut options = Options::new(&game, domain);
+            // 行の入れ方だけを比べるので、既定の比の許容誤差で 1 回だけ解く。
+            let mut options = Options::new(domain);
+            options.tolerance = Tolerance::Relative(1e-7);
             options.method = Method::Full;
             let full = nucleolus::nucleolus_with(&game, options).unwrap();
             options.method = Method::ConstraintGeneration;

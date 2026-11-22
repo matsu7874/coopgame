@@ -15,7 +15,7 @@ pub(crate) mod scale;
 pub(crate) mod subsets;
 
 pub use allocation::Domain;
-pub(crate) use allocation::excess_table;
+pub(crate) use allocation::{assert_allocation_len, excess_table};
 pub use coalition::{Coalition, binary_to_lex};
 pub use player_set::{PlayerSet, SetFunction, value_scale};
 
@@ -115,7 +115,7 @@ impl ExplicitGame {
     }
 
     /// 1 行に 1 つの値を書いたテキスト(BNF 実装の `v.txt` 形式、ビット順)を読む。
-    /// 空行と `#` で始まる行は無視する。
+    /// 空行と `#` で始まる行、先頭の UTF-8 の BOM は無視する (値の読み方は [`parse_values`])。
     pub fn parse_lines(text: &str) -> Result<ExplicitGame> {
         ExplicitGame::from_binary(&parse_values(text)?)
     }
@@ -164,15 +164,25 @@ impl ExplicitGame {
     }
 
     /// 双対ゲーム `v*(S) = v(N) - v(N \ S)`。
-    pub fn dual(&self) -> ExplicitGame {
+    ///
+    /// 差が `f64` で表せない (有限でない) 提携があれば [`Error::InvalidArgument`] を返す。
+    pub fn dual(&self) -> Result<ExplicitGame> {
         let grand = self.values.len() - 1;
         let total = self.values[grand];
-        ExplicitGame {
-            players: self.players,
-            values: (0..self.values.len())
-                .map(|mask| total - self.values[grand & !mask])
-                .collect(),
+        let values: Vec<f64> = (0..self.values.len())
+            .map(|mask| total - self.values[grand & !mask])
+            .collect();
+        if let Some(mask) = values.iter().position(|v| !v.is_finite()) {
+            return Err(Error::InvalidArgument(format!(
+                "双対ゲームの提携 {} の値 v(N) - v(N \\ S) = {total} - {} が有限でない",
+                Coalition(mask as u64),
+                self.values[grand & !mask]
+            )));
         }
+        Ok(ExplicitGame {
+            players: self.players,
+            values,
+        })
     }
 
     /// 符号を反転したゲーム。費用ゲーム `c` の仁は `-(-c の仁)` で求まる。
@@ -189,7 +199,12 @@ impl ExplicitGame {
 /// 値の大きさに比例させるので、ゲームの値を `c` 倍すると許容誤差も `c` 倍になる
 /// (値の小さいゲームでも許容誤差が値を上回らない)。
 pub fn default_tolerance(game: &ExplicitGame) -> f64 {
-    1e-7 * scale::positive_scale(game.max_abs_value())
+    relative_tolerance(game, 1e-7)
+}
+
+/// 値の最大絶対値 `max|v(S)|` に対する比 `ratio` の許容誤差 (全ての値が 0 なら `ratio`)。
+pub fn relative_tolerance(game: &ExplicitGame, ratio: f64) -> f64 {
+    ratio * scale::positive_scale(game.max_abs_value())
 }
 
 pub(super) fn check_players(players: usize) -> Result<()> {
@@ -202,10 +217,17 @@ pub(super) fn check_players(players: usize) -> Result<()> {
     Ok(())
 }
 
-/// 1 行に 1 つの数値を読む。
+/// 先頭の UTF-8 の BOM (表計算ソフトやエディタが付けることがある) を取り除く。
+pub(crate) fn strip_bom(text: &str) -> &str {
+    text.strip_prefix('\u{feff}').unwrap_or(text)
+}
+
+/// 1 行に 1 つの数値を読む。空行と `#` で始まる行は無視し、先頭の UTF-8 の BOM も無視する。
+///
+/// 値は `f64` として読む。`8/3` の形の分数 ([`exact::parse_rational`] の形) は最も近い浮動小数点数にする。
 pub fn parse_values(text: &str) -> Result<Vec<f64>> {
     let mut values = Vec::new();
-    for (index, line) in text.lines().enumerate() {
+    for (index, line) in strip_bom(text).lines().enumerate() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
@@ -251,8 +273,46 @@ mod tests {
     }
 
     #[test]
+    fn dual_of_three_players() {
+        // 辞書式: {1},{2},{3},{12},{13},{23},{123}。v*(S) = v(N) - v(N \ S)。
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0]).unwrap();
+        let dual = game.dual().unwrap();
+        let expected = ExplicitGame::from_lex(&[4.0, 6.0, 8.0, 12.0, 12.0, 12.0, 12.0]).unwrap();
+        assert_eq!(dual, expected);
+        assert_eq!(dual.dual().unwrap(), game);
+    }
+
+    #[test]
+    fn dual_rejects_values_that_overflow() {
+        // 値は全て有限だが、v*({1}) = v(N) - v({2}) = 1e308 + 1e308 は有限でない。
+        let game = ExplicitGame::from_binary(&[-1e308, -1e308, 1e308]).unwrap();
+        let err = game.dual().unwrap_err();
+        assert!(matches!(err, Error::InvalidArgument(_)), "{err}");
+    }
+
+    #[test]
     fn reports_parse_error_line() {
         let err = ExplicitGame::parse_lines("1\nx\n3\n").unwrap_err();
         assert!(matches!(err, Error::Parse { line: 2, .. }));
+    }
+
+    #[test]
+    fn line_formats_ignore_leading_bom() {
+        assert_eq!(parse_values("\u{feff}1\n2\n3\n").unwrap(), [1.0, 2.0, 3.0]);
+        assert_eq!(parse_values("\u{feff}# v.txt\n8/4\n").unwrap(), [2.0]);
+        let game = ExplicitGame::parse_lines("\u{feff}1\n2\n3\n").unwrap();
+        assert_eq!(game.value(game.grand()), 3.0);
+        assert_eq!(
+            exact::parse_rational_values("\u{feff}1/2\n0.1\n").unwrap(),
+            [
+                exact::Rational::new(1.into(), 2.into()),
+                exact::Rational::new(1.into(), 10.into())
+            ]
+        );
+        // 先頭以外の BOM は値の一部として扱い、行番号つきのエラーにする。
+        let err = parse_values("1\n\u{feff}2\n").unwrap_err();
+        assert!(matches!(err, Error::Parse { line: 2, .. }), "{err:?}");
+        let err = exact::parse_rational_values("1\n\u{feff}2\n").unwrap_err();
+        assert!(matches!(err, Error::Parse { line: 2, .. }), "{err:?}");
     }
 }

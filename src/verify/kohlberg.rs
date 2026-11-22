@@ -2,11 +2,8 @@
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::allocation::feasibility_violation;
-use crate::game::excess_table;
-use crate::game::{Coalition, ExplicitGame, default_tolerance};
-use crate::linalg::Span;
-use crate::lp::{self, Cmp, Counter};
+use crate::game::{ExplicitGame, default_tolerance};
+use crate::levels::kohlberg_at;
 
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -27,12 +24,13 @@ pub struct KohlbergReport {
 ///   (全提携に正の重みを付けて特性ベクトルの和を `1_N` の正数倍にできる)であることは同値。
 /// - 仁: `D0(x) = { {i} : x_i = v({i}) }` を重み 0 以上で加えてよい。
 ///
-/// 超過の値の段ごとに平衡性を LP で判定する。族の階数が `n` に達して平衡なら、
-/// それ以降の段も平衡になる(`1_N` が錐の内点にあるため)ので判定を打ち切る。
+/// 超過の値の段ごとに平衡性を LP で判定する。族が平衡で、族の特性ベクトルと `1_N` の階数が `n` に達していれば、
+/// それ以降の段も平衡になるので判定を打ち切る
+/// (Lean による証明: リポジトリの `proofs/` の `PosCombination.mono_of_span_insert_eq_top`)。
+/// `D0(x)` の 1 人提携は、階数には数えない。
 ///
 /// 既定の許容誤差で検証する。
 pub fn kohlberg(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<KohlbergReport> {
-    let tolerance = default_tolerance(game) * 10.0;
     let n = game.players();
     if x.len() != n {
         return Err(Error::InvalidArgument(format!(
@@ -40,100 +38,13 @@ pub fn kohlberg(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<Kohlbe
             x.len()
         )));
     }
-    let fail = |reason: String| KohlbergReport {
-        satisfied: false,
-        reason: Some(reason),
-        levels_checked: 0,
-        lp_solves: 0,
-    };
-    if let Some(reason) = feasibility_violation(game, x, domain, tolerance) {
-        return Ok(fail(reason));
-    }
-
-    let excess = excess_table(game, x);
-    let full = (1usize << n) - 1;
-    let mut order: Vec<usize> = (1..full).collect();
-    order.sort_by(|a, b| excess[*b].total_cmp(&excess[*a]));
-
-    let at_lower_bound: Vec<Coalition> = match domain {
-        Domain::Imputation => (0..n)
-            .filter(|&i| x[i] <= game.value(Coalition::singleton(i)) + tolerance)
-            .map(Coalition::singleton)
-            .collect(),
-        Domain::Preimputation => Vec::new(),
-    };
-
-    let mut counter = Counter::default();
-    let mut collection: Vec<Coalition> = Vec::new();
-    let mut span = Span::new(n);
-    let mut levels_checked = 0;
-    let mut start = 0;
-    while start < order.len() {
-        let level = excess[order[start]];
-        let mut end = start;
-        while end < order.len() && excess[order[end]] >= level - tolerance {
-            let coalition = Coalition(order[end] as u64);
-            collection.push(coalition);
-            span.insert_coalition(coalition);
-            end += 1;
-        }
-        if end == start {
-            // 超過が NaN などで比較できず、段が 1 つも進まない (入口の検証で防いでいるが、無限ループを避ける)。
-            return Err(Error::Numerical(format!(
-                "超過 {level} の段を作れない (比較できない値がある)"
-            )));
-        }
-        levels_checked += 1;
-        if !is_balanced(&collection, &at_lower_bound, n, &mut counter)? {
-            return Ok(KohlbergReport {
-                satisfied: false,
-                reason: Some(format!("超過 {level} 以上の提携族が平衡でない")),
-                levels_checked,
-                lp_solves: counter.solves,
-            });
-        }
-        if span.is_full() {
-            break;
-        }
-        start = end;
-    }
+    let check = kohlberg_at(game, x, domain, default_tolerance(game) * 10.0)?;
     Ok(KohlbergReport {
-        satisfied: true,
-        reason: None,
-        levels_checked,
-        lp_solves: counter.solves,
+        satisfied: check.satisfied,
+        reason: check.reason,
+        levels_checked: check.levels_checked,
+        lp_solves: check.lp_solves,
     })
-}
-
-/// `collection` に重み 1 以上、`optional` に重み 0 以上を付けて
-/// `sum lambda_S 1_S = mu 1_N` とできるかを判定する。
-fn is_balanced(
-    collection: &[Coalition],
-    optional: &[Coalition],
-    n: usize,
-    counter: &mut Counter,
-) -> Result<bool> {
-    let mut problem = lp::minimize();
-    let mu = problem.add_var(1.0, (0.0, f64::INFINITY));
-    let mut weights = Vec::with_capacity(collection.len() + optional.len());
-    for coalition in collection {
-        weights.push((*coalition, problem.add_var(0.0, (1.0, f64::INFINITY))));
-    }
-    for coalition in optional {
-        if !collection.contains(coalition) {
-            weights.push((*coalition, problem.add_var(0.0, (0.0, f64::INFINITY))));
-        }
-    }
-    for player in 0..n {
-        let mut terms: Vec<_> = weights
-            .iter()
-            .filter(|(coalition, _)| coalition.contains(player))
-            .map(|(_, var)| (*var, 1.0))
-            .collect();
-        terms.push((mu, -1.0));
-        lp::add(&mut problem, terms, Cmp::Eq, 0.0);
-    }
-    Ok(counter.solve(&problem)?.is_some())
 }
 
 #[cfg(test)]

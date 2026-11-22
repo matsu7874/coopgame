@@ -11,6 +11,10 @@
 //!
 //! 値の大きさによらず同じ精度で解けるよう、[`Separation::value_scale`] 以下で最大の 2 のべき乗で
 //! 値を割ったゲームを解き、結果を元の大きさに戻す ([`crate::nucleolus`] と同じ正規化)。
+//!
+//! 結果の保証は、オラクルが全ての真部分提携について答えるか ([`Separation::covers_all_coalitions`]) で決まる。
+//! 答えるなら [`Guarantee::Exact`]、一部の提携だけなら (サンプルした提携だけを持つ
+//! [`crate::nucleolus::sampled::SampledGame`] など) 元のゲームの仁とは限らないので [`Guarantee::Approximate`]。
 
 use std::collections::HashSet;
 
@@ -21,7 +25,7 @@ use crate::error::{Error, Result};
 use crate::game::PlayerSet;
 use crate::game::allocation::lower_bounds;
 use crate::game::oracle::Separation;
-use crate::game::scale::{Scaled, normalizer, positive_scale};
+use crate::game::scale::{Scaled, normalized_tolerance, normalizer, positive_scale};
 use crate::linalg::Span;
 use crate::lp::{self, Cmp, Counter};
 use crate::nucleolus::{LeastCore, NucleolusResult};
@@ -33,27 +37,39 @@ pub fn default_tolerance<G: Separation + ?Sized>(game: &G) -> f64 {
     1e-7 * positive_scale(game.value_scale())
 }
 
+/// 仁。保証は、オラクルが全提携について答えれば [`Guarantee::Exact`]、そうでなければ [`Guarantee::Approximate`]。
 pub fn nucleolus<G: Separation + ?Sized>(game: &G) -> Result<NucleolusResult> {
     nucleolus_with(game, Domain::Imputation, default_tolerance(game))
 }
 
+/// プレ仁。保証は [`nucleolus`] と同じ。
 pub fn prenucleolus<G: Separation + ?Sized>(game: &G) -> Result<NucleolusResult> {
     nucleolus_with(game, Domain::Preimputation, default_tolerance(game))
 }
 
-/// `tolerance` はゲームの値と同じ単位。配分集合の扱いは [`crate::nucleolus::Options::tolerance`] と同じ。
+/// `tolerance` はゲームの値と同じ単位。配分集合の扱いは [`crate::nucleolus::Tolerance`] の説明と同じ。
+///
+/// `tolerance` が有限で 0 以上でないとき、またはゲームの値の大きさで割ると有限でない (値に比べて大きすぎる) ときは
+/// [`Error::InvalidArgument`] を返す。
+/// 結果は許容誤差の範囲で成り立つ。保証の種類 ([`nucleolus`] と同じ) は許容誤差の大きさを反映しない。
+///
+/// 配分や各段の最大超過が `f64` の範囲を超える (値が `f64` の上限に近い) ときは [`Error::Numerical`] を返す。
 pub fn nucleolus_with<G: Separation + ?Sized>(
     game: &G,
     domain: Domain,
     tolerance: f64,
 ) -> Result<NucleolusResult> {
     let divisor = normalizer(game.value_scale());
+    let tolerance = normalized_tolerance(tolerance, divisor)?;
     let normalized = Scaled::new(game, divisor);
-    let result = Sequential::new(&normalized, domain, tolerance / divisor)?.run()?;
-    Ok(result.scaled_by(divisor))
+    Sequential::new(&normalized, domain, tolerance)?
+        .run()?
+        .scaled_by(divisor)
 }
 
-/// 最小コア。1 人ゲームの `epsilon` は `f64::NEG_INFINITY` ([`LeastCore::epsilon`])。
+/// 最小コア。1 人ゲームの `epsilon` は `f64::NEG_INFINITY` ([`LeastCore::epsilon`])。保証は [`nucleolus`] と同じ。
+///
+/// 2 人以上で、配分や `epsilon` が `f64` の範囲を超えるときは [`Error::Numerical`] を返す。
 pub fn least_core<G: Separation + ?Sized>(game: &G, domain: Domain) -> Result<LeastCore> {
     let divisor = normalizer(game.value_scale());
     let normalized = Scaled::new(game, divisor);
@@ -63,15 +79,28 @@ pub fn least_core<G: Separation + ?Sized>(game: &G, domain: Domain) -> Result<Le
         return Ok(LeastCore {
             epsilon: f64::NEG_INFINITY,
             allocation: vec![game.value(&PlayerSet::grand(1))],
-            guarantee: Guarantee::Exact,
+            guarantee: solver.guarantee,
         });
     }
     let (epsilon, allocation) = solver.minimize_max_excess()?;
+    let epsilon = epsilon * divisor;
+    let allocation: Vec<f64> = allocation.iter().map(|v| v * divisor).collect();
+    super::check_representable(&[epsilon], "最小コアの epsilon ")?;
+    super::check_representable(&allocation, "配分")?;
     Ok(LeastCore {
-        epsilon: epsilon * divisor,
-        allocation: allocation.iter().map(|v| v * divisor).collect(),
-        guarantee: Guarantee::Exact,
+        epsilon,
+        allocation,
+        guarantee: solver.guarantee,
     })
+}
+
+/// オラクルが扱う提携の範囲から決まる保証。
+fn guarantee_of<G: Separation + ?Sized>(game: &G) -> Guarantee {
+    if game.covers_all_coalitions() {
+        Guarantee::Exact
+    } else {
+        Guarantee::Approximate
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -85,6 +114,8 @@ enum RowForm {
 struct Sequential<'a, G: Separation + ?Sized> {
     game: &'a G,
     tolerance: f64,
+    /// 結果に付ける保証 ([`guarantee_of`])。
+    guarantee: Guarantee,
     n: usize,
     /// 各プレイヤーの下限 (`Domain::Imputation` のみ)。
     lower: Option<Vec<f64>>,
@@ -109,6 +140,7 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
         let mut solver = Sequential {
             game,
             tolerance,
+            guarantee: guarantee_of(game),
             n,
             lower,
             fixed: vec![(grand.clone(), game.value(&grand))],
@@ -129,22 +161,18 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
 
     fn run(&mut self) -> Result<NucleolusResult> {
         if self.n == 1 {
-            return Ok(NucleolusResult {
-                allocation: vec![self.game.value(&PlayerSet::grand(1))],
-                levels: Vec::new(),
-                lp_solves: 0,
-                rows_added: 0,
-                guarantee: Guarantee::Exact,
-            });
+            return Ok(NucleolusResult::without_lp(
+                vec![self.game.value(&PlayerSet::grand(1))],
+                self.guarantee,
+                self.tolerance,
+            ));
         }
         if let Some(point) = self.single_point() {
-            return Ok(NucleolusResult {
-                allocation: point,
-                levels: Vec::new(),
-                lp_solves: 0,
-                rows_added: 0,
-                guarantee: Guarantee::Exact,
-            });
+            return Ok(NucleolusResult::without_lp(
+                point,
+                self.guarantee,
+                self.tolerance,
+            ));
         }
         let mut levels = Vec::new();
         let mut allocation = Vec::new();
@@ -159,7 +187,10 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
             levels,
             lp_solves: self.counter.solves,
             rows_added: self.rows_added,
-            guarantee: Guarantee::Exact,
+            guarantee: self.guarantee,
+            tolerance: self.tolerance,
+            refinements: 0,
+            rational: false,
         })
     }
 
@@ -314,6 +345,12 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
     }
 
     /// LP の行のうち最大超過を達成するものを確定判定し、確定したものを等式に移す。
+    ///
+    /// 候補は段の LP の解 `x` で許容誤差以内にタイトな行で、`x(S)` が `v(S) - level` を許容誤差より
+    /// 大きく超えられなければ確定する。確定値は `v(S) - level` ではなく `x(S)` にする。
+    /// 許容誤差以内の差しかない提携は、本当はタイトでなく最適面の上で `x(S) = v(S) - level` を取れないことがあり、
+    /// その値で固定すると以後の LP が実行不可能になるためである。`x(S)` で固定すれば、`x` は同じ段の以後の LP と
+    /// 次の段の LP の実行可能点であり続ける。本当にタイトな提携では、2 つの値は丸めの範囲で一致する。
     fn fix_tight_rows(&mut self, level: f64, x: &[f64]) -> Result<()> {
         let tight: Vec<PlayerSet> = self
             .pool
@@ -333,10 +370,11 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
             {
                 continue;
             }
-            let fixed_sum = self.game.value(&target) - level;
+            let tight_sum = self.game.value(&target) - level;
             let (max_sum, witness) = self.maximize_coalition(&target, level)?;
-            if max_sum <= fixed_sum + self.tolerance {
+            if max_sum <= tight_sum + self.tolerance {
                 self.span.insert(&target.indicator());
+                let fixed_sum = target.sum(x);
                 self.fixed.push((target, fixed_sum));
                 progressed = true;
                 if self.span.is_full() {
@@ -370,7 +408,7 @@ mod tests {
                     for domain in [Domain::Imputation, Domain::Preimputation] {
                         let expected = crate::nucleolus::nucleolus_with(
                             &game,
-                            crate::nucleolus::Options::new(&game, domain),
+                            crate::nucleolus::Options::new(domain),
                         )
                         .unwrap()
                         .allocation;
@@ -388,5 +426,87 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn rejects_invalid_tolerance() {
+        let game = generators::bnf(1, 4, 0).unwrap();
+        let single = crate::ExplicitGame::from_lex(&[2.0]).unwrap();
+        for tolerance in [f64::NAN, -1.0, f64::INFINITY, f64::NEG_INFINITY] {
+            for domain in [Domain::Imputation, Domain::Preimputation] {
+                for result in [
+                    nucleolus_with(&game, domain, tolerance),
+                    nucleolus_with(&single, domain, tolerance),
+                ] {
+                    assert!(
+                        matches!(result, Err(Error::InvalidArgument(_))),
+                        "{tolerance} {domain:?}: {result:?}"
+                    );
+                }
+            }
+        }
+        // 大きい許容誤差は利用者の指定として受け付ける。
+        assert!(nucleolus_with(&game, Domain::Imputation, 1e3).is_ok());
+    }
+
+    /// 値が数千万の整数で、端数の差 (1 程度) が許容誤差 (`1e-7 * max |v|`、2〜3) より小さい提携を持つゲーム。
+    /// 許容誤差以内にタイトなだけの提携を `v(S) - level` で固定すると、以後の LP が実行不可能になる。
+    /// 有理数の逐次 LP で求めた仁・プレ仁と、許容誤差の 2 倍以内で一致することを確かめる。
+    #[test]
+    fn near_tie_integer_games_match_exact_nucleolus() {
+        use crate::game::exact::ExactGame;
+        use num_traits::ToPrimitive;
+        let games: [&[f64]; 2] = [
+            &[
+                -1.0, -1.0, 7444064.0, -1.0, 7444064.0, 7444065.0, 19288200.0, 0.0, 7444064.0,
+                7444063.0, 19288201.0, 7444064.0, 19288201.0, 19288200.0, 22390681.0, -1.0,
+                7444065.0, 7444063.0, 19288202.0, 7444063.0, 19288200.0, 19288202.0, 22390680.0,
+                7444065.0, 19288201.0, 19288202.0, 22390680.0, 19288202.0, 22390680.0, 22390682.0,
+                17088946.0,
+            ],
+            &[
+                3000000.0, 2999999.0, 6644424.0, 2999999.0, 6644424.0, 6644423.0, 26266127.0,
+                3000000.0, 6644422.0, 6644423.0, 26266125.0, 6644423.0, 26266127.0, 26266127.0,
+                24717084.0, 3000001.0, 6644424.0, 6644424.0, 26266126.0, 6644423.0, 26266127.0,
+                26266126.0, 24717083.0, 6644424.0, 26266127.0, 26266127.0, 24717083.0, 26266127.0,
+                24717085.0, 24717085.0, 30350090.0,
+            ],
+        ];
+        for values in games {
+            let game = crate::ExplicitGame::from_binary(values).unwrap();
+            let exact_game = ExactGame::from_explicit(&game).unwrap();
+            let tolerance = default_tolerance(&game);
+            for domain in [Domain::Imputation, Domain::Preimputation] {
+                let expected: Vec<f64> = crate::nucleolus::exact::nucleolus(&exact_game, domain)
+                    .unwrap()
+                    .allocation
+                    .iter()
+                    .map(|r| r.to_f64().unwrap())
+                    .collect();
+                let actual = nucleolus_with(&game, domain, tolerance).unwrap().allocation;
+                for (a, e) in actual.iter().zip(&expected) {
+                    assert!(
+                        (a - e).abs() <= 2.0 * tolerance,
+                        "{domain:?}: {actual:?} != {expected:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// 値が `f64` の上限に近いと、正規化したゲームでは解けても元の大きさに戻すと溢れる。
+    /// 2 人ゲーム `v({0}) = v({1}) = -1.7e308`、`v(N) = 1.7e308` の最大超過は約 `-2.55e308`。
+    #[test]
+    fn overflowing_results_are_numerical_errors() {
+        let game = crate::ExplicitGame::from_lex(&[-1.7e308, -1.7e308, 1.7e308]).unwrap();
+        assert!(matches!(prenucleolus(&game), Err(Error::Numerical(_))));
+        assert!(matches!(
+            least_core(&game, Domain::Preimputation),
+            Err(Error::Numerical(_))
+        ));
+        // 値を小さくした同じ形のゲームは解ける。
+        let small = crate::ExplicitGame::from_lex(&[-1.7e300, -1.7e300, 1.7e300]).unwrap();
+        assert!(prenucleolus(&small).is_ok());
+        assert!(least_core(&small, Domain::Preimputation).is_ok());
     }
 }

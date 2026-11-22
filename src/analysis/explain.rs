@@ -14,6 +14,7 @@ use std::fmt::Write as _;
 
 use crate::Domain;
 use crate::error::{Error, Result};
+use crate::game::allocation::allocation_defect;
 use crate::game::excess_table;
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::nucleolus;
@@ -85,21 +86,23 @@ pub struct Report {
     pub players: Vec<PlayerReport>,
 }
 
-fn check_length(game: &ExplicitGame, x: &[f64]) -> Result<()> {
-    if x.len() != game.players() {
-        return Err(Error::InvalidArgument(format!(
-            "配分の長さ {} がプレイヤー数 {} と異なる",
-            x.len(),
-            game.players()
-        )));
+/// 配分の長さがプレイヤー数と等しく、全ての成分が有限であることを確かめる。
+///
+/// NaN を含む配分では超過も NaN になり、最大の超過 (`f64::max` は NaN を捨てる) や
+/// コアの判定が誤った値になるので、計算せずにエラーにする。
+fn check_allocation(game: &ExplicitGame, x: &[f64]) -> Result<()> {
+    match allocation_defect(game.players(), x) {
+        Some(defect) => Err(Error::InvalidArgument(defect)),
+        None => Ok(()),
     }
-    Ok(())
 }
 
 /// 配分 `x` を説明する。
+///
+/// `x` の長さがプレイヤー数と異なるか、有限でない成分 (NaN・無限大) があれば [`Error::InvalidArgument`]。
 pub fn report(game: &ExplicitGame, x: &[f64], options: ExplainOptions) -> Result<Report> {
     let n = game.players();
-    check_length(game, x)?;
+    check_allocation(game, x)?;
     let tolerance = options
         .tolerance
         .unwrap_or_else(|| 10.0 * default_tolerance(game));
@@ -280,12 +283,21 @@ pub struct Comparison {
 }
 
 /// 複数の配分を、安定性の指標で比べる。結果は `candidates` と同じ順。
+///
+/// 長さがプレイヤー数と異なるか、有限でない成分 (NaN・無限大) を持つ配分があれば、
+/// その位置 (0 始まり) を示した [`Error::InvalidArgument`]。
 pub fn compare(game: &ExplicitGame, candidates: &[Vec<f64>]) -> Result<Vec<Comparison>> {
     let tolerance = 10.0 * default_tolerance(game);
     candidates
         .iter()
-        .map(|x| {
-            check_length(game, x)?;
+        .enumerate()
+        .map(|(k, x)| {
+            check_allocation(game, x).map_err(|e| match e {
+                Error::InvalidArgument(defect) => {
+                    Error::InvalidArgument(format!("{k} 番目の配分: {defect}"))
+                }
+                other => other,
+            })?;
             // 超過だけで決まる指標なので、最小コアの LP を解く report は使わない。
             let all = excess_table(game, x);
             let proper = &all[1..game.grand().index()];
@@ -402,6 +414,23 @@ mod tests {
         let text = render(&report);
         assert!(!text.contains("注意"), "{text}");
         assert!(text.contains("コアに属する"), "{text}");
+    }
+
+    /// NaN・無限大を含む配分は、超過の最大 (`f64::max` は NaN を捨てる) などが誤った値になるのでエラーにする。
+    #[test]
+    fn rejects_non_finite_allocations() {
+        let game = ExplicitGame::from_binary(&[0.0, 0.0, 4.0, 0.0, 3.0, 2.0, 6.0]).unwrap();
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let x = [bad, 2.0, 1.0];
+            let err = report(&game, &x, ExplainOptions::default()).unwrap_err();
+            assert!(matches!(err, Error::InvalidArgument(_)), "{err:?}");
+            assert!(err.to_string().contains("x_0"), "{err}");
+            let err = compare(&game, &[vec![3.0, 2.0, 1.0], x.to_vec()]).unwrap_err();
+            assert!(matches!(err, Error::InvalidArgument(_)), "{err:?}");
+            assert!(err.to_string().contains("1 番目の配分"), "{err}");
+        }
+        let err = compare(&game, &[vec![3.0, 2.0]]).unwrap_err();
+        assert!(err.to_string().contains("長さ"), "{err}");
     }
 
     #[test]

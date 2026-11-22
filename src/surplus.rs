@@ -2,7 +2,7 @@
 //!
 //! 配分 `x` の長さはプレイヤー数と同じでなければならない。異なるとパニックする。
 
-use crate::game::{Coalition, ExplicitGame, excess_table};
+use crate::game::{Coalition, ExplicitGame, assert_allocation_len, excess_table};
 use crate::sorted::{LazySorted, by_excess_desc};
 
 /// 空でない全ての提携の超過 `(S, e(S, x))`。提携はビット順 (`S.0` の昇順) に並ぶ。
@@ -28,7 +28,13 @@ pub fn excess_order(
     LazySorted::new(order, 4 * n * n, by_excess_desc)
 }
 
+/// 1 つの提携の超過 `e(S, x) = v(S) - x(S)`。
+///
+/// # Panics
+///
+/// `x` の長さがプレイヤー数と異なるとパニックする。
 pub fn excess(game: &ExplicitGame, coalition: Coalition, x: &[f64]) -> f64 {
+    assert_allocation_len(game.players(), x);
     game.value(coalition) - coalition.sum(x)
 }
 
@@ -140,5 +146,27 @@ mod tests {
         assert_eq!(all[0], (Coalition::from_players(&[0]), -1.0));
         assert_eq!(all[2], (Coalition::from_players(&[0, 1]), 0.0));
         assert_eq!(all[6], (Coalition::grand(3), 0.0));
+    }
+
+    #[test]
+    fn excess_of_one_coalition() {
+        let game = ExplicitGame::from_binary(&[0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 4.0]).unwrap();
+        let x = [1.0, 3.0, 0.0];
+        assert_eq!(excess(&game, Coalition::from_players(&[0, 1]), &x), 0.0);
+        assert_eq!(excess(&game, Coalition::singleton(1), &x), -3.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "配分の長さ 1 がプレイヤー数 3 と異なる")]
+    fn excess_rejects_short_allocation() {
+        let game = ExplicitGame::from_binary(&[1.0, 2.0, 4.0, 3.0, 5.0, 6.0, 7.0]).unwrap();
+        excess(&game, Coalition::singleton(0), &[1.0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "配分の長さ 5 がプレイヤー数 3 と異なる")]
+    fn excess_rejects_long_allocation() {
+        let game = ExplicitGame::from_binary(&[1.0, 2.0, 4.0, 3.0, 5.0, 6.0, 7.0]).unwrap();
+        excess(&game, Coalition::singleton(0), &[1.0, 0.0, 0.0, 9.0, 9.0]);
     }
 }

@@ -10,9 +10,9 @@ use coopgame::games::airport::AirportGame;
 use coopgame::games::{bankruptcy, cost};
 use coopgame::kernel::{self, SetOptions, TransferOptions};
 use coopgame::nucleolus::convex::{self, ConvexOptions};
-use coopgame::nucleolus::{Method, Options, variants};
+use coopgame::nucleolus::{Method, Options, Tolerance, variants};
 use coopgame::properties::{Assume, ConvexChecked};
-use coopgame::verify::{self, Verified, VerifyOptions};
+use coopgame::verify::{self, Check, Reference, Verified, VerifyOptions};
 use coopgame::{
     Domain, ExplicitGame, bargaining, communication, compromise, generators, io, nucleolus,
     partition, power, values,
@@ -20,7 +20,7 @@ use coopgame::{
 
 const USAGE: &str = "\
 使い方:
-  coopgame nucleolus  <v.txt> [--pre] [--lex] [--full] [--cost] [--exact]
+  coopgame nucleolus  <v.txt> [--pre] [--lex] [--full] [--cost] [--exact] [--tolerance T|auto | --rel-tolerance R]
                       --cost: v.txt を費用として読み、費用の分担を出す (下の --cost)
                       --exact: 値を 10 進数・分数の値どおりの有理数として読み、有理数だけで解いて分数で出す (10 人まで)。
                                JSON・CSV の数も字面どおりに読む。--full とは併用できない
@@ -36,7 +36,8 @@ const USAGE: &str = "\
   coopgame modiclus     <v.txt> [--lex]           modiclus (準配分)
   coopgame disruption   <v.txt> [--lex]           disruption nucleolus (コアが空でないゲーム)
   coopgame anti-nucleolus <v.txt> [--pre] [--lex] anti-nucleolus (--pre で anti-prenucleolus)。双対ゲームの仁 (プレ仁)
-  coopgame convex-nucleolus <v.txt> [--lex] [--assume]   凸ゲームの手法で仁 (--assume は凸と仮定して試し、事後検証する)
+  coopgame convex-nucleolus <v.txt> [--lex] [--assume [--reference auto|exact|lp]]
+                      凸ゲームの手法で仁 (--assume は凸と仮定して試し、事後検証する)
   coopgame shapley    <v.txt> [--lex] [--samples N] [--seed S] [--cost]
   coopgame banzhaf    <v.txt> [--lex] [--samples N] [--seed S] [--normalize] [--cost]
   coopgame solidarity <v.txt> [--lex]   solidarity 値 (Nowak & Radzik 1994)
@@ -49,12 +50,18 @@ const USAGE: &str = "\
   coopgame kernel-set <v.txt> [--pre] [--lex] [--max-nodes N] [--merge]
   coopgame verify     <v.txt> <sol.txt> [--pre] [--lex]
   coopgame certify    <v.txt> <sol.txt> [--pre] [--lex] [--rational]
+  coopgame check      <v.txt> <sol.txt> [--pre] [--lex] [--rational] [--reference auto|exact|lp]
+                      配分が仁 (プレ仁) かを検証し、結論 (certified・refuted・undecided) を出す
   coopgame bargaining <v.txt> <sol.txt> [--pre] [--lex]   交渉集合 (プレ交渉集合) に属するか
   coopgame explain    <v.txt> <sol.txt> [--lex] [--levels K]   配分の説明 (不満の大きい提携、安定性)
-  coopgame compare    <v.txt> [--lex] [--cost]   仁・プレ仁・Shapley 値などを安定性で比べる
-  coopgame uncertainty <v.txt> [--lex] [--relative 0.1] [--samples 200] [--seed S] [--solver nucleolus|shapley]
+  coopgame compare    <v.txt> [--lex] [--cost] [--tolerance T|auto | --rel-tolerance R]
+                      仁・プレ仁・Shapley 値などを安定性で比べる
+  coopgame uncertainty <v.txt> [--lex] [--relative 0.1] [--samples 200] [--seed S]
+                      [--solver nucleolus|prenucleolus|shapley]
+                      [--tolerance T|auto | --rel-tolerance R]
                       各値が ±relative の一様な誤差を持つときの配分の分布 (平均・標準偏差・5%/95% 点)
-  coopgame influence  <v.txt> [--lex] [--solver nucleolus|shapley] [--levels 2] [--delta D]
+  coopgame influence  <v.txt> [--lex] [--solver nucleolus|prenucleolus|shapley] [--levels 2] [--delta D]
+                      [--tolerance T|auto | --rel-tolerance R]
                       配分を決めている提携の値に対する配分の感度 dx/dv(S)
   coopgame talmud     --estate E --claims d1,d2,... [--exact]
   coopgame generate   --type T --n N [--seed S]
@@ -62,8 +69,10 @@ const USAGE: &str = "\
 
   v.txt    特性関数を 1 行 1 値で書いたファイル (既定はビット順、--lex で辞書式順)。
            拡張子が .json・.csv なら提携ごとの値を書いた形式で読む (提携はプレイヤーの番号で書く)
-  --missing error|zero|ignore  JSON・CSV で値が分からない提携の扱い (既定 error、ignore は nucleolus で分かる提携だけで解く。
-           ignore で値が分からない提携があるときは --full を使えない。費用なら 1 人提携の費用が全て必要)
+  --missing error|zero|ignore  JSON・CSV で値が分からない提携の扱い (既定 error)。
+           zero は 0 とみなす (費用のゲームでは費用 0 とみなすので、その提携の節約は 1 人提携の費用の和になる)。
+           ignore は nucleolus (--exact なし) だけで使え、値が分かる提携だけで解く (63 人まで)。
+           ignore で値が分からない提携があるときは --full を使えない。費用なら 1 人提携の費用が全て必要
   --cost   値を費用 c(S) として読み、節約ゲーム s(S) = sum c({i}) - c(S) で解いて費用の分担を出す
            (nucleolus・least-core・kernel・shapley・banzhaf・compare)。compare の不満は y(S) - c(S)。
            JSON・CSV の type が cost (CSV の見出しが coalition,cost) なら --cost なしでも費用として読み、
@@ -71,21 +80,41 @@ const USAGE: &str = "\
   sol.txt  検証する配分を 1 行 1 値で書いたファイル
   --pre    プレ仁・プレカーネル(個人合理性を課さない)
   --full   仁の LP に全提携の行を最初から入れる(既定は制約生成)
+  --tolerance T      仁の逐次 LP の許容誤差を値の単位で指定し、1 回だけ解く (nucleolus・compare・uncertainty・influence)
+  --rel-tolerance R  同じ許容誤差を max|v(S)| に対する比で指定する (--tolerance とはどちらか一方)。
+           nucleolus と compare は、どちらも指定しなければ仁を正しく求めることを優先する: 比 1e-7 で解いた配分が
+           Kohlberg 基準を細かい許容誤差でも満たすかを確かめ、満たさなければ許容誤差を下げて解き直し、
+           それでも満たさなければ 8 人以下は有理数の逐次 LP で求める (10 秒ほどかかることがある)。
+           9 人以上で満たさないままなら guarantee=approximate で返す (確認は 20 人まで)。
+           値が 1e12 程度のゲームを 1 単位まで正しく求めるには --exact を使う。
+           uncertainty と influence は何度も解くので、指定しなければ比 1e-7 で 1 回だけ解く。
+           --tolerance auto は、この既定の手順を明示して選ぶ (uncertainty と influence でも既定の手順で解く。
+           有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)
   --samples N  Shapley 値・Banzhaf 値をサンプリングで推定する (順列数・提携数、1 以上)。省略すると厳密計算
   --merge  カーネル全体で、同じ直線上でつながる線分を 1 本にまとめる
-  --rational  certify で v.txt の値を 10 進数・分数 (8/3) の値どおりの有理数として読む (JSON・CSV の数も字面どおり)
+  --rational  certify・check で v.txt の値を 10 進数・分数 (8/3) の値どおりの有理数として読む (JSON・CSV の数も字面どおり)
               (既定は浮動小数点数の 2 進数の値どおり)。どのコマンドも分数の値を受け付ける
 
 プレイヤーは 0 始まりの番号で表す (入力・出力・オプションのすべて)。提携は {0, 2} の形で出す。
 
 計算結果の配分は標準出力に 1 行 1 値で、統計は標準エラーに出す。
 certify は sol.txt の配分から厳密な配分を復元し、有理数で Kohlberg 基準を判定する。
-厳密な配分を分数で標準出力に出し、判定 (certified=true/false) を標準エラーに出す。";
+厳密な配分を分数で標準出力に出し、判定 (certified=true/false) を標準エラーに出す。
+check は certify に合格しない配分を基準の仁と比べ、結論を標準エラーに出す (合格なら厳密な仁を標準出力に出す)。
+check の終了コードは、合格 0、否定 2、未決 3 (入力の誤りなどのエラーは 1)。
+--reference は基準の仁の求め方: auto (既定) は逐次 LP の仁が厳密な検証に合格しなければ、8 人以下のときだけ
+有理数の逐次 LP で求め直す。exact は 10 人まで求め直す (9・10 人では数分かかることがある)。
+lp は逐次 LP の仁だけを使う。";
+
+/// check の結論が否定のときの終了コード (入力の誤りなどのエラーは 1)。
+const EXIT_REFUTED: u8 = 2;
+/// check の結論が未決のときの終了コード。
+const EXIT_UNDECIDED: u8 = 3;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(&args) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(message) => {
             eprintln!("エラー: {message}");
             ExitCode::FAILURE
@@ -159,6 +188,9 @@ impl Args {
             "--missing",
             "--blocks",
             "--edges",
+            "--reference",
+            "--tolerance",
+            "--rel-tolerance",
         ];
         let mut positional = Vec::new();
         let mut flags = Vec::new();
@@ -170,6 +202,12 @@ impl Args {
                 flags.push((arg.clone(), None));
             } else {
                 positional.push(arg.clone());
+            }
+        }
+        // 同じオプションを 2 回書くと、どちらの値を使うかが曖昧になるのでエラーにする。
+        for (k, (flag, _)) in flags.iter().enumerate() {
+            if flags[..k].iter().any(|(earlier, _)| earlier == flag) {
+                return Err(format!("{flag} が 2 回以上指定されている (1 回だけ指定する)").into());
             }
         }
         // --missing はどのコマンドでも使える (JSON・CSV の入力で、値が分からない提携の扱い)。
@@ -212,13 +250,31 @@ impl Args {
         }
     }
 
-    fn check_known(&self, known: &[&str]) -> CliResult<()> {
+    /// コマンドが受け付けるオプションだけが指定されているかを確かめる。各コマンドの最初に呼ぶ。
+    ///
+    /// `known` はコマンドに固有のオプション。どのコマンドでも書ける `--missing` は、値 `ignore`
+    /// (値が分かる提携だけで解く) を使えるのが浮動小数点数の `nucleolus` だけなので、ここで確かめる。
+    fn check_options(&self, known: &[&str]) -> CliResult<()> {
         for (flag, _) in &self.flags {
             if !known.contains(&flag.as_str()) {
                 return Err(format!("未知のオプション {flag}\n\n{USAGE}").into());
             }
         }
+        if self.missing == MissingPolicy::Ignore && self.command != "nucleolus" {
+            return Err(format!(
+                "--missing ignore は nucleolus だけで使える ({} は全提携の値が必要。\
+                 値が分からない提携を 0 とみなすなら --missing zero)",
+                self.command
+            )
+            .into());
+        }
         Ok(())
+    }
+
+    /// `--missing ignore` で値が分かる提携だけを使って解けるか (浮動小数点数の逐次 LP の `nucleolus` で、
+    /// `--full` を付けない場合)。
+    fn can_ignore_missing(&self) -> bool {
+        self.command == "nucleolus" && !self.has("--exact") && !self.has("--full")
     }
 
     fn domain(&self) -> Domain {
@@ -237,15 +293,38 @@ impl Args {
     }
 }
 
-fn run(raw: &[String]) -> CliResult<()> {
+fn run(raw: &[String]) -> CliResult<ExitCode> {
     let Some((command, rest)) = raw.split_first() else {
         return Err(USAGE.into());
     };
     let args = Args::parse(command, rest)?;
     match command.as_str() {
         "nucleolus" => {
-            args.check_known(&["--pre", "--lex", "--full", "--cost", "--exact"])?;
+            args.check_options(&[
+                "--pre",
+                "--lex",
+                "--full",
+                "--cost",
+                "--exact",
+                "--tolerance",
+                "--rel-tolerance",
+            ])?;
+            let specified = tolerance(&args)?;
+            let tolerance = specified.unwrap_or(Tolerance::Auto);
             if args.has("--exact") {
+                if specified.is_some() {
+                    return Err(
+                        "--exact は許容誤差を使わない (--tolerance・--rel-tolerance と併用できない)"
+                            .into(),
+                    );
+                }
+                if args.missing == MissingPolicy::Ignore {
+                    return Err(
+                        "--missing ignore は --exact と併用できない (--exact は全提携の値を有理数で解く。\
+                         値が分からない提携を 0 とみなすなら --missing zero)"
+                            .into(),
+                    );
+                }
                 if args.has("--full") {
                     return Err(
                         "--full は --exact と併用できない (--exact は有理数の逐次 LP で解く)"
@@ -277,30 +356,39 @@ fn run(raw: &[String]) -> CliResult<()> {
                         None => println!("{}", format_rational(value)),
                     }
                 }
-                return Ok(());
+                return Ok(ExitCode::SUCCESS);
             }
             // 値が分からない提携があれば、分かる提携だけで解く。
-            if args.missing == MissingPolicy::Ignore && nucleolus_known_only(&args)? {
-                return Ok(());
+            if args.missing == MissingPolicy::Ignore && nucleolus_known_only(&args, tolerance)? {
+                return Ok(ExitCode::SUCCESS);
             }
             let prepared = read_prepared(&args, 0)?;
             let started = Instant::now();
-            let mut options = Options::new(&prepared.game, args.domain());
+            let mut options = Options::new(args.domain());
+            options.tolerance = tolerance;
             if args.has("--full") {
                 options.method = Method::Full;
             }
             let result = nucleolus::nucleolus_with(&prepared.game, options)?;
             eprintln!(
-                "time={:.6}s lp_solves={} rows_added={} levels={:?}",
+                "time={:.6}s lp_solves={} rows_added={} solver={} tolerance={:e} refinements={} guarantee={} levels={:?}",
                 started.elapsed().as_secs_f64(),
                 result.lp_solves(),
                 result.rows_added(),
+                if result.is_rational() {
+                    "rational"
+                } else {
+                    "lp"
+                },
+                result.tolerance(),
+                result.refinements(),
+                result.guarantee(),
                 result.levels()
             );
             print_allocation(&prepared.output(result.allocation()));
         }
         "plot" => {
-            args.check_known(&["--lex", "--no-kernel"])?;
+            args.check_options(&["--lex", "--no-kernel"])?;
             let game = read_game(&args, 0)?;
             let mut options = plot::PlotOptions::default();
             options.kernel = !args.has("--no-kernel");
@@ -325,7 +413,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             }
         }
         "structure" => {
-            args.check_known(&["--blocks", "--lex", "--pre"])?;
+            args.check_options(&["--blocks", "--lex", "--pre"])?;
             let game = read_game(&args, 0)?;
             let text = args.value("--blocks")?.ok_or("--blocks が必要")?;
             let blocks: Vec<Vec<usize>> = text
@@ -342,7 +430,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             }
         }
         "airport" => {
-            args.check_known(&["--costs"])?;
+            args.check_options(&["--costs"])?;
             let costs: Vec<f64> =
                 parse_list(args.value("--costs")?.ok_or("--costs が必要")?, "--costs")?;
             let game = AirportGame::new(costs)?;
@@ -354,7 +442,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             }
         }
         "shapley" | "banzhaf" => {
-            args.check_known(&["--lex", "--samples", "--seed", "--normalize", "--cost"])?;
+            args.check_options(&["--lex", "--samples", "--seed", "--normalize", "--cost"])?;
             // 費用のゲームは節約ゲームの値を費用の分担に戻す (線形なので費用ゲームの値そのもの)。
             let prepared = read_prepared(&args, 0)?;
             let game = &prepared.game;
@@ -395,14 +483,14 @@ fn run(raw: &[String]) -> CliResult<()> {
             }
         }
         "least-core" => {
-            args.check_known(&["--pre", "--lex", "--cost"])?;
+            args.check_options(&["--pre", "--lex", "--cost"])?;
             let prepared = read_prepared(&args, 0)?;
             let result = nucleolus::least_core(&prepared.game, args.domain())?;
             eprintln!("epsilon={}", result.epsilon());
             print_allocation(&prepared.output(result.allocation()));
         }
         "disruption" => {
-            args.check_known(&["--lex"])?;
+            args.check_options(&["--lex"])?;
             let game = read_game(&args, 0)?;
             let result = variants::disruption_nucleolus(&game)?;
             eprintln!(
@@ -413,7 +501,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             print_allocation(result.allocation());
         }
         "anti-nucleolus" => {
-            args.check_known(&["--pre", "--lex"])?;
+            args.check_options(&["--pre", "--lex"])?;
             let game = read_game(&args, 0)?;
             let result = if args.has("--pre") {
                 variants::anti_prenucleolus(&game)?
@@ -423,7 +511,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             print_allocation(result.allocation());
         }
         "solidarity" | "tau" | "gately" => {
-            args.check_known(&["--lex"])?;
+            args.check_options(&["--lex"])?;
             let game = read_game(&args, 0)?;
             let allocation = match command.as_str() {
                 "solidarity" => values::solidarity(&game),
@@ -440,7 +528,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             print_allocation(&allocation);
         }
         "myerson" => {
-            args.check_known(&["--edges", "--lex"])?;
+            args.check_options(&["--edges", "--lex"])?;
             let game = read_game(&args, 0)?;
             let text = args.value("--edges")?.ok_or("--edges が必要")?;
             let edges: Vec<(usize, usize)> = text
@@ -457,7 +545,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             print_allocation(&communication::myerson(&game, &edges)?);
         }
         "power" => {
-            args.check_known(&["--lex"])?;
+            args.check_options(&["--lex"])?;
             let game = read_game(&args, 0)?;
             let simple = power::SimpleGame::new(&game)?;
             let n = game.players();
@@ -502,7 +590,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             } else {
                 &["--pre", "--lex"]
             };
-            args.check_known(known)?;
+            args.check_options(known)?;
             let game = read_game(&args, 0)?;
             let started = Instant::now();
             let result = match command.as_str() {
@@ -519,7 +607,12 @@ fn run(raw: &[String]) -> CliResult<()> {
             print_allocation(result.allocation());
         }
         "convex-nucleolus" => {
-            args.check_known(&["--lex", "--assume"])?;
+            args.check_options(&["--lex", "--assume", "--reference"])?;
+            if args.has("--reference") && !args.has("--assume") {
+                return Err(
+                    "--reference は --assume と併用する (仮定して求めた結果の検証に使う)".into(),
+                );
+            }
             let game = read_game(&args, 0)?;
             let started = Instant::now();
             if args.has("--assume") {
@@ -529,7 +622,7 @@ fn run(raw: &[String]) -> CliResult<()> {
                         .map_err(|e| format!("凸と仮定した手法が失敗した: {e}"))?;
                 let seconds = started.elapsed().as_secs_f64();
                 let allocation = unverified.peek().allocation().to_vec();
-                let verdict = unverified.verify(&game, VerifyOptions::default())?;
+                let verdict = unverified.verify(&game, verify_options(&args)?)?;
                 let (guarantee, note) = match &verdict {
                     Verified::Certified(solution) => {
                         (solution.guarantee().to_string(), String::new())
@@ -567,7 +660,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             }
         }
         "kernel" => {
-            args.check_known(&["--pre", "--lex", "--max-iter", "--cost"])?;
+            args.check_options(&["--pre", "--lex", "--max-iter", "--cost"])?;
             let prepared = read_prepared(&args, 0)?;
             let game = &prepared.game;
             let mut options = TransferOptions::for_game(game);
@@ -584,14 +677,14 @@ fn run(raw: &[String]) -> CliResult<()> {
             print_allocation(&prepared.output(result.allocation()));
         }
         "kernel-set" => {
-            args.check_known(&["--pre", "--lex", "--max-nodes", "--merge"])?;
+            args.check_options(&["--pre", "--lex", "--max-nodes", "--merge"])?;
             let game = read_game(&args, 0)?;
             let mut options = SetOptions::for_game(&game);
             options.max_nodes = args.number("--max-nodes", options.max_nodes)?;
             let started = Instant::now();
             let mut set = kernel::kernel_set(&game, args.domain(), options)?;
             if args.has("--merge") {
-                set = set.merge_collinear_segments(10.0 * options.tolerance);
+                set = set.merge_collinear_segments(10.0 * options.tolerance)?;
             }
             eprintln!(
                 "time={:.6}s pieces={} nodes={} lp_solves={}",
@@ -613,7 +706,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             }
         }
         "talmud" => {
-            args.check_known(&["--estate", "--claims", "--exact"])?;
+            args.check_options(&["--estate", "--claims", "--exact"])?;
             let estate = args.value("--estate")?.ok_or("--estate がない")?;
             let claims = args.value("--claims")?.ok_or("--claims がない")?;
             if args.has("--exact") {
@@ -636,7 +729,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             }
         }
         "certify" => {
-            args.check_known(&["--pre", "--lex", "--rational"])?;
+            args.check_options(&["--pre", "--lex", "--rational"])?;
             let x = read_values(args.file(1)?)?;
             let started = Instant::now();
             let report = if args.has("--rational") {
@@ -669,14 +762,45 @@ fn run(raw: &[String]) -> CliResult<()> {
                 return Err("厳密な検証に合格しなかった".into());
             }
         }
+        "check" => {
+            args.check_options(&["--pre", "--lex", "--rational", "--reference"])?;
+            let x = read_values(args.file(1)?)?;
+            let options = verify_options(&args)?;
+            let started = Instant::now();
+            let check = if args.has("--rational") {
+                let input = read_exact_input(&args, 0)?;
+                reject_cost(&args, 0, input.kind)?;
+                verify::check_exact(&input.game, &x, args.domain(), options)
+            } else {
+                let game = read_game(&args, 0)?;
+                verify::check(&game, &x, args.domain(), options)
+            }?;
+            let seconds = started.elapsed().as_secs_f64();
+            match check {
+                Check::Certified { exact } => {
+                    eprintln!("check=certified time={seconds:.6}s");
+                    for value in &exact {
+                        println!("{}", format_rational(value));
+                    }
+                }
+                Check::Refuted(reason) => {
+                    eprintln!("check=refuted time={seconds:.6}s reason={reason}");
+                    return Ok(ExitCode::from(EXIT_REFUTED));
+                }
+                Check::Undecided(reason) => {
+                    eprintln!("check=undecided time={seconds:.6}s reason={reason}");
+                    return Ok(ExitCode::from(EXIT_UNDECIDED));
+                }
+            }
+        }
         "verify" => {
-            args.check_known(&["--pre", "--lex"])?;
+            args.check_options(&["--pre", "--lex"])?;
             let game = read_game(&args, 0)?;
             let x = read_values(args.file(1)?)?;
             let domain = args.domain();
             let report = verify::kohlberg(&game, &x, domain)?;
             let tolerance = 10.0 * default_tolerance(&game);
-            let in_kernel = kernel::is_in_kernel(&game, &x, domain, tolerance);
+            let in_kernel = kernel::is_in_kernel(&game, &x, domain, tolerance)?;
             println!(
                 "kohlberg={} ({} levels, {} LPs){}",
                 report.satisfied,
@@ -691,7 +815,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             );
         }
         "bargaining" => {
-            args.check_known(&["--pre", "--lex"])?;
+            args.check_options(&["--pre", "--lex"])?;
             let game = read_game(&args, 0)?;
             let x = read_values(args.file(1)?)?;
             let started = Instant::now();
@@ -715,7 +839,7 @@ fn run(raw: &[String]) -> CliResult<()> {
             }
         }
         "explain" => {
-            args.check_known(&["--lex", "--levels"])?;
+            args.check_options(&["--lex", "--levels"])?;
             let game = read_game(&args, 0)?;
             let x = read_values(args.file(1)?)?;
             let mut options = explain::ExplainOptions::default();
@@ -724,25 +848,44 @@ fn run(raw: &[String]) -> CliResult<()> {
             print!("{}", explain::render(&report));
         }
         "compare" => {
-            args.check_known(&["--lex", "--cost"])?;
+            args.check_options(&["--lex", "--cost", "--tolerance", "--rel-tolerance"])?;
+            // 仁・プレ仁は nucleolus コマンドと同じ手順で求める (指定がなければ既定の手順)。
+            let tolerance = tolerance(&args)?.unwrap_or(Tolerance::Auto);
+            let solve = |domain: Domain, game: &ExplicitGame| {
+                let mut options = Options::new(domain);
+                options.tolerance = tolerance;
+                nucleolus::nucleolus_with(game, options).map(|r| r.into_allocation())
+            };
             // 費用のゲームは節約ゲームで比べ (超過は費用の分担での y(S) - c(S))、配分を費用の分担で出す。
             let prepared = read_prepared(&args, 0)?;
             let game = &prepared.game;
             let mut candidates: Vec<(String, Vec<f64>)> = Vec::new();
-            // 計算できない解 (配分集合が空など) は飛ばす。
-            if let Ok(r) = nucleolus::nucleolus(game) {
-                candidates.push(("仁".into(), r.into_allocation()));
+            // 計算できない解 (配分集合が空、人数の上限を超えるなど) は省き、理由を標準エラーに出す。
+            let mut add = |label: &str, result: coopgame::Result<Vec<f64>>| match result {
+                Ok(allocation) => candidates.push((label.to_string(), allocation)),
+                Err(error) => eprintln!("{label} は計算できないので省く: {error}"),
+            };
+            for (label, domain) in [
+                ("仁", Domain::Imputation),
+                ("プレ仁", Domain::Preimputation),
+            ] {
+                match solve(domain, game) {
+                    // 仁・プレ仁の引数の誤りは、許容誤差の指定の誤り (値に比べて大きすぎる比など) なので、
+                    // 解を省かずにエラーにする。
+                    Err(error @ coopgame::Error::InvalidArgument(_)) => return Err(error.into()),
+                    result => add(label, result),
+                }
             }
-            if let Ok(r) = nucleolus::prenucleolus(game) {
-                candidates.push(("プレ仁".into(), r.into_allocation()));
-            }
-            candidates.push(("Shapley 値".into(), values::shapley(game)));
-            if let Ok(r) = variants::per_capita_nucleolus(game, Domain::Imputation) {
-                candidates.push(("per capita 仁".into(), r.into_allocation()));
-            }
-            if let Ok(r) = variants::modiclus(game) {
-                candidates.push(("modiclus".into(), r.into_allocation()));
-            }
+            add("Shapley 値", Ok(values::shapley(game)));
+            add(
+                "per capita 仁",
+                variants::per_capita_nucleolus(game, Domain::Imputation)
+                    .map(|r| r.into_allocation()),
+            );
+            add(
+                "modiclus",
+                variants::modiclus(game).map(|r| r.into_allocation()),
+            );
             let (labels, allocations): (Vec<String>, Vec<Vec<f64>>) =
                 candidates.into_iter().unzip();
             let mut rows = explain::compare(game, &allocations)?;
@@ -756,12 +899,20 @@ fn run(raw: &[String]) -> CliResult<()> {
             }
         }
         "uncertainty" => {
-            args.check_known(&["--lex", "--relative", "--samples", "--seed", "--solver"])?;
+            args.check_options(&[
+                "--lex",
+                "--relative",
+                "--samples",
+                "--seed",
+                "--solver",
+                "--tolerance",
+                "--rel-tolerance",
+            ])?;
             let game = read_game(&args, 0)?;
             let relative: f64 = args.number("--relative", 0.1)?;
             let samples = samples(&args, 200)?;
             let seed: u64 = args.number("--seed", 0)?;
-            let solve = solver(args.value("--solver")?.unwrap_or("nucleolus"))?;
+            let solve = solver(&args)?;
             let interval = uncertainty::IntervalGame::around(&game, relative)?;
             let d = uncertainty::interval_monte_carlo(&interval, samples, seed, solve)?;
             println!("player\tmean\tstd\tq05\tq50\tq95");
@@ -778,29 +929,38 @@ fn run(raw: &[String]) -> CliResult<()> {
             eprintln!("samples={} failures={}", d.samples, d.failures);
         }
         "influence" => {
-            args.check_known(&["--lex", "--solver", "--levels", "--delta"])?;
+            args.check_options(&[
+                "--lex",
+                "--solver",
+                "--levels",
+                "--delta",
+                "--tolerance",
+                "--rel-tolerance",
+            ])?;
             let game = read_game(&args, 0)?;
-            let mut solve = solver(args.value("--solver")?.unwrap_or("nucleolus"))?;
+            let mut solve = solver(&args)?;
             let x = solve(&game)?;
             let levels: usize = args.number("--levels", 2)?;
             let delta: f64 = args.number("--delta", 1e-4 * game.max_abs_value().max(1.0))?;
             let key = uncertainty::key_coalitions(&game, &x, levels)?;
             let mut rows = uncertainty::influence(&game, &key, delta, solve)?;
             rows.sort_by(|a, b| b.magnitude().total_cmp(&a.magnitude()));
-            println!("coalition\tmax|dx/dv|\tdx/dv (プレイヤー順)");
+            // difference: central (中心差分)、forward・backward (片側のゲームが解けないときの片側差分)。
+            println!("coalition\tmax|dx/dv|\tdx/dv (プレイヤー順)\tdifference");
             for row in rows {
                 let values: Vec<String> =
                     row.sensitivity.iter().map(|v| format!("{v:.4}")).collect();
                 println!(
-                    "{}\t{:.4}\t{}",
+                    "{}\t{:.4}\t{}\t{}",
                     row.coalition,
                     row.magnitude(),
-                    values.join(" ")
+                    values.join(" "),
+                    row.difference
                 );
             }
         }
         "generate" => {
-            args.check_known(&["--type", "--n", "--seed"])?;
+            args.check_options(&["--type", "--n", "--seed"])?;
             let kind: u8 = args.number("--type", 0)?;
             let n: usize = args.number("--n", 0)?;
             let seed: u64 = args.number("--seed", 0)?;
@@ -808,13 +968,13 @@ fn run(raw: &[String]) -> CliResult<()> {
             print!("{}", game.to_lines());
         }
         "bench" => {
-            args.check_known(&["--types", "--n", "--seeds", "--methods"])?;
+            args.check_options(&["--types", "--n", "--seeds", "--methods"])?;
             bench(&args)?;
         }
         "help" | "--help" | "-h" => println!("{USAGE}"),
         other => return Err(format!("未知のコマンド {other:?}\n\n{USAGE}").into()),
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 fn read_values(path: &str) -> CliResult<Vec<f64>> {
@@ -826,19 +986,85 @@ fn read_values(path: &str) -> CliResult<Vec<f64>> {
 enum MissingPolicy {
     Error,
     Zero,
-    /// 値が分かる提携だけで解く (nucleolus のみ)。
+    /// 値が分かる提携だけで解く (--exact なしの nucleolus のみ。他は run がエラーにする)。
     Ignore,
 }
 
 impl MissingPolicy {
-    /// 全提携の表を作るときの扱い。ignore でも全提携の表を作れる場合は作る
-    /// (作れなければ nucleolus が分かる提携だけで解く。他のコマンドはエラー)。
+    /// 全提携の表を作るときの扱い。ignore で値が分からない提携があれば、nucleolus_known_only が
+    /// 分かる提携だけで解くので、ここに来るのは全提携の値が分かる場合だけ。
     fn table(self) -> io::Missing {
         match self {
             MissingPolicy::Zero => io::Missing::Zero,
             MissingPolicy::Error | MissingPolicy::Ignore => io::Missing::Error,
         }
     }
+}
+
+/// 逐次 LP の許容誤差の指定。`--tolerance T` (値の単位) か `--rel-tolerance R` (max|v| に対する比) は、
+/// その許容誤差で 1 回だけ解く。`--tolerance auto` は既定の手順 (Tolerance::Auto) を明示して選ぶ。
+/// どちらの指定もなければ `None` (コマンドごとの既定を使う)。
+fn tolerance(args: &Args) -> CliResult<Option<Tolerance>> {
+    // 値は解く前に確かめる (uncertainty は解けなかった標本を数えるだけなので、指定の誤りが紛れないようにする)。
+    let number = |name: &str, text: &str| -> CliResult<f64> {
+        match text.parse::<f64>() {
+            // `-0` は 0 として扱う。
+            Ok(value) if value.is_finite() && value >= 0.0 => Ok(value + 0.0),
+            Ok(_) => Err(format!("{name} の値 {text} が 0 以上の有限の数ではない").into()),
+            Err(_) => Err(format!("{name} の値 {text:?} が不正").into()),
+        }
+    };
+    let absolute = match args.value("--tolerance")? {
+        None => None,
+        Some("auto") => Some(Tolerance::Auto),
+        Some(text) => Some(Tolerance::Absolute(number("--tolerance", text)?)),
+    };
+    let relative = match args.value("--rel-tolerance")? {
+        None => None,
+        Some(text) => Some(Tolerance::Relative(number("--rel-tolerance", text)?)),
+    };
+    match (absolute, relative) {
+        (Some(_), Some(_)) => {
+            Err("--tolerance と --rel-tolerance は、どちらか一方だけを指定する".into())
+        }
+        (specified, None) | (None, specified) => Ok(specified),
+    }
+}
+
+/// 検証の設定。`--reference` で基準の仁の求め方を選ぶ (既定は auto)。
+fn verify_options(args: &Args) -> CliResult<VerifyOptions> {
+    let mut options = VerifyOptions::default();
+    options.reference = match args.value("--reference")? {
+        None | Some("auto") => Reference::Auto,
+        Some("exact") => Reference::Exact,
+        Some("lp") => Reference::Lp,
+        Some(other) => {
+            return Err(format!("--reference は auto・exact・lp: {other:?}").into());
+        }
+    };
+    Ok(options)
+}
+
+/// JSON・CSV から全提携の表を作れなかったときのエラー。値が分からない提携や人数の上限が原因なら、
+/// このコマンドで選べる扱い (--missing) を添える。
+fn table_error(args: &Args, path: &str, has_missing: bool, error: coopgame::Error) -> CliError {
+    let hint = match error {
+        coopgame::Error::InvalidArgument(_)
+            if has_missing && args.missing != MissingPolicy::Zero =>
+        {
+            if args.can_ignore_missing() {
+                " (--missing zero で 0 とみなすか、--missing ignore で値が分かる提携だけで解く)"
+            } else {
+                " (--missing zero で 0 とみなす)"
+            }
+        }
+        // 全提携の表を作れない人数でも、値が分かる提携だけでなら解ける。
+        coopgame::Error::TooManyPlayers { .. } if has_missing && args.can_ignore_missing() => {
+            " (--missing ignore なら、値が分かる提携だけで解ける)"
+        }
+        _ => "",
+    };
+    format!("{path}: {error}{hint}").into()
 }
 
 /// 費用のゲーム (--cost か、JSON・CSV の type が cost) を扱えるコマンド。
@@ -863,7 +1089,7 @@ fn read_input(args: &Args, position: usize) -> CliResult<Input<ExplicitGame>> {
         let data = io::parse_by_extension(path, &text).map_err(|e| format!("{path}: {e}"))?;
         let game = data
             .to_explicit(args.missing.table())
-            .map_err(|e| format!("{path}: {e}"))?;
+            .map_err(|e| table_error(args, path, data.has_missing(), e))?;
         return Ok(Input {
             game,
             kind: data.kind,
@@ -945,7 +1171,7 @@ fn read_exact_input(args: &Args, position: usize) -> CliResult<Input<exact::Exac
         let data = io::parse_exact_by_extension(path, &text).map_err(|e| format!("{path}: {e}"))?;
         let game = data
             .to_exact(args.missing.table())
-            .map_err(|e| format!("{path}: {e}"))?;
+            .map_err(|e| table_error(args, path, data.has_missing(), e))?;
         return Ok(Input {
             game,
             kind: data.kind,
@@ -977,14 +1203,16 @@ fn exact_savings(costs: &exact::ExactGame) -> CliResult<(exact::ExactGame, Vec<e
 }
 
 /// --missing ignore の nucleolus: 値が分からない提携があれば、分かる提携だけで解いて出す (出したら true)。
-fn nucleolus_known_only(args: &Args) -> CliResult<bool> {
+///
+/// 分からない提携があるかは、提携を列挙せずに数で判定する (全提携の表を作れない 31 人以上でも解けるように)。
+fn nucleolus_known_only(args: &Args, tolerance: Tolerance) -> CliResult<bool> {
     let path = args.file(0)?;
     if !is_table(path) {
         return Ok(false);
     }
     let mut data =
         io::parse_by_extension(path, &read_text(path)?).map_err(|e| format!("{path}: {e}"))?;
-    if data.missing().is_empty() {
+    if !data.has_missing() {
         return Ok(false);
     }
     if args.has("--full") {
@@ -996,30 +1224,17 @@ fn nucleolus_known_only(args: &Args) -> CliResult<bool> {
     if args.has("--cost") {
         data.kind = io::Kind::Cost;
     }
-    // 費用なら節約ゲームに直して解き、費用の分担に戻す。
-    let (known, standalone) = if data.kind == io::Kind::Cost {
-        let savings = data.savings().map_err(|e| format!("{path}: {e}"))?;
-        (savings, Some(data.singleton_values()?))
-    } else {
-        (data, None)
-    };
-    let result = known
-        .partial()
-        .and_then(|partial| partial.nucleolus(args.domain()))?;
+    // 費用なら節約ゲームで解き、費用の分担で出す (io::GameData::partial_nucleolus)。
+    let result = data
+        .partial_nucleolus_with(args.domain(), tolerance)
+        .map_err(|e| format!("{path}: {e}"))?;
     eprintln!(
-        "guarantee={} (値が分かる {} 個の提携だけで解いた。真のゲームの仁とは限らない)",
-        result.guarantee(),
-        known.known.len()
+        "tolerance={:e} guarantee={} (値が分かる {} 個の提携だけで解いた。真のゲームの仁とは限らない)",
+        result.solved.tolerance(),
+        result.solved.guarantee(),
+        data.known.len()
     );
-    match standalone {
-        Some(c) => print_allocation(
-            &c.iter()
-                .zip(result.allocation())
-                .map(|(c, x)| c - x)
-                .collect::<Vec<_>>(),
-        ),
-        None => print_allocation(result.allocation()),
-    }
+    print_allocation(&result.allocation);
     Ok(true)
 }
 
@@ -1032,8 +1247,26 @@ fn samples(args: &Args, default: usize) -> CliResult<usize> {
     Ok(samples)
 }
 
-fn solver(name: &str) -> CliResult<uncertainty::Solver> {
-    uncertainty::solver(name).ok_or_else(|| {
+/// uncertainty・influence の解き方 (`--solver`。既定は nucleolus)。
+///
+/// 仁・プレ仁は、指定がなければ max|v(S)| の 1e-7 倍の許容誤差で 1 回だけ解く (標本や差分のために何度も解くので、
+/// 既定の手順の解き直しはしない)。`--tolerance`・`--rel-tolerance` で許容誤差を指定でき、`--tolerance auto` で
+/// 既定の手順を選べる。
+fn solver(args: &Args) -> CliResult<uncertainty::Solver> {
+    let name = args.value("--solver")?.unwrap_or("nucleolus");
+    let tolerance = match tolerance(args)? {
+        None => Tolerance::Relative(1e-7),
+        Some(specified) => {
+            if name == "shapley" {
+                return Err(
+                    "--tolerance・--rel-tolerance は --solver が nucleolus・prenucleolus のときだけ使える"
+                        .into(),
+                );
+            }
+            specified
+        }
+    };
+    uncertainty::solver_with(name, tolerance).ok_or_else(|| {
         format!(
             "未知の解き方 {name:?} ({})",
             uncertainty::SOLVERS.join(", ")
@@ -1117,7 +1350,9 @@ fn bench_one(game: &ExplicitGame, method: &str) -> CliResult<String> {
         "prekernel" => (Domain::Preimputation, true),
         other => return Err(format!("未知の手法 {other:?}").into()),
     };
-    let mut options = Options::new(game, domain);
+    let mut options = Options::new(domain);
+    // 逐次 LP そのものの時間を測るので、既定の比の許容誤差で 1 回だけ解く。
+    options.tolerance = Tolerance::Relative(1e-7);
     if method.ends_with("-full") {
         options.method = Method::Full;
     }

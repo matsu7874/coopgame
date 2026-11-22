@@ -31,13 +31,31 @@ impl fmt::Display for CoalitionStructure {
     }
 }
 
+/// 提携構造で扱える人数の上限 (ブロックを [`Coalition`] で表すため)。
+const MAX_STRUCTURE_PLAYERS: usize = 64;
+
+/// 人数が 1 以上、[`MAX_STRUCTURE_PLAYERS`] 以下であることを確かめる。
+fn check_players(players: usize) -> Result<()> {
+    if players == 0 {
+        return Err(Error::InvalidArgument("プレイヤー数は 1 以上".into()));
+    }
+    if players > MAX_STRUCTURE_PLAYERS {
+        return Err(Error::TooManyPlayers {
+            players,
+            max: MAX_STRUCTURE_PLAYERS,
+        });
+    }
+    Ok(())
+}
+
 impl CoalitionStructure {
     /// プレイヤー番号のブロックの列から作る。全員がちょうど 1 つのブロックに属する必要がある。
-    /// 人数は 64 まで ([`Coalition`] で表すため)。
+    ///
+    /// 人数は 1 以上 64 以下 ([`Coalition`] で表すため)。人数が 0 なら [`Error::InvalidArgument`]、
+    /// 64 を超えれば [`Error::TooManyPlayers`]。空のブロック、範囲外や重複した番号、
+    /// どのブロックにも属さないプレイヤーがあれば [`Error::InvalidArgument`]。
     pub fn new(players: usize, blocks: &[Vec<usize>]) -> Result<CoalitionStructure> {
-        if players > 64 {
-            return Err(Error::TooManyPlayers { players, max: 64 });
-        }
+        check_players(players)?;
         let mut seen = 0u64;
         let mut coalitions = Vec::with_capacity(blocks.len());
         for block in blocks {
@@ -67,20 +85,22 @@ impl CoalitionStructure {
         })
     }
 
-    /// 全員で 1 つのブロック。
-    pub fn grand(players: usize) -> CoalitionStructure {
-        CoalitionStructure {
+    /// 全員で 1 つのブロック。人数の条件とエラーは [`CoalitionStructure::new`] と同じ。
+    pub fn grand(players: usize) -> Result<CoalitionStructure> {
+        check_players(players)?;
+        Ok(CoalitionStructure {
             players,
             blocks: vec![Coalition::grand(players)],
-        }
+        })
     }
 
-    /// 全員が単独のブロック。
-    pub fn singletons(players: usize) -> CoalitionStructure {
-        CoalitionStructure {
+    /// 全員が単独のブロック。人数の条件とエラーは [`CoalitionStructure::new`] と同じ。
+    pub fn singletons(players: usize) -> Result<CoalitionStructure> {
+        check_players(players)?;
+        Ok(CoalitionStructure {
             players,
             blocks: (0..players).map(Coalition::singleton).collect(),
-        }
+        })
     }
 
     pub fn blocks(&self) -> &[Coalition] {
@@ -166,7 +186,7 @@ pub fn nucleolus(
     domain: Domain,
 ) -> Result<NucleolusResult> {
     structure.check(game)?;
-    nucleolus::nucleolus_with_structure(game, structure.blocks(), Options::new(game, domain))
+    nucleolus::nucleolus_with_structure(game, structure.blocks(), Options::new(domain))
 }
 
 /// 連合を 1 人のプレイヤーとみなした商ゲーム `v_B(R) = v(∪_{k ∈ R} B_k)`。
@@ -175,4 +195,61 @@ pub fn quotient_game(game: &ExplicitGame, unions: &CoalitionStructure) -> Result
     ExplicitGame::from_fn(unions.blocks().len(), |chosen| {
         game.value(Coalition::union_of(unions.blocks(), chosen.0))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constructors_reject_zero_and_too_many_players() {
+        for players in [0, 65, 1000] {
+            assert!(CoalitionStructure::grand(players).is_err(), "{players}");
+            assert!(
+                CoalitionStructure::singletons(players).is_err(),
+                "{players}"
+            );
+        }
+        assert!(matches!(
+            CoalitionStructure::grand(65),
+            Err(Error::TooManyPlayers {
+                players: 65,
+                max: 64
+            })
+        ));
+        assert!(matches!(
+            CoalitionStructure::grand(0),
+            Err(Error::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            CoalitionStructure::new(0, &[]),
+            Err(Error::InvalidArgument(_))
+        ));
+        assert!(CoalitionStructure::new(0, &[vec![]]).is_err());
+        assert!(CoalitionStructure::new(65, &[(0..65).collect()]).is_err());
+    }
+
+    #[test]
+    fn constructors_agree_with_new() {
+        for players in [1, 3, 64] {
+            let all: Vec<usize> = (0..players).collect();
+            assert_eq!(
+                CoalitionStructure::grand(players).unwrap(),
+                CoalitionStructure::new(players, std::slice::from_ref(&all)).unwrap()
+            );
+            let alone: Vec<Vec<usize>> = all.iter().map(|&i| vec![i]).collect();
+            assert_eq!(
+                CoalitionStructure::singletons(players).unwrap(),
+                CoalitionStructure::new(players, &alone).unwrap()
+            );
+        }
+        assert_eq!(
+            CoalitionStructure::grand(64).unwrap().blocks(),
+            [Coalition::grand(64)]
+        );
+        assert_eq!(
+            CoalitionStructure::singletons(64).unwrap().blocks().len(),
+            64
+        );
+    }
 }

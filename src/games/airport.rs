@@ -6,7 +6,8 @@
 //! - 仁: 節約ゲーム `s(S) = sum_{i in S} c_i - max_{i in S} c_i` は凸 (優モジュラ) なので、
 //!   凸ゲームの手法 ([`crate::nucleolus::convex`]) で全提携を列挙せずに求める。
 //!   費用 `max` は劣モジュラ (`max(S ∪ T) = max(max S, max T)`、`max(S ∩ T) <= min(max S, max T)`) なので、
-//!   加法的な項からそれを引いた節約ゲームは優モジュラになる。
+//!   加法的な項からそれを引いた節約ゲームは優モジュラになる
+//!   (Lean による証明: リポジトリの `proofs/` の `airportSavings_supermodular`)。
 //!   Littlechild (1974) は仁の簡単な表現を与えたが、本文を確認できないためその式は実装していない。
 //!
 //! この型の [`SetFunction`] の値は節約ゲームの値である (費用は [`AirportGame::cost`])。
@@ -14,7 +15,7 @@
 use crate::error::{Error, Result};
 use crate::game::{PlayerSet, SetFunction};
 use crate::nucleolus::convex;
-use crate::properties::{ConvexGame, Proven};
+use crate::properties::{ConvexGame, Proven, Sealed};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AirportGame {
@@ -81,6 +82,8 @@ impl SetFunction for AirportGame {
         total - self.cost(coalition)
     }
 }
+
+impl Sealed for AirportGame {}
 
 impl ConvexGame for AirportGame {
     type Proof = Proven;

@@ -97,7 +97,7 @@ fn variant_methods(game: &ExplicitGame) -> coopgame::Result<()> {
     let per_capita = variants::per_capita_nucleolus(game, Domain::Imputation)?;
     // 比例仁: 超過を提携の値で割る。
     let proportional = variants::proportional_nucleolus(game, Domain::Imputation)?;
-    // modiclus: 提携どうしの超過の差を辞書式に最小化する。
+    // modiclus: 空提携と全体提携を含む全ての提携の組で、超過の差を辞書式に最小化する。
     let modiclus = variants::modiclus(game)?;
     // disruption nucleolus: 提携の抜ける傾向を辞書式に小さくする。
     let disruption = variants::disruption_nucleolus(game)?;
@@ -111,11 +111,7 @@ fn variant_methods(game: &ExplicitGame) -> coopgame::Result<()> {
         &[4.0 / 3.0, 4.0, 20.0 / 3.0],
         1e-6
     ));
-    assert!(close(
-        modiclus.allocation(),
-        &[8.0 / 3.0, 14.0 / 3.0, 14.0 / 3.0],
-        1e-6
-    ));
+    assert!(close(modiclus.allocation(), &[4.0, 4.0, 4.0], 1e-6));
     assert!(close(
         disruption.allocation(),
         &[8.0 / 3.0, 4.0, 16.0 / 3.0],

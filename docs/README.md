@@ -22,3 +22,4 @@
 - [文献の例の再現](literature-cases.md): 教科書・論文の数値例の再現。
 - [参考文献と、主張の根拠](references.md): 依拠した文献と、主張ごとの確認方法。
 - [実験の再現と検証](reproducibility.md): 実験データの出所と、再現・照合の手順。
+- [Lean による証明](../proofs/README.md): リポジトリ内で導いた主張 (構造的な凸性、Kohlberg 判定の打ち切りなど) の機械検証。

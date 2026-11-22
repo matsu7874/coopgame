@@ -19,7 +19,7 @@ use crate::error::{Error, Result};
 use crate::game::oracle::{MaxMerge, OracleGame};
 use crate::game::subsets::SubsetsByWeight;
 use crate::game::{PlayerSet, SetFunction};
-use crate::properties::{ConvexGame, Proven};
+use crate::properties::{ConvexGame, Proven, Sealed};
 
 /// 規則に使える数の型。
 pub trait Amount: Clone + PartialOrd + Num + Signed + FromPrimitive {}
@@ -31,9 +31,12 @@ fn is_finite_amount<T: Amount>(value: &T) -> bool {
     value.clone() - value.clone() == T::zero()
 }
 
-/// 破産問題の前提 (遺産と請求は有限かつ非負、遺産は請求の総和以下) を確かめ、請求の総和を返す。
+/// 破産問題の前提 (遺産・請求・請求の総和は有限、遺産と請求は非負、遺産は請求の総和以下) を確かめ、
+/// 請求の総和を返す。
 ///
 /// `-0.0` は 0 として受け付ける (`Signed::is_negative` は `-0.0` も負とみなすので使わない)。
+/// `f64` では、請求ごとに有限でも総和が無限大になりうる。総和は規則の計算 (損失 `D - E` など) に使うので、
+/// 有限でなければエラーにする ([`BankruptcyGame::new`] と同じ)。
 pub(crate) fn validate<T: Amount>(estate: &T, claims: &[T]) -> Result<T> {
     if !is_finite_amount(estate) || !claims.iter().all(is_finite_amount) {
         return Err(Error::InvalidArgument("遺産と請求は有限の値".into()));
@@ -42,6 +45,11 @@ pub(crate) fn validate<T: Amount>(estate: &T, claims: &[T]) -> Result<T> {
         return Err(Error::InvalidArgument("請求は非負".into()));
     }
     let total = claims.iter().cloned().fold(T::zero(), |acc, d| acc + d);
+    if !is_finite_amount(&total) {
+        return Err(Error::InvalidArgument(
+            "請求の総和が有限の値でない (数の型で表せる範囲を超える)".into(),
+        ));
+    }
     if *estate < T::zero() || *estate > total {
         return Err(Error::InvalidArgument(
             "遺産は 0 以上、請求の総和以下 (破産問題の前提)".into(),
@@ -170,9 +178,12 @@ impl SetFunction for BankruptcyGame {
     }
 }
 
+impl Sealed for BankruptcyGame {}
+
 /// 破産ゲームは凸である。`v(S) = max(0, (E - D) + d(S))` は、加法的な `d(S)` に
 /// 凸で非減少な関数 `t -> max(0, (E - D) + t)` を合成したもので、`d_i >= 0` のときこの合成は優モジュラになる
 /// (`d(S ∪ T) + d(S ∩ T) = d(S) + d(T)` かつ `d(S ∩ T) <= d(S), d(T) <= d(S ∪ T)` と、凸関数の性質から)。
+/// Lean による証明: リポジトリの `proofs/` の `bankruptcy_supermodular`。
 impl ConvexGame for BankruptcyGame {
     type Proof = Proven;
 }
@@ -246,6 +257,27 @@ mod tests {
         assert!(talmud_rule(13.0, &claims).is_err());
         assert!(talmud_rule(-1.0, &claims).is_err());
         assert!(talmud_rule(1.0, &[2.0, -1.0]).is_err());
+    }
+
+    /// 請求ごとには有限でも総和が有限でない入力は、どの規則でも (破産ゲームと同じく) 受け付けない。
+    #[test]
+    fn rejects_claims_whose_total_overflows() {
+        let claims = [1e308, 1e308];
+        assert!(constrained_equal_losses(1.0, &claims).is_err());
+        assert!(talmud_rule(1.5e308, &claims).is_err());
+        assert!(talmud_rule(1.0, &claims).is_err());
+        assert!(constrained_equal_awards(1.0, &claims).is_err());
+        assert!(BankruptcyGame::new(1.0, claims.to_vec()).is_err());
+        // 総和が f64 の最大値以下なら受け付け、配分の和は遺産に一致する。
+        let claims = [1e308, 7e307];
+        for allocation in [
+            talmud_rule(1.5e308, &claims).unwrap(),
+            constrained_equal_awards(1.5e308, &claims).unwrap(),
+            constrained_equal_losses(1.5e308, &claims).unwrap(),
+        ] {
+            let total: f64 = allocation.iter().sum();
+            assert!((total - 1.5e308).abs() <= 1e-12 * 1.5e308, "{allocation:?}");
+        }
     }
 
     #[test]

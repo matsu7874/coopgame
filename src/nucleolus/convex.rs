@@ -9,7 +9,8 @@
 //!
 //! したがって、プレカーネル条件 `s_ij(x) = s_ji(x)` (全ての組) を満たす `x` を見つければ、それが仁である。
 //! 最大余剰 `s_ij(x) = max { v(S) - x(S) : i in S, j not in S }` は、凸ゲームでは
-//! `T -> -(v(T ∪ {i}) - x(T ∪ {i}))` (`T ⊆ N \ {i, j}`) が劣モジュラなので、
+//! `T -> -(v(T ∪ {i}) - x(T ∪ {i}))` (`T ⊆ N \ {i, j}`) が劣モジュラなので
+//! (Lean による証明: リポジトリの `proofs/` の `surplus_objective_submodular`)、
 //! 劣モジュラ関数の最小化 (`submodular` モジュール) で全提携を列挙せずに求める。
 //!
 //! 手順: 等分から始め、組 `(i, j)` を順に回って `s_ij` と `s_ji` を釣り合わせる移転を行う。
@@ -27,7 +28,7 @@ use std::cell::Cell;
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::scale::{Scaled, normalizer};
+use crate::game::scale::{Scaled, normalized_tolerance, normalizer};
 use crate::game::{PlayerSet, SetFunction, value_scale};
 use crate::properties::{ConvexGame, ProofKind};
 use crate::solution::{Property, Solution};
@@ -37,6 +38,10 @@ use crate::submodular;
 #[non_exhaustive]
 pub struct ConvexOptions {
     /// 不釣り合い `|s_ij - s_ji|` の許容誤差 (ゲームの値と同じ単位)。`None` なら `1e-9 * value_scale(game)`。
+    ///
+    /// 有限で 0 以上でなければ、[`nucleolus_with`] は [`Error::InvalidArgument`] を返す。
+    /// 結果のプレカーネル条件は許容誤差の範囲で成り立つ。保証の種類は許容誤差の大きさを反映しない
+    /// (大きい値を指定すると、仁から離れた配分にも同じ保証が付く)。
     pub tolerance: Option<f64>,
     /// 組を回る周回の上限。
     pub max_sweeps: usize,
@@ -73,6 +78,8 @@ pub fn nucleolus<G: ConvexGame + ?Sized>(
     Ok(nucleolus_with(game, ConvexOptions::default())?.0)
 }
 
+/// 設定を指定した [`nucleolus`]。`options.tolerance` が有限で 0 以上でないとき、またはゲームの値の大きさで割ると
+/// 有限でない (値に比べて大きすぎる) ときは [`Error::InvalidArgument`] を返す。
 pub fn nucleolus_with<G: ConvexGame + ?Sized>(
     game: &G,
     options: ConvexOptions,
@@ -121,8 +128,9 @@ fn prekernel_point<G: SetFunction + ?Sized>(
 ) -> Result<(Vec<f64>, ConvexStats)> {
     let scale = value_scale(game);
     let divisor = normalizer(scale);
+    let tolerance = normalized_tolerance(options.tolerance.unwrap_or(1e-9 * scale), divisor)?;
     let options = ConvexOptions {
-        tolerance: Some(options.tolerance.unwrap_or(1e-9 * scale) / divisor),
+        tolerance: Some(tolerance),
         ..options
     };
     let (mut x, stats) = normalized_prekernel_point(&Scaled::new(game, divisor), options)?;
@@ -222,6 +230,42 @@ mod tests {
             assert_eq!(
                 solution.guarantee,
                 crate::Guarantee::Proven(Property::Convex)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_tolerance() {
+        let game = ConvexChecked::new(generators::random_convex(5, 3).unwrap()).unwrap();
+        let single = ConvexChecked::new(crate::ExplicitGame::from_lex(&[2.0]).unwrap()).unwrap();
+        for tolerance in [f64::NAN, -1.0, -1e-300, f64::INFINITY] {
+            let options = ConvexOptions {
+                tolerance: Some(tolerance),
+                ..ConvexOptions::default()
+            };
+            // 1 人ゲーム (反復しない) でも確かめる。
+            for result in [
+                nucleolus_with(&game, options),
+                nucleolus_with(&single, options),
+            ] {
+                assert!(
+                    matches!(result, Err(Error::InvalidArgument(_))),
+                    "{tolerance}: {result:?}"
+                );
+            }
+        }
+        // 0 は受け付ける (不釣り合いが厳密に 0 になるまで移転する)。
+        let expected = nucleolus::nucleolus(game.game()).unwrap().allocation;
+        let options = ConvexOptions {
+            tolerance: Some(0.0),
+            ..ConvexOptions::default()
+        };
+        let (solution, _) = nucleolus_with(&game, options).unwrap();
+        for (a, e) in solution.allocation.iter().zip(&expected) {
+            assert!(
+                (a - e).abs() <= 1e-9,
+                "{:?} != {expected:?}",
+                solution.allocation
             );
         }
     }

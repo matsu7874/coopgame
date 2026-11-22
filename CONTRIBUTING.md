@@ -27,8 +27,9 @@ cargo build --release --features cli   # target/release/coopgame
 | `data/` | 文書が引用する計測 (`bench/`)・他の実装との比較 (`compare/`)・分析 (`analysis/`) のデータ。`data/SHA256SUMS` で照合する |
 | `docs/` | 利用者と、現状を理解したい人向けの文書 (チュートリアル、CLI と入力形式、性能と制約、保証の設計、他の実装との比較、文献と根拠、再現の手順)。一覧は `docs/README.md` |
 | `scripts/` | 文書の数値の照合 (`verify_claims.py`) と、他の実装との比較のスクリプト (`compare/`) |
+| `proofs/` | リポジトリ内で導いた数学的な主張の Lean 4 による証明 (構造的な凸性、Kohlberg 判定の打ち切りなど)。一覧と確かめ方は `proofs/README.md` |
 
-`data/`、`docs/`、`scripts/` は crates.io のパッケージに含めない (`Cargo.toml` の `exclude`)。
+`python/`、`data/`、`docs/`、`scripts/`、`proofs/` は crates.io のパッケージに含めない (`Cargo.toml` の `exclude`)。
 
 ## モジュールの構成と依存の向き
 
@@ -45,7 +46,7 @@ cargo build --release --features cli   # target/release/coopgame
 |---|---|
 | 0 | `game`、(内部) `rng` |
 | 1 | `solution`・`surplus`・`compromise`・`power`・`generators`、(内部) `lp`・`linalg`・`rational` |
-| 2 | `values`・`properties`・`kernel`・`bargaining`、(内部) `submodular` |
+| 2 | `values`・`properties`・`kernel`・`bargaining`、(内部) `submodular`・`levels` |
 | 3 | `nucleolus`・`communication` |
 | 4 | `games`・`verify`・`partition`・`io`・`analysis` |
 | 5 | `auto` |
@@ -76,6 +77,12 @@ cargo test --doc                        # rustdoc と README・docs/ のコー�
 cargo build --no-default-features       # feature なしでビルドできること
 ```
 
+`proofs/` の定理が対象にしている式 ([proofs/README.md](proofs/README.md) の表) を変更した場合は、定理の文も合わせて直し、次を実行する。
+
+```bash
+(cd proofs && lake exe cache get && lake build)
+```
+
 コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) の形式で書く (説明は日本語でよい)。
 公開 API を壊す変更は `refactor!:` のように `!` を付け、本文に `BREAKING CHANGE:` を書く。
 
@@ -97,11 +104,14 @@ cargo build --no-default-features       # feature なしでビルドできるこ
 - Shapley 値・Banzhaf 値が文献の例 (Ibn Ezra の相続問題、空港ゲーム、手袋ゲームなど) と一致すること
 - タルムード則が、別実装・LP の仁 (n = 60)・有理数で検証した仁 (分数として完全一致) と一致すること (`tests/bankruptcy.rs`)
 - サンプリングした仁が、サンプルを増やすと厳密なプレ仁に近づき、全提携で一致すること (`tests/sampled.rs`)
-- per capita 仁・modiclus が文献の例と一致し、modiclus が定和ゲームでプレ仁に一致し凸ゲームでコアに属すること (Sudhölter 1997)、
+- per capita 仁が文献の例と一致し、modiclus が定和ゲームでプレ仁に一致し凸ゲームでコアに属すること (Sudhölter 1997)、
   仁・カーネルの点が交渉集合に属し、凸ゲームで交渉集合がコアに一致すること (`tests/variants.rs`)
+- modiclus が文献の数値例と一致し、双対被覆ゲームのプレ仁の射影と一致し、bi-excess の族の平衡性を満たすこと (`tests/modiclus.rs`)
+- per capita 仁 (weak nucleolus)・比例仁・disruption nucleolus を Young, Okada & Hashimoto (1982) と Lemaire (1984) の数値例と比べる (`tests/variant_literature.rs`)。Lemaire の例 3'・3'' の仁も論文の値と一致する。論文の値と異なる 2 例 (6 自治体の比例仁、Lemaire の例 3 の仁) は、辞書式の順序を直接比べて確かめる ([docs/literature-cases.md](docs/literature-cases.md))
 - Owen 値・Aumann–Drèze 値・提携構造つきの仁を、Shapley 値・仁・商ゲームとの関係で確かめる (`tests/partition.rs`)
 - 費用ゲーム・空港ゲーム・最小全域木ゲーム・線形生産ゲームを、明示ゲームの計算とコアの定理で確かめる (`tests/cost_games.rs`)
 - 保証の種類・分離オラクル・性質の宣言・凸ゲームの手法・事後検証・有理数で構築したゲーム (`tests/guarantees.rs`)
+- 仁の既定の設定が、値が `1e9` 程度までの整数ゲーム (6 人まで) で有理数の仁と一致すること、9 人以上で Kohlberg 基準を満たさない配分の保証が `approximate` になること、許容誤差を指定すると 1 回だけ解くこと (`tests/tolerance.rs`)
 - 仁が厳密な検証に合格し、ずらした配分は不合格になること (`tests/exact.rs`)。有理数の単体法の判定が浮動小数点の LP と一致することは `rational::simplex` の単体テストで確かめる
 - カーネル全体: 凸ゲームでは仁の 1 点になること、各多面体の頂点と重心がカーネル条件を満たすこと(健全性)、
   仁とランダムな初期点からの transfer scheme の到達点が和集合に含まれること(網羅性)
@@ -132,6 +142,9 @@ crates.io で公開しているので、公開 API の変更は semver に従う
 - `docs/` には、利用者と、現状を理解したい人向けの文書だけを置く。研究としての分析や開発の判断のための調査はリポジトリに置かない。
 - crates.io に表示する `README.md` は英語で書き、日本語版の `README.ja.md` と内容を揃える。
 - 文献に依拠する主張は、[docs/references.md](docs/references.md) に文献と確認元を書き、計算で確かめられるものはテストかデータで確かめる。
+- 解の定義は、原典か、原典の定義を引用している文献の本文で確かめてから実装する。他の実装 (CoopGame など) の挙動を定義の根拠にしない。
+  他の実装との一致は検算として扱い、食い違ったときは文献の定義に合わせる (modiclus は、他の実装が文献と異なる組の範囲を使っていた)。
+  本文を確認できなかった点は、未確認であることを rustdoc と [docs/references.md](docs/references.md) に書く。
 - 文献の数値例を使うときは、出典と、答えを裏付けた方法 (原典、引用元、手計算) を書く ([docs/literature-cases.md](docs/literature-cases.md))。
 - 保証つきのアルゴリズムは、原論文の本文で手順と保証を確かめてから実装する。
   要旨だけで実装すると、保証が成り立つことを確認できないからである。

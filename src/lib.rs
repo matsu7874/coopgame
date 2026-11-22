@@ -38,6 +38,7 @@ pub mod generators;
 #[cfg_attr(docsrs, doc(cfg(feature = "io")))]
 pub mod io;
 pub mod kernel;
+pub(crate) mod levels;
 pub(crate) mod linalg;
 mod lp;
 pub mod nucleolus;

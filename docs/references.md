@@ -9,6 +9,9 @@
   arXiv のいずれかで確認した。確認に使った情報源を「確認元」に示す。
 - 主張の内容は、原典の要旨か、原典を引用している他の論文・資料の記述で確認した。
   原典本文の定理番号までは確認していないため、定理番号は記載しない。
+  ただし、確認元の列に「本文」と書いた文献は本文を読んで確認しており、その式・定理の番号を記載する。
+- 仁の変種について、次の文献の本文は未確認である: Sudhölter (1996, *Mathematics of Operations Research* 21(3))、
+  Sud1997、PS2007 (modiclus の章)、LV1976、Grotte (1970)。
 - 文献の主張のうち計算で確かめられるものは、テストかデータで確かめている (「計算での確認」の列)。
 
 ## 文献
@@ -43,8 +46,15 @@
 | YP2021 | Yan, T., Procaccia, A. D. (2021). If you like Shapley then you'll love the core. *Proceedings of the AAAI Conference on Artificial Intelligence*, 35(6), 5751–5759. | doi:[10.1609/aaai.v35i6.16721](https://doi.org/10.1609/aaai.v35i6.16721) | [AAAI](https://ojs.aaai.org/index.php/AAAI/article/view/16721) (検索結果の書誌情報) |
 | AM1964 | Aumann, R. J., Maschler, M. (1964). The bargaining set for cooperative games. In M. Dresher, L. S. Shapley, A. W. Tucker (Eds.), *Advances in Game Theory*, Annals of Mathematics Studies 52, 443–476. Princeton University Press. | DOI なし | 検索結果の書誌情報 (他論文の引用) |
 | You1985 | Young, H. P. (1985). Monotonic solutions of cooperative games. *International Journal of Game Theory*, 14(2), 65–72. | doi:[10.1007/BF01769885](https://doi.org/10.1007/BF01769885) | CoopGame の `perCapitaNucleolus` のヘルプ、検索結果の書誌情報 |
-| YOH1982 | Young, H. P., Okada, N., Hashimoto, T. (1982). Cost allocation in water resources development. *Water Resources Research*, 18(3), 463–475. | doi:[10.1029/WR018i003p00463](https://doi.org/10.1029/WR018i003p00463) | CoopGame の `proportionalNucleolus` のヘルプ、検索結果の書誌情報 |
-| Sud1997 | Sudhölter, P. (1997). The modified nucleolus: properties and axiomatizations. *International Journal of Game Theory*, 26(2), 147–182. | doi:[10.1007/BF01295846](https://doi.org/10.1007/BF01295846) | [IDEAS](https://ideas.repec.org/a/spr/jogath/v26y1997i2p147-182.html) (要旨) |
+| You1985CA | Young, H. P. (1985). Methods and principles of cost allocation. In H. P. Young (Ed.), *Cost Allocation: Methods, Principles, Applications*. | DOI なし | [IIASA の本文](https://pure.iiasa.ac.at/id/eprint/2596/1/XB-85-003.pdf) (pp. 13–14。2026-11 に確認) |
+| Lem1984 | Lemaire, J. (1984). An application of game theory: cost allocation. *ASTIN Bulletin*, 14(1), 61–81. | DOI は未確認 | [CAS の本文](https://www.casact.org/sites/default/files/database/astin_vol14no1_61.pdf) (4.2–4.4 節、例 3・3'・3''。2026-11 に確認) |
+| GM2022 | Gilles, R. P., Mallozzi, L. Gately values of cooperative games. arXiv preprint. | arXiv:[2208.10189](https://arxiv.org/abs/2208.10189) | [arXiv の本文](https://arxiv.org/html/2208.10189) (Definition 3.2。2026-11 に確認) |
+| YOH1982 | Young, H. P., Okada, N., Hashimoto, T. (1982). Cost allocation in water resources development. *Water Resources Research*, 18(3), 463–475. | doi:[10.1029/WR018i003p00463](https://doi.org/10.1029/WR018i003p00463) | [IIASA の本文](https://pure.iiasa.ac.at/id/eprint/14079/1/wrcr3121.pdf) (4.2 節・4.3 節の式 (7)・(9) と取り決め、pp. 466–467、Table 5・6、p. 470。2026-11 に確認) |
+| Sud1997 | Sudhölter, P. (1997). The modified nucleolus: properties and axiomatizations. *International Journal of Game Theory*, 26(2), 147–182. | doi:[10.1007/BF01295846](https://doi.org/10.1007/BF01295846) | [IDEAS](https://ideas.repec.org/a/spr/jogath/v26y1997i2p147-182.html) (要旨。本文は未確認) |
+| SP1996 | Sudhölter, P., Peleg, B. Nucleoli as maximizers of collective satisfaction functions. Working Paper 262, Institute of Mathematical Economics, Bielefeld University (初版 1996)。 | [IDEAS](https://ideas.repec.org/p/bie/wpaper/262.html) | IDEAS から辿れる PDF (https://pub.uni-bielefeld.de/download/2909812/2910311 の Wayback Machine 保存コピー) の本文 (1 節 p. 3、p. 8、4 節の式 (4.1)・(4.2)。2026-11 に確認) |
+| RS-WP320 | Rosenmüller, J., Sudhölter, P. Cartels via the modiclus. Working Paper 320, Institute of Mathematical Economics, Bielefeld University. | [IDEAS](https://ideas.repec.org/p/bie/wpaper/320.html) | IDEAS から辿れる PDF (https://pub.uni-bielefeld.de/download/2909892/2910035 の Wayback Machine 保存コピー) の本文 (2 節の式 (18)、Theorem 2.4。2026-11 に確認) |
+| RS-WP319 | Rosenmüller, J., Sudhölter, P. Formation of cartels in glove markets and the modiclus. Working Paper 319, Institute of Mathematical Economics, Bielefeld University. | [PDF](https://webdoc.sub.gwdg.de/ebook/e/bielefeld/formation.pdf) | 本文 (双対被覆ゲームの式 (2)) |
+| Mei-KIT | Meinhardt, H. I. On the Replication of the Pre-Kernel and Related Solutions. | [KIT](https://publikationen.bibliothek.kit.edu/1000162652/187326685) | 本文 (式 (7.1)、式 (8.1)-(8.4)、Definition 8.1、Table 4.1) |
 | Wol1976 | Wolfe, P. (1976). Finding the nearest point in a polytope. *Mathematical Programming*, 11, 128–149. | DOI は未確認 | 検索結果の書誌情報 ([IBM Research](https://research.ibm.com/publications/finding-the-nearest-point-in-a-polytope)) |
 | Fuj1980 | Fujishige, S. (1980). Lexicographically optimal base of a polymatroid with respect to a weight vector. *Mathematics of Operations Research*, 5(2), 186–196. | doi:[10.1287/moor.5.2.186](https://doi.org/10.1287/moor.5.2.186) | [INFORMS](https://pubsonline.informs.org/doi/fpi/10.1287/moor.5.2.186) |
 | FKK2001 | Faigle, U., Kern, W., Kuipers, J. (2001). On the computation of the nucleolus of a cooperative game. *International Journal of Game Theory*, 30(1), 79–98. | doi:[10.1007/s001820100065](https://doi.org/10.1007/s001820100065) | [IDEAS](https://ideas.repec.org/a/spr/jogath/v30y2001i1p79-98.html) (要旨) |
@@ -63,7 +73,7 @@
 | DP1978 | Deegan, J., Packel, E. W. (1978). A new index of power for simple n-person games. *International Journal of Game Theory*, 7(2), 113–123. | doi:[10.1007/BF01753239](https://doi.org/10.1007/BF01753239) | [Springer](https://link.springer.com/article/10.1007/BF01753239) (CoopGame のヘルプの pp. 151–161 は誤り) |
 | Hol1982 | Holler, M. J. (1982). Forming coalitions and measuring voting power. *Political Studies*, 30(2), 262–271. | doi:[10.1111/j.1467-9248.1982.tb00537.x](https://doi.org/10.1111/j.1467-9248.1982.tb00537.x) | [SAGE](https://journals.sagepub.com/doi/10.1111/j.1467-9248.1982.tb00537.x) |
 | Col1971 | Coleman, J. S. (1971). Control of collectivities and the power of a collectivity to act. In B. Lieberman (Ed.), *Social Choice*, 269–300. Gordon and Breach. | DOI なし | CoopGame の `colemanPreventivePowerIndex` のヘルプの文献欄。定義と数値例は Apt の講義資料 [Simple games](https://homepages.cwi.nl/~apt/coop/simple.pdf) pp. 47–48 |
-| LV1976 | Littlechild, S. C., Vaidya, K. G. (1976). The propensity to disrupt and the disruption nucleolus of a characteristic function game. *International Journal of Game Theory*, 5(2–3), 151–161. | doi:[10.1007/BF01753316](https://doi.org/10.1007/BF01753316) | [Springer](https://link.springer.com/article/10.1007/BF01753316)。定式化は CoopGame の `R/NucleolusDerivatives.R` の `disruptionNucleolus` |
+| LV1976 | Littlechild, S. C., Vaidya, K. G. (1976). The propensity to disrupt and the disruption nucleolus of a characteristic function game. *International Journal of Game Theory*, 5(2–3), 151–161. | doi:[10.1007/BF01753316](https://doi.org/10.1007/BF01753316) | [Springer](https://link.springer.com/article/10.1007/BF01753316) (書誌情報。本文は未確認)。抜ける傾向の式は GM2022 と Lem1984 で確認 |
 | FM2006 | Funaki, Y., Meinhardt, H. I. (2006). A note on the pre-kernel and pre-nucleolus for bankruptcy games. *The Waseda Journal of Political Science and Economics*, 363, 126–136. | DOI は未確認 | [早稲田大学リポジトリの本文](https://waseda.repo.nii.ac.jp/record/6525/files/SeijiKeizaigaku_363_00_009_FUNAKI.pdf) (§2、Theorem 3.2、Example 4.1、§5。Codex による確認、2026-10-04) |
 | Mei2025 | Meinhardt, H. I. (2025). Polynomial-time algorithms for computing the nucleolus: an assessment. arXiv preprint (2025-11-20 投稿)。 | arXiv:[2511.16517](https://arxiv.org/abs/2511.16517) | arXiv の要旨 |
 
@@ -102,8 +112,11 @@
 | カーネルは交渉集合に含まれる | DM1965 (原典の該当箇所は未確認) | `tests/variants.rs` | `kernel_points_lie_in_bargaining_set` (BNF タイプ 1-4、n = 3-6 の仁とカーネルの点) |
 | 凸ゲームの交渉集合はコアに一致する | MPS1971 (題名と、文献での引用) | `tests/variants.rs` | `bargaining_set_equals_core_for_convex_games` (15 ゲーム、300 配分) |
 | per capita 仁の数値例 (費用 15, 20, 55, 35, 61, 65, 78 の節約ゲーム) | You1985 (CoopGame のヘルプが p. 68 を引用) | `tests/variants.rs` | 手計算と一致 (`per_capita_nucleolus_young_1985`)、CoopGame と一致 |
-| 比例仁の定義 | YOH1982 (CoopGame が引用) | `src/nucleolus/variants.rs` | CoopGame と 40 ゲームで一致 |
-| modiclus は定和ゲームでプレ仁に一致し、凸ゲームではコアに属する | Sud1997 (要旨) | `src/nucleolus/variants.rs` | `modiclus_equals_prenucleolus_for_constant_sum_games`、`modiclus_lies_in_core_of_convex_games`、CoopGame と 41 ゲームで一致 |
+| per capita 仁 (weak nucleolus) は超過を `(v(S) - x(S)) / abs(S)` とした仁で、準配分の上で定義する。個人合理性を課す形は Grotte (1970) の提案 | YOH1982 (4.2 節、式 (7))、You1985CA (p. 14) | `src/nucleolus/variants.rs` (`Domain::Preimputation` が原典の定義) | YOH1982 の 3 自治体と 6 自治体の例 (`yoh_three_municipalities`、`yoh_six_municipalities_shapley_nucleolus_and_weak_nucleolus`) |
+| 比例仁は、式 (9) `min t s.t. x(S) >= (1 - t) v(S)`、`x(N) = v(N)` から始めて超過を `(v(S) - x(S)) / v(S)` とした仁で、`v(S) = 0` の提携は取り決め `a/0 > b/0 if a > b` で順序づける。定義域は準配分 | YOH1982 (4.3 節、p. 467) | `src/nucleolus/variants.rs` (`Domain::Preimputation` が原典の定義) | YOH1982 の 3 自治体と 6 自治体の例 (`tests/variant_literature.rs`)、Lem1984 の例 3・3'・3'' (`lemaire_examples`)、`v(S) = 0` の提携の順序づけを摂動で確かめる (`proportional_nucleolus_of_sparse_games_is_lexicographic_minimum`)、CoopGame と 40 ゲームで一致 |
+| modiclus は、空提携と全体提携を含む全ての提携の組 `(S, T)` について、満足の差 `f(S, x) - f(T, x)` (`f(S, x) = x(S) - v(S)`) を準配分の上で辞書式に最適化した配分 | SP1996 (式 (4.1)) | `src/nucleolus/variants.rs` | Mei-KIT の Table 4.1 の数値例 (`modiclus_of_meinhardt_table_4_1`)。CoopGame 0.2.2 は組を空でない真部分提携に限るので値が異なる (`modiclus_of_coopgame_help_example`) |
+| modiclus は双対被覆ゲーム `w(S + T*) = max{v(S) + v*(T), v(T) + v*(S)}` のプレ仁を元のプレイヤーに射影したもので、bi-excess `e(R, x, v) + e(T, x, v*)` が `alpha` 以上の組の族が空でない全ての `alpha` で平衡になる準配分として特徴づけられる | RS-WP320 (2 節の式 (18)、Theorem 2.4)、RS-WP319 (式 (2))、Mei-KIT (Definition 8.1) | `tests/modiclus.rs` | ランダムな 3・4 人ゲーム 40 個で双対被覆ゲームのプレ仁と一致 (`modiclus_equals_projected_prenucleolus_of_dual_cover_game`)、20 個で平衡性が成り立ち、ずらした点では成り立たない (`modiclus_satisfies_balancedness_of_bi_excess_families`) |
+| modiclus は定和ゲームでプレ仁に一致し、凸ゲームではコアに属する | Sud1997 (要旨) | `src/nucleolus/variants.rs` | `modiclus_equals_prenucleolus_for_constant_sum_games`、`modiclus_lies_in_core_of_convex_games` |
 | 凸ゲームのカーネルは仁の 1 点で、transfer scheme はプレカーネルの点に収束する | MPS1971、MPS1979、Ste1968 | `src/nucleolus/convex.rs` | LP の仁と一致 (`nucleolus::convex::tests`、`convex_method_matches_talmud_and_lp`)、[guarantees.md](guarantees.md) |
 | 劣モジュラ関数の最小化は、基多面体の最小ノルム点 (Wolfe の方法で求める) から得られる | Fuj1980、Wol1976 | `src/submodular.rs` | ランダムな劣モジュラ関数 200 個で総当たりと一致 (`submodular::tests`) |
 | 最小超過を効率よく計算できればプレカーネルと最小コアの共通部分の点を効率よく計算でき、凸ゲームなどの仁が求まる | FKK2001 (要旨) | [guarantees.md](guarantees.md) の位置づけ | なし (本文を確認できず、実装は別の方法) |
@@ -119,15 +132,18 @@
 | 文献の数値例 (仁・プレ仁) | PS2007 Example 5.5.12、Fer | `tests/literature.rs`、[literature-cases.md](literature-cases.md) | 文献の値との一致と手計算 |
 | TUGLab の仁の計算方法 | PRA1996 | `docs/comparison.md` | なし (比較対象の説明) |
 | プレカーネルが 1 点のとき、プレ仁を O(n^3) で計算できる (著者の主張) | Mei2025 (要旨) | `examples/study_prekernel.rs` の動機 | なし。本リポジトリでは前提 (プレカーネルが 1 点) の成立頻度を測った |
-| tau 値は最小の権利と理想の支払いを結ぶ線分上の効率的な点で、準平衡なゲームで定義される | Tij1981 (定義は SA2019 で確認) | `src/compromise.rs` | 手計算の例、CoopGame の `tauValue` のヘルプの例 (Stach 2011)、tucoopy 0.1.0 と 84 ゲームで一致 (準平衡でない 95 ゲームは本実装がエラー、tucoopy は値を返す) |
+| tau 値は最小の権利と理想の支払いを結ぶ線分上の効率的な点で、準平衡なゲームで定義される | Tij1981 (定義は SA2019 で確認) | `src/compromise.rs` | 手計算の例、CoopGame の `tauValue` のヘルプの例 (Stach 2011)、tucoopy 0.1.0 と 84 ゲームで一致 (準平衡でない残りの 96 ゲームは本実装がエラー、tucoopy はそのうち 95 ゲームで値を返す) |
 | Gately 点は抜ける傾向を全員で等しくする配分で、`v(N) > sum v({i})` かつ `M_i - v({i})` の符号がそろう場合に配分として一意に定まる | Gat1974、SA2019 | `src/compromise.rs` | 抜ける傾向が等しいこと、CoopGame の `gatelyValue` のヘルプの 2 例。tucoopy 0.1.0 は分子から `v(N \ {i})` を落としており一致しない |
 | solidarity 値の定義 | NR1994 | `src/values.rs` | 手計算の例、全員一致ゲーム u_{1,2} で (7/18, 7/18, 4/18)。tucoopy 0.1.0 の `solidarity_value` は Harsanyi 配当を等分する式 (Shapley 値と同じ) で一致しない |
 | Myerson 値はグラフ制限ゲームの Shapley 値 | Mye1977 | `src/communication.rs` | 完全グラフで Shapley 値に一致、手計算の例、Python の myerson パッケージの例、tucoopy 0.1.0 と 180 ゲームで一致 |
 | Johnston・Deegan–Packel・Public Good・Coleman の指数の定義 | Joh1978、DP1978、Hol1982、Col1971 | `src/power.rs` | 手計算の例、CoopGame のヘルプの例 ([51; 35, 20, 15, 15, 15] など)、Apt の講義資料の例、tucoopy 0.1.0 とランダムな重み付き投票ゲーム 30 個で一致 |
-| disruption nucleolus は、コアの上で `e(S, x) / (v(N) - v(S) - v(N \ S))` を辞書式に最小化した配分 | LV1976 (定式化は CoopGame のソース) | `src/nucleolus/variants.rs` | CoopGame の `disruptionNucleolus` のヘルプの 4 人ゲームの例 |
-| anti-prenucleolus は双対ゲームのプレ仁に一致する。プレ仁は双対をとると一般に変わる | FM2006 (Theorem 3.2、Example 4.1) | `src/nucleolus/variants.rs` | 論文の Example 4.1、最小の超過がプレ仁と Shapley 値以上になること |
+| disruption nucleolus は、抜ける傾向 `d(S, x) = (x(N \ S) - v(N \ S)) / (x(S) - v(S))` を辞書式に最小化した配分。コアの上では `e(S, x) / (v(N) - v(S) - v(N \ S))` の辞書式最小化と同じ | GM2022 (Definition 3.2)、Lem1984 (4.4 節)。提案した LV1976 の本文は未確認で、定義域、分母 `x(S) - v(S)` が 0 以下の提携の扱い、コアが空のゲームの扱いは確認できていない | `src/nucleolus/variants.rs` (コアの上で定義し、コアが空のゲームはエラー) | CoopGame の `disruptionNucleolus` のヘルプの 4 人ゲームの例、Lem1984 の例 3・3'・3'' (`lemaire_examples`)。書き換えに使う式 `d = -1/f - 1` (`f = e(S, x) / b(S)`、`x(S) ≠ v(S)` のとき) と、この関数が `f < 0` で狭義単調増加であることは Lean で証明 ([proofs/README.md](../proofs/README.md))。狭義単調な変換で辞書式最小化の解が変わらないことは、証明の対象にしていない |
+| anti-prenucleolus は双対ゲームのプレ仁に一致する。プレ仁は双対をとると一般に変わる | FM2006 (Theorem 3.2、Example 4.1)、SP1996 (p. 8 の antinucleolus `ν*(v) = ν(v*)`) | `src/nucleolus/variants.rs` | 論文の Example 4.1、最小の超過がプレ仁と Shapley 値以上になること |
+| anti-imputation の集合 `I#(N, v)` は双対ゲームの配分集合 `I(N, v*)` に等しい | Mei-KIT (式 (7.1)) | `src/nucleolus/variants.rs` (`anti_nucleolus` の定義域 `x_i >= v(N) - v(N \ {i})`) | なし (定義の対応 `v*({i}) = v(N) - v(N \ {i})`) |
 | 非負の Harsanyi 配当を持つゲームは凸 | (定義からの計算) | `generators::random_convex` | 優モジュラ性を直接判定 (`random_convex_is_supermodular`) |
 
 この表にない主張 (制約生成の正しさ、Kohlberg 判定の打ち切り条件、カーネル全体の探索の正しさ、
 オラクル版で確定させる提携を LP の行から選んでよいことなど) は、
 リポジトリ内で導いたものである。導出はそれぞれのモジュールのドキュメントコメントに書き、テストで確かめている。
+このうち、破産ゲーム・誘導部分グラフゲーム・空港ゲームの節約ゲームの凸性、劣モジュラ最小化の双対ギャップの下界、
+Kohlberg 判定の打ち切り条件と平衡性の LP への書き換えは、Lean 4 で証明している ([proofs/README.md](../proofs/README.md))。
