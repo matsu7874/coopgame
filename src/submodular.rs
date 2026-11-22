@@ -12,6 +12,8 @@
 //! `f` が劣モジュラでない場合、下界は成り立たないので、返す値は最小値の保証を持たない。
 //! 呼び出し側は、性質を仮定して使うときにその結果を仮定付きとして扱う。
 
+use std::cell::Cell;
+
 use crate::error::{Error, Result};
 use crate::linalg::solve_square;
 
@@ -37,8 +39,30 @@ pub fn minimize(
     tolerance: f64,
     max_iterations: usize,
 ) -> Result<Minimum> {
+    // 有限でない値 (NaN など) が混ざると、双対ギャップの比較が常に偽になり、小反復が終わらなくなる。
+    // 貪欲法を呼ぶたびに確かめて、エラーで返す。
+    let non_finite = Cell::new(false);
     let empty = f(&vec![false; m]);
-    let mut eval = |set: &[bool]| f(set) - empty;
+    let mut eval = |set: &[bool]| {
+        let value = f(set) - empty;
+        if !value.is_finite() {
+            non_finite.set(true);
+        }
+        value
+    };
+    let check_finite = || {
+        if non_finite.get() {
+            Err(Error::InvalidArgument(
+                "最小化する関数の値が有限の数ではない".into(),
+            ))
+        } else {
+            Ok(())
+        }
+    };
+    if !empty.is_finite() {
+        non_finite.set(true);
+        check_finite()?;
+    }
     if m == 0 {
         return Ok(Minimum {
             set: Vec::new(),
@@ -50,11 +74,13 @@ pub fn minimize(
     let mut greedy_calls = 0;
     let (mut x, _, _) = greedy(m, &vec![0.0; m], &mut eval);
     greedy_calls += 1;
+    check_finite()?;
     let mut points: Vec<Vec<f64>> = vec![x.clone()];
     let mut weights: Vec<f64> = vec![1.0];
     for _ in 0..max_iterations {
         let (q, best_set, best_value) = greedy(m, &x, &mut eval);
         greedy_calls += 1;
+        check_finite()?;
         let lower_bound: f64 = x.iter().map(|v| v.min(0.0)).sum();
         if best_value - lower_bound <= tolerance {
             return Ok(Minimum {
@@ -240,6 +266,18 @@ mod tests {
             );
             assert!(found.lower_bound <= expected + 1e-7);
             assert!((f(&found.set) - found.value).abs() <= 1e-9);
+        }
+    }
+
+    /// 有限でない値が混ざると、反復が終わらなくなる代わりにエラーを返す。
+    #[test]
+    fn rejects_non_finite_values() {
+        for bad in [f64::NAN, f64::INFINITY] {
+            let mut f = |set: &[bool]| if set[1] { bad } else { 1.0 };
+            let error = minimize(3, &mut f, 1e-9, 10_000).unwrap_err();
+            assert!(matches!(error, Error::InvalidArgument(_)), "{error}");
+            let mut f = |set: &[bool]| if set.iter().any(|s| *s) { 1.0 } else { bad };
+            assert!(minimize(3, &mut f, 1e-9, 10_000).is_err());
         }
     }
 

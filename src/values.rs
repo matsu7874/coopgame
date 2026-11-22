@@ -97,7 +97,7 @@ pub struct Estimate {
     pub(crate) values: Vec<f64>,
     /// 各推定値の標準誤差 (標本標準偏差 / sqrt(標本数))。標本が 1 個以下なら `inf`。
     pub(crate) standard_errors: Vec<f64>,
-    /// 特性関数を評価した回数。
+    /// 特性関数 ([`SetFunction::value`]) を呼んだ回数。
     pub(crate) evaluations: usize,
     /// 常に [`Guarantee::Approximate`]。
     pub(crate) guarantee: Guarantee,
@@ -119,13 +119,41 @@ impl Estimate {
         &self.standard_errors
     }
 
-    /// 特性関数を評価した回数。
+    /// 特性関数 ([`SetFunction::value`]) を実際に呼んだ回数。
+    ///
+    /// 空提携は `v(∅) = 0` ([`SetFunction`] の約束) として呼ばないので数えない。
+    /// 全体提携を含むそれ以外の提携は、標本ごとに呼び直す (呼ぶたびに値が揺れる関数でも、揺れが標本間で平均される)。
     pub fn evaluations(&self) -> usize {
         self.evaluations
     }
 
     pub fn guarantee(&self) -> Guarantee {
         self.guarantee
+    }
+}
+
+/// 特性関数を呼んだ回数を数えながら値を返す。
+///
+/// 空提携は `v(∅) = 0` ([`SetFunction`] の約束) として呼ばない。それ以外は毎回呼ぶ (値を覚えて使い回さない)。
+struct Evaluator<'a, G: ?Sized> {
+    game: &'a G,
+    evaluations: usize,
+}
+
+impl<'a, G: SetFunction + ?Sized> Evaluator<'a, G> {
+    fn new(game: &'a G) -> Evaluator<'a, G> {
+        Evaluator {
+            game,
+            evaluations: 0,
+        }
+    }
+
+    fn value(&mut self, coalition: &PlayerSet) -> f64 {
+        if coalition.is_empty() {
+            return 0.0;
+        }
+        self.evaluations += 1;
+        self.game.value(coalition)
     }
 }
 
@@ -177,10 +205,11 @@ impl Accumulator {
     }
 }
 
-/// ランダムな順列 `permutations` 個の限界貢献の平均で Shapley 値を推定する
-/// (評価回数は空提携の 1 回と、順列あたり n 回)。
+/// ランダムな順列 `permutations` 個の限界貢献の平均で Shapley 値を推定する。
 ///
-/// `permutations` が 0 なら、推定値は全て 0、標準誤差は全て `inf` になる (評価回数は 1)。
+/// 評価回数 ([`Estimate::evaluations`]) は `permutations n` (順列ごとに、空でない提携 n 個。全体提携も順列ごとに呼ぶ)。
+///
+/// `permutations` が 0 なら、推定値は全て 0、標準誤差は全て `inf` になる (評価回数は 0)。
 /// 標本がないことを表す値なので、推定値として使わないこと。
 /// 標準誤差は `permutations` が 2 以上で有限になる (1 なら `inf`)。
 pub fn shapley_sampling<G: SetFunction + ?Sized>(
@@ -193,7 +222,7 @@ pub fn shapley_sampling<G: SetFunction + ?Sized>(
     let mut accumulator = Accumulator::new(n);
     let mut order: Vec<usize> = (0..n).collect();
     let mut sample = vec![0.0; n];
-    let empty_value = game.value(&PlayerSet::empty(n));
+    let mut evaluator = Evaluator::new(game);
     for _ in 0..permutations {
         // Fisher-Yates
         for i in (1..n).rev() {
@@ -201,21 +230,24 @@ pub fn shapley_sampling<G: SetFunction + ?Sized>(
             order.swap(i, j);
         }
         let mut coalition = PlayerSet::empty(n);
-        let mut previous = empty_value;
+        let mut previous = 0.0;
         for &player in &order {
             coalition.insert(player);
-            let current = game.value(&coalition);
+            let current = evaluator.value(&coalition);
             sample[player] = current - previous;
             previous = current;
         }
         accumulator.add(&sample);
     }
-    accumulator.finish(1 + permutations * n)
+    accumulator.finish(evaluator.evaluations)
 }
 
-/// ランダムな提携 `samples` 個に対する各人の限界貢献の平均で Banzhaf 値を推定する
-/// (評価回数は標本あたり n + 1 回)。各人を確率 1/2 で含めた提携 `S` について、
+/// ランダムな提携 `samples` 個に対する各人の限界貢献の平均で Banzhaf 値を推定する。
+/// 各人を確率 1/2 で含めた提携 `S` について、
 /// `S` から `i` を除いた提携は他の人の部分集合として一様なので、`v(S ∪ {i}) - v(S \ {i})` は不偏推定量になる。
+///
+/// 評価回数 ([`Estimate::evaluations`]) は標本あたり最大 n + 1 回 (`S` と、`S` で 1 人の所属を反転した n 個の提携)。
+/// 空提携は評価しないので、`S` や反転した提携が空になる標本ではこれより少ない。
 ///
 /// `samples` が 0 なら、推定値は全て 0、標準誤差は全て `inf` になる (評価回数は 0)。
 /// 標本がないことを表す値なので、推定値として使わないこと。
@@ -225,6 +257,7 @@ pub fn banzhaf_sampling<G: SetFunction + ?Sized>(game: &G, samples: usize, seed:
     let mut rng = SplitMix64::new(seed);
     let mut accumulator = Accumulator::new(n);
     let mut sample = vec![0.0; n];
+    let mut evaluator = Evaluator::new(game);
     for _ in 0..samples {
         let mut coalition = PlayerSet::empty(n);
         for i in 0..n {
@@ -232,11 +265,11 @@ pub fn banzhaf_sampling<G: SetFunction + ?Sized>(game: &G, samples: usize, seed:
                 coalition.insert(i);
             }
         }
-        let base = game.value(&coalition);
+        let base = evaluator.value(&coalition);
         for (i, marginal) in sample.iter_mut().enumerate() {
             let mut other = coalition.clone();
             other.toggle(i);
-            let flipped = game.value(&other);
+            let flipped = evaluator.value(&other);
             *marginal = if coalition.contains(i) {
                 base - flipped
             } else {
@@ -245,7 +278,7 @@ pub fn banzhaf_sampling<G: SetFunction + ?Sized>(game: &G, samples: usize, seed:
         }
         accumulator.add(&sample);
     }
-    accumulator.finish(samples * (n + 1))
+    accumulator.finish(evaluator.evaluations)
 }
 
 #[cfg(test)]
@@ -325,6 +358,56 @@ mod tests {
         );
     }
 
+    /// 呼んだ回数を数えるゲーム。
+    struct Counting<'a> {
+        game: &'a ExplicitGame,
+        calls: std::cell::Cell<usize>,
+        empty_calls: std::cell::Cell<usize>,
+    }
+
+    impl SetFunction for Counting<'_> {
+        fn players(&self) -> usize {
+            self.game.players()
+        }
+
+        fn value(&self, coalition: &PlayerSet) -> f64 {
+            self.calls.set(self.calls.get() + 1);
+            if coalition.is_empty() {
+                self.empty_calls.set(self.empty_calls.get() + 1);
+            }
+            SetFunction::value(self.game, coalition)
+        }
+    }
+
+    /// `evaluations` は特性関数を実際に呼んだ回数と一致し、空提携は呼ばない。全体提携は順列ごとに呼ぶ。
+    #[test]
+    fn evaluations_count_actual_calls() {
+        for n in [1, 2, 3, 6] {
+            let explicit = if n == 1 {
+                ExplicitGame::from_lex(&[3.0]).unwrap()
+            } else {
+                generators::bnf(2, n, 5).unwrap()
+            };
+            let counting = Counting {
+                game: &explicit,
+                calls: Default::default(),
+                empty_calls: Default::default(),
+            };
+            for samples in [1, 10, 200] {
+                counting.calls.set(0);
+                let shapley = shapley_sampling(&counting, samples, 3);
+                assert_eq!(shapley.evaluations(), counting.calls.get());
+                assert_eq!(shapley.evaluations(), samples * n, "n = {n}");
+
+                counting.calls.set(0);
+                let banzhaf = banzhaf_sampling(&counting, samples, 3);
+                assert_eq!(banzhaf.evaluations(), counting.calls.get());
+                assert!(banzhaf.evaluations() <= samples * (n + 1));
+            }
+            assert_eq!(counting.empty_calls.get(), 0);
+        }
+    }
+
     /// 標本が 0 個・1 個のときの戻り値 (文書に書いたとおり)。
     #[test]
     fn sampling_with_too_few_samples() {
@@ -332,7 +415,7 @@ mod tests {
         let none = shapley_sampling(&game, 0, 1);
         assert_eq!(none.values(), [0.0; 4]);
         assert_eq!(none.standard_errors(), [f64::INFINITY; 4]);
-        assert_eq!(none.evaluations(), 1);
+        assert_eq!(none.evaluations(), 0);
         let none = banzhaf_sampling(&game, 0, 1);
         assert_eq!(none.values(), [0.0; 4]);
         assert_eq!(none.standard_errors(), [f64::INFINITY; 4]);

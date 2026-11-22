@@ -5,6 +5,7 @@ Rust 側のテスト (tests/literature.rs など) で確かめた文献の数値
 """
 import itertools
 import math
+import time
 from fractions import Fraction
 
 import pytest
@@ -152,6 +153,65 @@ def test_sampling_explicit_and_function_games_agree():
         assert run(explicit, 50, seed=7) == run(function, 50, seed=7)
 
 
+@pytest.mark.parametrize("players", [1, 2, 10])
+def test_sampling_evaluations_match_actual_calls(players):
+    """evaluations は関数を実際に呼んだ回数。空提携は呼ばない。全体提携は順列ごとに呼ぶ。"""
+    calls = []
+
+    def value(coalition):
+        calls.append(coalition)
+        return float(len(coalition)) ** 1.5
+
+    game = coopgame.FunctionGame(players, value)
+    shapley = coopgame.shapley_sampling(game, 10, seed=1)
+    assert shapley["evaluations"] == len(calls) == 10 * players
+    assert calls.count(tuple(range(players))) == 10
+    assert () not in calls
+    for run in (coopgame.banzhaf_sampling, coopgame.sampled_nucleolus, coopgame.sampled_least_core):
+        if players == 1 and run is not coopgame.banzhaf_sampling:
+            continue  # サンプリングした仁・最小コアは 2 人以上
+        calls.clear()
+        result = run(game, 10, seed=1)
+        assert result["evaluations"] == len(calls), run.__name__
+        assert () not in calls, run.__name__
+
+
+def test_sampling_averages_noise_of_grand_coalition():
+    """呼ぶたびに値が揺れる関数では、全体提携も順列ごとに呼び直し、揺れを標本の分散に反映する。
+
+    v(S) = |S| + ノイズ (全体提携だけ)。全体提携の値を使い回すと、最後に加わる人の限界貢献の揺れが
+    消えず、推定値の和が 1 回目のノイズに固定される。
+    """
+    import random
+
+    rng = random.Random(0)
+    players = 3
+
+    def value(coalition):
+        return float(len(coalition)) + (rng.gauss(0.0, 1.0) if len(coalition) == players else 0.0)
+
+    result = coopgame.shapley_sampling(coopgame.FunctionGame(players, value), 4000, seed=2)
+    # 順列ごとのノイズの平均は 0 に近づく (標準偏差 1/sqrt(4000) の 5 倍以内)。
+    assert abs(sum(result["values"]) - players) < 5 / math.sqrt(4000)
+    # 限界貢献は、最後に加わる (確率 1/3) ときだけノイズを含むので分散は 1/3。標準誤差は sqrt(1/3) / sqrt(4000)。
+    for se in result["standard_errors"]:
+        assert se == pytest.approx(math.sqrt(1 / 3) / math.sqrt(4000), rel=0.2)
+
+
+@pytest.mark.parametrize("players", [1, 2, 6])
+def test_convex_evaluations_match_actual_calls(players):
+    """convex_nucleolus の evaluations は、凸ゲームの手法で関数を実際に呼んだ回数 (事後検証は含まない)。"""
+    calls = 0
+
+    def value(coalition):
+        nonlocal calls
+        calls += 1
+        return float(len(coalition)) ** 2
+
+    result = coopgame.convex_nucleolus(coopgame.FunctionGame(players, value), assume=True, verify=False)
+    assert result["evaluations"] == calls > 0
+
+
 def test_callback_exception_is_raised():
     def broken(coalition):
         raise KeyError("broken")
@@ -160,6 +220,47 @@ def test_callback_exception_is_raised():
         coopgame.shapley_sampling(coopgame.FunctionGame(4, broken), 10)
     with pytest.raises(KeyError):
         coopgame.sampled_nucleolus(coopgame.FunctionGame(4, broken), 10)
+
+
+# FunctionGame を受け付ける全ての関数 (README の表)。凸ゲームの手法は、凸な値 |S|^2 で途中まで進ませる。
+FUNCTION_GAME_RUNS = {
+    "shapley_sampling": (2000, lambda game: coopgame.shapley_sampling(game, 10**7)),
+    "banzhaf_sampling": (2000, lambda game: coopgame.banzhaf_sampling(game, 10**6)),
+    "sampled_nucleolus": (2000, lambda game: coopgame.sampled_nucleolus(game, 10**4)),
+    "sampled_least_core": (2000, lambda game: coopgame.sampled_least_core(game, 10**4)),
+    "convex_nucleolus": (12, lambda game: coopgame.convex_nucleolus(game, assume=True)),
+    "convex_nucleolus(verify=False)": (
+        12,
+        lambda game: coopgame.convex_nucleolus(game, assume=True, verify=False),
+    ),
+    "verify_solution": (20, lambda game: coopgame.verify_solution(game, [20.0] * 20)),
+}
+
+
+@pytest.mark.parametrize("name", list(FUNCTION_GAME_RUNS))
+@pytest.mark.parametrize("error", [RuntimeError, KeyboardInterrupt])
+def test_callback_exception_aborts_computation(name, error):
+    """関数が例外 (Ctrl-C の KeyboardInterrupt を含む) を投げたら、計算を打ち切ってすぐ送出する。
+
+    以前は例外を保存したまま NaN で計算を続けていた (shapley_sampling は全順列を回り、凸ゲームの手法は止まらなかった)。
+    続けた計算は関数を呼ばないので、呼び出し回数では見分けられない。打ち切らない場合に数十秒以上かかる規模にして、
+    十分に緩い時間の上限で確かめる。
+    """
+    players, run = FUNCTION_GAME_RUNS[name]
+    calls = 0
+
+    def value(coalition):
+        nonlocal calls
+        calls += 1
+        if calls == 50:
+            raise error("stop")
+        return float(len(coalition)) ** 2
+
+    start = time.perf_counter()
+    with pytest.raises(error, match="stop"):
+        run(coopgame.FunctionGame(players, value))
+    assert time.perf_counter() - start < 5.0
+    assert calls == 50
 
 
 @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
@@ -484,6 +585,30 @@ def test_shrink_counterexample():
 
     with pytest.raises(KeyError):
         coopgame.shrink(game, broken)
+
+
+@pytest.mark.parametrize("error", [RuntimeError, KeyboardInterrupt])
+def test_shrink_aborts_on_predicate_exception(error):
+    """predicate が例外 (Ctrl-C の KeyboardInterrupt を含む) を投げたら、縮小を打ち切ってすぐ送出する。
+
+    以前は例外を保存したまま predicate を False として縮小を続け、候補を全て作り直していた。
+    続けた縮小は predicate を呼ばないので、打ち切らない場合に数秒以上かかる規模にして、緩い時間の上限で確かめる。
+    """
+    game = coopgame.Game([float(i % 7) for i in range(2**16 - 1)])
+    calls = 0
+
+    def predicate(candidate):
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise error("stop")
+        return False
+
+    start = time.perf_counter()
+    with pytest.raises(error, match="stop"):
+        coopgame.shrink(game, predicate, budget=10**9)
+    assert time.perf_counter() - start < 2.0
+    assert calls == 3
 
 
 # ---------------------------------------------------------------- JSON・CSV の入力・値が分からない提携

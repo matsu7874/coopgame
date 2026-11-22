@@ -239,8 +239,13 @@ impl FunctionGame {
     }
 }
 
-/// Python の関数を [`SetFunction`] として呼ぶアダプタ。最初の例外を保存し、以降は NaN を返す。
-/// 関数が有限でない値 (nan・inf) を返した場合も ValueError として保存する。
+/// Python の関数を [`SetFunction`] として呼ぶアダプタ。
+///
+/// 関数が例外を投げた (Ctrl-C の KeyboardInterrupt を含む) か、有限でない値 (nan・inf) を返した
+/// (ValueError にする) ときは、例外を保存し、[`Abort`] を payload にして unwind する。
+/// [`with_set_function`] がそれを受け止めて例外を返すので、ライブラリの計算は残りを実行せずに終わる。
+/// [`SetFunction::value`] は失敗を返せない (`f64` を返す) ので、値の代わりに NaN を返し続けると、
+/// サンプリングなどが最後まで回り、凸ゲームの手法は止まらないことがある。
 struct Callback<'a, 'py> {
     py: Python<'py>,
     players: usize,
@@ -248,8 +253,37 @@ struct Callback<'a, 'py> {
     error: RefCell<Option<PyErr>>,
 }
 
+/// Python の関数の例外で Rust の計算を打ち切るときの unwind の payload ([`abort`]・[`catch_abort`])。
+struct Abort;
+
+/// 例外を `slot` に保存し、[`Abort`] を payload にして unwind する。
+///
+/// `std::panic::resume_unwind` で投げるので、panic hook (標準エラーへの出力) は呼ばれない。
+/// ライブラリの計算は残りを実行せずに終わり、[`catch_abort`] が例外を返す。
+fn abort(slot: &RefCell<Option<PyErr>>, error: PyErr) -> ! {
+    *slot.borrow_mut() = Some(error);
+    std::panic::resume_unwind(Box::new(Abort))
+}
+
+/// `run` を実行し、[`abort`] で打ち切られたら `slot` に保存した例外を返す。
+///
+/// ライブラリの panic (不具合) はそのまま伝える (PyO3 が PanicException にする)。
+fn catch_abort<T>(slot: &RefCell<Option<PyErr>>, run: impl FnOnce() -> PyResult<T>) -> PyResult<T> {
+    // unwind した計算の途中の状態は捨てるので、UnwindSafe でない値を閉じ込めても問題ない。
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
+        Ok(result) => result,
+        Err(payload) if payload.is::<Abort>() => Err(slot
+            .borrow_mut()
+            .take()
+            .expect("abort は例外を保存してから unwind する")),
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
 impl Callback<'_, '_> {
     fn call(&self, coalition: &PlayerSet) -> PyResult<f64> {
+        // 関数が Python のバイトコードを実行しない場合 (組み込み関数など) にも Ctrl-C で止まるようにする。
+        self.py.check_signals()?;
         let members: Vec<usize> = coalition.members().collect();
         let value = self
             .function
@@ -263,14 +297,6 @@ impl Callback<'_, '_> {
         }
         Ok(value)
     }
-
-    /// 呼び出し中に起きた例外があれば返す。
-    fn finish<T>(self, result: T) -> PyResult<T> {
-        match self.error.into_inner() {
-            Some(error) => Err(error),
-            None => Ok(result),
-        }
-    }
 }
 
 impl SetFunction for Callback<'_, '_> {
@@ -279,20 +305,19 @@ impl SetFunction for Callback<'_, '_> {
     }
 
     fn value(&self, coalition: &PlayerSet) -> f64 {
-        if coalition.is_empty() || self.error.borrow().is_some() {
-            return if coalition.is_empty() { 0.0 } else { f64::NAN };
+        if coalition.is_empty() {
+            return 0.0;
         }
         match self.call(coalition) {
             Ok(value) => value,
-            Err(error) => {
-                *self.error.borrow_mut() = Some(error);
-                f64::NAN
-            }
+            Err(error) => abort(&self.error, error),
         }
     }
 }
 
-/// [`Game`] と [`FunctionGame`] のどちらかを受け取り、[`SetFunction`] として計算を実行する。
+/// [`Game`]・[`GraphGame`]・[`FunctionGame`] のいずれかを受け取り、[`SetFunction`] として計算を実行する。
+///
+/// [`FunctionGame`] の関数が例外を投げたら、計算を打ち切ってその例外を返す ([`Callback`])。
 fn with_set_function<T>(
     game: &Bound<'_, PyAny>,
     run: impl FnOnce(&dyn SetFunction) -> PyResult<T>,
@@ -311,11 +336,7 @@ fn with_set_function<T>(
             function: &function.function,
             error: RefCell::new(None),
         };
-        let result = run(&callback);
-        return match result {
-            Ok(value) => callback.finish(value),
-            Err(error) => callback.finish(()).and(Err(error)),
-        };
+        return catch_abort(&callback.error, || run(&callback));
     }
     Err(PyValueError::new_err(
         "game は coopgame.Game、coopgame.FunctionGame、coopgame.InducedSubgraphGame のいずれか",
@@ -934,6 +955,7 @@ fn nucleolus_exact<'py>(
 
 /// 反例であることを保ったまま、ゲームをより単純にする (プレイヤーの除去、値を 0・整数・半分にする)。
 /// `predicate(game)` は「反例であるか」を返す関数。戻り値は `(縮小したゲーム, 受け入れた変形の数)`。
+/// `predicate` が例外を投げると (Ctrl-C の KeyboardInterrupt を含む)、縮小を打ち切ってその例外を送出する。
 #[pyfunction]
 #[pyo3(signature = (game, predicate, budget = 2000))]
 fn shrink(
@@ -944,29 +966,24 @@ fn shrink(
 ) -> PyResult<(Game, usize)> {
     let error: RefCell<Option<PyErr>> = RefCell::new(None);
     let mut call = |candidate: &ExplicitGame| -> bool {
-        if error.borrow().is_some() {
-            return false;
-        }
-        let result = Py::new(
-            py,
-            Game {
-                inner: candidate.clone(),
-            },
-        )
-        .and_then(|object| predicate.call1((object,)))
-        .and_then(|value| value.is_truthy());
-        match result {
-            Ok(value) => value,
-            Err(err) => {
-                *error.borrow_mut() = Some(err);
-                false
-            }
-        }
+        // predicate が Python のバイトコードを実行しない場合にも Ctrl-C で止まるようにする。
+        let result = py
+            .check_signals()
+            .and_then(|()| {
+                Py::new(
+                    py,
+                    Game {
+                        inner: candidate.clone(),
+                    },
+                )
+            })
+            .and_then(|object| predicate.call1((object,)))
+            .and_then(|value| value.is_truthy());
+        result.unwrap_or_else(|err| abort(&error, err))
     };
-    let (shrunk, steps) = search_core::shrink(&game.inner, &mut call, budget);
-    if let Some(err) = error.into_inner() {
-        return Err(err);
-    }
+    let (shrunk, steps) = catch_abort(&error, || {
+        Ok(search_core::shrink(&game.inner, &mut call, budget))
+    })?;
     Ok((Game { inner: shrunk }, steps))
 }
 
@@ -1261,6 +1278,8 @@ fn check_samples(name: &str, count: usize) -> PyResult<()> {
 }
 
 /// ランダムな順列 `permutations` 個 (1 以上) で Shapley 値を推定する (Castro et al. 2009)。
+///
+/// `evaluations` は関数を呼んだ回数 (`permutations * n`。空提携は呼ばない。全体提携は順列ごとに呼ぶ)。
 #[pyfunction]
 #[pyo3(signature = (game, permutations, seed = 0))]
 fn shapley_sampling<'py>(
@@ -1277,6 +1296,8 @@ fn shapley_sampling<'py>(
 }
 
 /// ランダムな提携 `samples` 個 (1 以上) での限界貢献の平均で Banzhaf 値を推定する。
+///
+/// `evaluations` は関数を呼んだ回数 (標本あたり最大 `n + 1` 回。空提携は呼ばないので、その分少なくなる)。
 #[pyfunction]
 #[pyo3(signature = (game, samples, seed = 0))]
 fn banzhaf_sampling<'py>(
@@ -1486,6 +1507,7 @@ fn solution_dict<'py>(
 ///   `certified` なら配分は厳密な配分になり、`guarantee` は `"certified"` になる。
 ///   `reference` は事後検証の基準の仁の求め方 (`verify_solution` と同じ `"auto"`・`"exact"`・`"lp"`。
 ///   指定しなければ `"auto"`)。事後検証をしない呼び方 (`assume=False` か `verify=False`) で指定すると ValueError。
+/// - `evaluations` は凸ゲームの手法で値の関数を呼んだ回数 (事後検証での評価は含まない)。
 #[pyfunction]
 #[pyo3(signature = (game, assume = false, verify = true, reference = None))]
 fn convex_nucleolus<'py>(
