@@ -25,7 +25,7 @@ per capita 仁・比例仁・disruption nucleolus・交渉集合の判定の上�
 
 | 使い方 | ライブラリ (`Options::tolerance`) | CLI (`nucleolus`・`compare`) | Python (`nucleolus`) | 動作 |
 |---|---|---|---|---|
-| 指定しない (既定) | `Tolerance::Auto` | (オプションなし) | (引数なし) | 下の手順。解く回数と時間は入力で変わる |
+| 指定しない (既定) | `Tolerance::Auto` | (オプションなし)、`--tolerance auto` | (引数なし)、`tolerance="auto"` | 下の手順。解く回数と時間は入力で変わる |
 | 値の単位で精度を決める | `Tolerance::Absolute(t)` | `--tolerance t` | `tolerance=t` | その許容誤差で 1 回だけ解く |
 | 値の大きさに対する比で決める | `Tolerance::Relative(r)` | `--rel-tolerance r` | `rel_tolerance=r` | `r * max\|v(S)\|` の許容誤差で 1 回だけ解く |
 | 有理数で解く (10 人まで) | `nucleolus::exact::nucleolus` | `nucleolus --exact` | `nucleolus_exact` | 許容誤差を使わない |
@@ -45,6 +45,8 @@ per capita 仁・比例仁・disruption nucleolus・交渉集合の判定の上�
 
 分析のうち、標本や差分のために仁を何度も解くもの (`analysis::uncertainty::solver`、CLI の `uncertainty`・`influence`、Python の同名の関数) は、
 指定しなければ比 `1e-7` の許容誤差で 1 回だけ解く。許容誤差は同じ方法で指定できる (`uncertainty::solver_with`、`--tolerance`・`--rel-tolerance`、`tolerance=`・`rel_tolerance=`)。
+上の既定の手順で解くには、`Tolerance::Auto` (`--tolerance auto`、`tolerance="auto"`) を指定する。有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる
+(1 回の時間は下の「上限と既定値の根拠」)。
 
 ### 既定の手順の効果
 

@@ -91,7 +91,7 @@ coopgame convex-nucleolus v.txt             # 凸ゲームの手法で仁 (凸�
 | `--cost` | 費用ゲームとして読み、仁による費用の分担を出す (JSON・CSV の `type` が `cost` なら付けなくてよい) |
 | `--exact` | 値を有理数として読み、有理数だけで仁を求めて分数で出す (JSON・CSV の数も字面どおり。`--full` とは併用できない) |
 | `--full` | 全提携の行を最初から入れる LP で解く (制約生成との比較用) |
-| `--tolerance T` | 逐次 LP の許容誤差を値の単位で指定し、1 回だけ解く (`--exact` とは併用できない) |
+| `--tolerance T` | 逐次 LP の許容誤差を値の単位で指定し、1 回だけ解く (`--exact` とは併用できない)。`auto` は、指定しない場合と同じ既定の手順を明示して選ぶ |
 | `--rel-tolerance R` | 逐次 LP の許容誤差を `max\|v(S)\|` に対する比で指定し、1 回だけ解く (`--tolerance` とはどちらか一方) |
 | `--missing zero\|ignore` | 値が分からない提携の扱い ([入力形式](input-format.md#値が分からない提携))。`ignore` は `nucleolus` (`--exact` なし) だけで使える |
 
@@ -218,6 +218,8 @@ coalition	max|dx/dv|	dx/dv (プレイヤー順)	difference
 仁・プレ仁の許容誤差は、`compare`・`influence`・`uncertainty` でも `--tolerance`・`--rel-tolerance` で指定できる。
 指定しない場合、`compare` は `nucleolus` と同じ既定の手順 (正しさを優先) で仁を求める。
 `influence` と `uncertainty` は仁を何度も解くので、比 `1e-7` の許容誤差で 1 回だけ解く。
+`--tolerance auto` を付けると、`influence` と `uncertainty` も既定の手順で解く
+(有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
 
 `influence` は提携の値を `±delta` 動かしたゲームを解き、`difference` の列に差分の取り方を書く。
 `central` は中心差分 `(x(v(S) + δ) - x(v(S) - δ)) / 2δ` である。

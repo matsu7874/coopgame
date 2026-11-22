@@ -338,28 +338,48 @@ fn nucleolus_dict<'py>(
     Ok(dict)
 }
 
-/// 逐次 LP の許容誤差の決め方。`tolerance` (値の単位) か `rel_tolerance` (`max|v(S)|` に対する比) の
-/// どちらかを指定すると、その許容誤差で 1 回だけ解く。どちらも指定しなければ `Tolerance::Auto`。
-fn parse_tolerance(tolerance: Option<f64>, rel_tolerance: Option<f64>) -> PyResult<Tolerance> {
+/// 逐次 LP の許容誤差の指定。`tolerance` (値の単位の数) か `rel_tolerance` (`max|v(S)|` に対する比) は、
+/// その許容誤差で 1 回だけ解く。`tolerance="auto"` は既定の手順 (`Tolerance::Auto`) を明示して選ぶ。
+/// どちらの指定もなければ `None` (関数ごとの既定を使う)。
+fn parse_tolerance(
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<f64>,
+) -> PyResult<Option<Tolerance>> {
     // 値は解く前に確かめる (uncertainty は解けなかった標本を数えるだけなので、指定の誤りが紛れないようにする)。
     // `-0.0` は 0 として扱う。
-    let checked = |name: &str, value: Option<f64>| -> PyResult<Option<f64>> {
-        match value {
-            Some(value) if !(value.is_finite() && value >= 0.0) => Err(PyValueError::new_err(
-                format!("{name} の値 {value} が 0 以上の有限の数ではない"),
-            )),
-            value => Ok(value.map(|value| value + 0.0)),
+    let checked = |name: &str, value: f64| -> PyResult<f64> {
+        if value.is_finite() && value >= 0.0 {
+            Ok(value + 0.0)
+        } else {
+            Err(PyValueError::new_err(format!(
+                "{name} の値 {value} が 0 以上の有限の数ではない"
+            )))
         }
     };
-    let tolerance = checked("tolerance", tolerance)?;
-    let rel_tolerance = checked("rel_tolerance", rel_tolerance)?;
-    match (tolerance, rel_tolerance) {
-        (None, None) => Ok(Tolerance::Auto),
-        (Some(tolerance), None) => Ok(Tolerance::Absolute(tolerance)),
-        (None, Some(ratio)) => Ok(Tolerance::Relative(ratio)),
+    let absolute = match tolerance {
+        None => None,
+        Some(value) => match value.extract::<String>() {
+            Ok(text) if text == "auto" => Some(Tolerance::Auto),
+            Ok(text) => {
+                return Err(PyValueError::new_err(format!(
+                    "tolerance は数か \"auto\": {text:?}"
+                )));
+            }
+            Err(_) => Some(Tolerance::Absolute(checked(
+                "tolerance",
+                value.extract::<f64>()?,
+            )?)),
+        },
+    };
+    let relative = match rel_tolerance {
+        None => None,
+        Some(ratio) => Some(Tolerance::Relative(checked("rel_tolerance", ratio)?)),
+    };
+    match (absolute, relative) {
         (Some(_), Some(_)) => Err(PyValueError::new_err(
             "tolerance と rel_tolerance は、どちらか一方だけを指定する",
         )),
+        (specified, None) | (None, specified) => Ok(specified),
     }
 }
 
@@ -378,7 +398,7 @@ fn parse_reference(reference: &str) -> PyResult<Reference> {
 /// 仁 (`domain="imputation"`) またはプレ仁を逐次 LP で求める。`method` は `"cg"` (制約生成) か `"full"`。
 ///
 /// `tolerance` (値の単位) か `rel_tolerance` (`max|v(S)|` に対する比) のどちらかを指定すると、その許容誤差で
-/// 1 回だけ解く。どちらも指定しなければ、仁を正しく求めることを優先する: 比 `1e-7` の許容誤差で解いた配分が
+/// 1 回だけ解く。どちらも指定しなければ (`tolerance="auto"` と同じ)、仁を正しく求めることを優先する: 比 `1e-7` の許容誤差で解いた配分が
 /// Kohlberg 基準を細かい許容誤差でも満たすかを確かめ (20 人まで)、満たさなければ許容誤差を下げて解き直し、
 /// それでも満たさなければ 8 人以下は有理数の逐次 LP で求める (10 秒ほどかかることがある)。
 /// 9 人以上で満たさないままなら `guarantee` を `"approximate"` にして返す。
@@ -392,11 +412,11 @@ fn nucleolus<'py>(
     game: &Game,
     domain: &str,
     method: &str,
-    tolerance: Option<f64>,
+    tolerance: Option<&Bound<'_, PyAny>>,
     rel_tolerance: Option<f64>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let mut options = Options::new(parse_domain(domain)?);
-    options.tolerance = parse_tolerance(tolerance, rel_tolerance)?;
+    options.tolerance = parse_tolerance(tolerance, rel_tolerance)?.unwrap_or(Tolerance::Auto);
     options.method = match method {
         "cg" => Method::ConstraintGeneration,
         "full" => Method::Full,
@@ -768,12 +788,12 @@ fn linear_production<'py>(
 /// 1 回だけ解く (標本や差分のために何度も解くので、仁の既定の手順の解き直しはしない)。
 fn solver_by_name(
     name: &str,
-    tolerance: Option<f64>,
+    tolerance: Option<&Bound<'_, PyAny>>,
     rel_tolerance: Option<f64>,
 ) -> PyResult<uncertainty_core::Solver> {
     let tolerance = match parse_tolerance(tolerance, rel_tolerance)? {
-        Tolerance::Auto => Tolerance::Relative(1e-7),
-        specified => {
+        None => Tolerance::Relative(1e-7),
+        Some(specified) => {
             if name == "shapley" {
                 return Err(PyValueError::new_err(
                     "tolerance・rel_tolerance は solver が \"nucleolus\"・\"prenucleolus\" のときだけ使える",
@@ -795,7 +815,8 @@ fn solver_by_name(
 /// 戻り値は `mean`・`std`・`quantiles` (`{0.05: [...], 0.5: [...], 0.95: [...]}`)・`samples`・`failures`。
 ///
 /// 仁・プレ仁は、`tolerance` (値の単位) も `rel_tolerance` (`max|v(S)|` に対する比) も指定しなければ、
-/// 比 `1e-7` の許容誤差で 1 回だけ解く。
+/// 比 `1e-7` の許容誤差で 1 回だけ解く。`tolerance="auto"` は、`nucleolus` の既定の手順で解く
+/// (有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
 #[pyfunction]
 #[pyo3(signature = (game, relative = None, upper = None, samples = 200, seed = 0, solver = "nucleolus", tolerance = None, rel_tolerance = None))]
 #[allow(clippy::too_many_arguments)]
@@ -807,7 +828,7 @@ fn uncertainty<'py>(
     samples: usize,
     seed: u64,
     solver: &str,
-    tolerance: Option<f64>,
+    tolerance: Option<&Bound<'_, PyAny>>,
     rel_tolerance: Option<f64>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let interval = match (relative, upper) {
@@ -850,7 +871,8 @@ type InfluenceRow = (Vec<usize>, Vec<f64>, String);
 /// 両側とも解けない提携があれば、その提携を示した ValueError。
 ///
 /// 仁・プレ仁は、`tolerance` (値の単位) も `rel_tolerance` (`max|v(S)|` に対する比) も指定しなければ、
-/// 比 `1e-7` の許容誤差で 1 回だけ解く。
+/// 比 `1e-7` の許容誤差で 1 回だけ解く。`tolerance="auto"` は、`nucleolus` の既定の手順で解く
+/// (有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
 #[pyfunction]
 #[pyo3(signature = (game, coalitions = None, solver = "nucleolus", levels = 2, delta = None, tolerance = None, rel_tolerance = None))]
 fn influence(
@@ -859,7 +881,7 @@ fn influence(
     solver: &str,
     levels: usize,
     delta: Option<f64>,
-    tolerance: Option<f64>,
+    tolerance: Option<&Bound<'_, PyAny>>,
     rel_tolerance: Option<f64>,
 ) -> PyResult<Vec<InfluenceRow>> {
     let n = game.inner.players();
@@ -1010,7 +1032,7 @@ fn parse_game<'py>(
 ///
 /// `tolerance` (値の単位。費用のゲームでは節約ゲームの値の単位) か `rel_tolerance` (値が分かる提携の値の
 /// 最大絶対値に対する比。費用のゲームでは節約ゲームの値で測る) で許容誤差を指定できる。指定しなければ比 `1e-7`。
-/// どの場合も 1 回だけ解く。
+/// どの場合も 1 回だけ解く (`tolerance="auto"` は指定しない場合と同じ)。
 #[pyfunction]
 #[pyo3(signature = (text, format = "json", domain = "imputation", tolerance = None, rel_tolerance = None))]
 fn partial_nucleolus<'py>(
@@ -1018,12 +1040,12 @@ fn partial_nucleolus<'py>(
     text: &str,
     format: &str,
     domain: &str,
-    tolerance: Option<f64>,
+    tolerance: Option<&Bound<'_, PyAny>>,
     rel_tolerance: Option<f64>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let data = parse_game_data(text, format)?;
     let domain = parse_domain(domain)?;
-    let tolerance = parse_tolerance(tolerance, rel_tolerance)?;
+    let tolerance = parse_tolerance(tolerance, rel_tolerance)?.unwrap_or(Tolerance::Auto);
     let result = data
         .partial_nucleolus_with(domain, tolerance)
         .map_err(to_py_err)?;

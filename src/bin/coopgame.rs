@@ -20,7 +20,7 @@ use coopgame::{
 
 const USAGE: &str = "\
 使い方:
-  coopgame nucleolus  <v.txt> [--pre] [--lex] [--full] [--cost] [--exact] [--tolerance T | --rel-tolerance R]
+  coopgame nucleolus  <v.txt> [--pre] [--lex] [--full] [--cost] [--exact] [--tolerance T|auto | --rel-tolerance R]
                       --cost: v.txt を費用として読み、費用の分担を出す (下の --cost)
                       --exact: 値を 10 進数・分数の値どおりの有理数として読み、有理数だけで解いて分数で出す (10 人まで)。
                                JSON・CSV の数も字面どおりに読む。--full とは併用できない
@@ -54,14 +54,14 @@ const USAGE: &str = "\
                       配分が仁 (プレ仁) かを検証し、結論 (certified・refuted・undecided) を出す
   coopgame bargaining <v.txt> <sol.txt> [--pre] [--lex]   交渉集合 (プレ交渉集合) に属するか
   coopgame explain    <v.txt> <sol.txt> [--lex] [--levels K]   配分の説明 (不満の大きい提携、安定性)
-  coopgame compare    <v.txt> [--lex] [--cost] [--tolerance T | --rel-tolerance R]
+  coopgame compare    <v.txt> [--lex] [--cost] [--tolerance T|auto | --rel-tolerance R]
                       仁・プレ仁・Shapley 値などを安定性で比べる
   coopgame uncertainty <v.txt> [--lex] [--relative 0.1] [--samples 200] [--seed S]
                       [--solver nucleolus|prenucleolus|shapley]
-                      [--tolerance T | --rel-tolerance R]
+                      [--tolerance T|auto | --rel-tolerance R]
                       各値が ±relative の一様な誤差を持つときの配分の分布 (平均・標準偏差・5%/95% 点)
   coopgame influence  <v.txt> [--lex] [--solver nucleolus|prenucleolus|shapley] [--levels 2] [--delta D]
-                      [--tolerance T | --rel-tolerance R]
+                      [--tolerance T|auto | --rel-tolerance R]
                       配分を決めている提携の値に対する配分の感度 dx/dv(S)
   coopgame talmud     --estate E --claims d1,d2,... [--exact]
   coopgame generate   --type T --n N [--seed S]
@@ -87,7 +87,9 @@ const USAGE: &str = "\
            それでも満たさなければ 8 人以下は有理数の逐次 LP で求める (10 秒ほどかかることがある)。
            9 人以上で満たさないままなら guarantee=approximate で返す (確認は 20 人まで)。
            値が 1e12 程度のゲームを 1 単位まで正しく求めるには --exact を使う。
-           uncertainty と influence は何度も解くので、指定しなければ比 1e-7 で 1 回だけ解く
+           uncertainty と influence は何度も解くので、指定しなければ比 1e-7 で 1 回だけ解く。
+           --tolerance auto は、この既定の手順を明示して選ぶ (uncertainty と influence でも既定の手順で解く。
+           有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)
   --samples N  Shapley 値・Banzhaf 値をサンプリングで推定する (順列数・提携数、1 以上)。省略すると厳密計算
   --merge  カーネル全体で、同じ直線上でつながる線分を 1 本にまとめる
   --rational  certify・check で v.txt の値を 10 進数・分数 (8/3) の値どおりの有理数として読む (JSON・CSV の数も字面どおり)
@@ -307,9 +309,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
                 "--tolerance",
                 "--rel-tolerance",
             ])?;
-            let tolerance = tolerance(&args)?;
+            let specified = tolerance(&args)?;
+            let tolerance = specified.unwrap_or(Tolerance::Auto);
             if args.has("--exact") {
-                if tolerance != Tolerance::Auto {
+                if specified.is_some() {
                     return Err(
                         "--exact は許容誤差を使わない (--tolerance・--rel-tolerance と併用できない)"
                             .into(),
@@ -847,7 +850,7 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
         "compare" => {
             args.check_options(&["--lex", "--cost", "--tolerance", "--rel-tolerance"])?;
             // 仁・プレ仁は nucleolus コマンドと同じ手順で求める (指定がなければ既定の手順)。
-            let tolerance = tolerance(&args)?;
+            let tolerance = tolerance(&args)?.unwrap_or(Tolerance::Auto);
             let solve = |domain: Domain, game: &ExplicitGame| {
                 let mut options = Options::new(domain);
                 options.tolerance = tolerance;
@@ -998,28 +1001,33 @@ impl MissingPolicy {
     }
 }
 
-/// 逐次 LP の許容誤差の決め方。`--tolerance` (値の単位) か `--rel-tolerance` (max|v| に対する比) の
-/// どちらかを指定すると、その許容誤差で 1 回だけ解く。指定がなければ既定の手順 (Tolerance::Auto)。
-fn tolerance(args: &Args) -> CliResult<Tolerance> {
+/// 逐次 LP の許容誤差の指定。`--tolerance T` (値の単位) か `--rel-tolerance R` (max|v| に対する比) は、
+/// その許容誤差で 1 回だけ解く。`--tolerance auto` は既定の手順 (Tolerance::Auto) を明示して選ぶ。
+/// どちらの指定もなければ `None` (コマンドごとの既定を使う)。
+fn tolerance(args: &Args) -> CliResult<Option<Tolerance>> {
     // 値は解く前に確かめる (uncertainty は解けなかった標本を数えるだけなので、指定の誤りが紛れないようにする)。
-    let number = |name: &str| -> CliResult<Option<f64>> {
-        match args.value(name)? {
-            None => Ok(None),
-            Some(text) => match text.parse::<f64>() {
-                // `-0` は 0 として扱う。
-                Ok(value) if value.is_finite() && value >= 0.0 => Ok(Some(value + 0.0)),
-                Ok(_) => Err(format!("{name} の値 {text} が 0 以上の有限の数ではない").into()),
-                Err(_) => Err(format!("{name} の値 {text:?} が不正").into()),
-            },
+    let number = |name: &str, text: &str| -> CliResult<f64> {
+        match text.parse::<f64>() {
+            // `-0` は 0 として扱う。
+            Ok(value) if value.is_finite() && value >= 0.0 => Ok(value + 0.0),
+            Ok(_) => Err(format!("{name} の値 {text} が 0 以上の有限の数ではない").into()),
+            Err(_) => Err(format!("{name} の値 {text:?} が不正").into()),
         }
     };
-    match (number("--tolerance")?, number("--rel-tolerance")?) {
-        (None, None) => Ok(Tolerance::Auto),
-        (Some(tolerance), None) => Ok(Tolerance::Absolute(tolerance)),
-        (None, Some(ratio)) => Ok(Tolerance::Relative(ratio)),
+    let absolute = match args.value("--tolerance")? {
+        None => None,
+        Some("auto") => Some(Tolerance::Auto),
+        Some(text) => Some(Tolerance::Absolute(number("--tolerance", text)?)),
+    };
+    let relative = match args.value("--rel-tolerance")? {
+        None => None,
+        Some(text) => Some(Tolerance::Relative(number("--rel-tolerance", text)?)),
+    };
+    match (absolute, relative) {
         (Some(_), Some(_)) => {
             Err("--tolerance と --rel-tolerance は、どちらか一方だけを指定する".into())
         }
+        (specified, None) | (None, specified) => Ok(specified),
     }
 }
 
@@ -1242,12 +1250,13 @@ fn samples(args: &Args, default: usize) -> CliResult<usize> {
 /// uncertainty・influence の解き方 (`--solver`。既定は nucleolus)。
 ///
 /// 仁・プレ仁は、指定がなければ max|v(S)| の 1e-7 倍の許容誤差で 1 回だけ解く (標本や差分のために何度も解くので、
-/// 既定の手順の解き直しはしない)。`--tolerance`・`--rel-tolerance` で許容誤差を指定できる。
+/// 既定の手順の解き直しはしない)。`--tolerance`・`--rel-tolerance` で許容誤差を指定でき、`--tolerance auto` で
+/// 既定の手順を選べる。
 fn solver(args: &Args) -> CliResult<uncertainty::Solver> {
     let name = args.value("--solver")?.unwrap_or("nucleolus");
     let tolerance = match tolerance(args)? {
-        Tolerance::Auto => Tolerance::Relative(1e-7),
-        specified => {
+        None => Tolerance::Relative(1e-7),
+        Some(specified) => {
             if name == "shapley" {
                 return Err(
                     "--tolerance・--rel-tolerance は --solver が nucleolus・prenucleolus のときだけ使える"

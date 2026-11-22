@@ -359,6 +359,21 @@ def test_analysis_and_partial_nucleolus_accept_tolerance():
     assert coopgame.uncertainty(large, relative=0.1, samples=5) == coopgame.uncertainty(
         large, relative=0.1, samples=5, rel_tolerance=1e-7
     )
+    # tolerance="auto" は、既定の手順を明示して選ぶ。nucleolus では指定しない場合と同じ。
+    assert coopgame.nucleolus(large, tolerance="auto") == coopgame.nucleolus(large)
+    # uncertainty・influence では、1 回だけ解く既定の代わりに既定の手順で解く。値をほとんど動かさない標本では、
+    # 1 回だけ解いた分布と異なる。
+    narrow = dict(relative=1e-13, samples=3)
+    assert coopgame.uncertainty(large, tolerance="auto", **narrow) != coopgame.uncertainty(large, **narrow)
+    assert coopgame.influence(large, tolerance="auto")
+    with pytest.raises(ValueError, match="auto"):
+        coopgame.influence(game, tolerance="fast")
+    with pytest.raises(ValueError, match="どちらか一方"):
+        coopgame.influence(game, tolerance="auto", rel_tolerance=1e-9)
+    with pytest.raises(ValueError, match="nucleolus"):
+        coopgame.influence(game, solver="shapley", tolerance="auto")
+    with pytest.raises(TypeError):
+        coopgame.influence(game, rel_tolerance="auto")
     # 値が分かる提携だけの仁も、許容誤差を指定できる。
     csv = "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|2,3\n1|2,2\n0|1|2,6\n"
     assert coopgame.partial_nucleolus(csv, format="csv", rel_tolerance=1e-9)["tolerance"] == pytest.approx(6e-9)

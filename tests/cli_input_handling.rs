@@ -434,6 +434,33 @@ fn analysis_commands_accept_tolerance() {
         let single = cli.run(&[command, "large.txt", "--rel-tolerance", "1e-7"]);
         assert_eq!(default.stdout, single.stdout, "{command}");
     }
+    // --tolerance auto は、既定の手順を明示して選ぶ。nucleolus・compare では指定しない場合と同じ。
+    let explicit = cli.run(&["nucleolus", "large.txt", "--tolerance", "auto"]);
+    assert_eq!(explicit.stdout, nucleolus.stdout);
+    assert!(
+        explicit.stderr.contains("solver=rational"),
+        "{}",
+        explicit.stderr
+    );
+    let explicit = cli.run(&["compare", "large.txt", "--tolerance", "auto"]);
+    assert_eq!(explicit.stdout, compare_default.stdout);
+    // uncertainty・influence では、1 回だけ解く既定の代わりに既定の手順で解く。値をほとんど動かさない標本
+    // (超過の段の間隔が比 1e-7 の許容誤差より小さいまま) では、1 回だけ解いた分布と異なる。
+    let narrow = [
+        "uncertainty",
+        "large.txt",
+        "--samples",
+        "3",
+        "--relative",
+        "1e-13",
+    ];
+    let single = cli.run(&narrow);
+    assert!(single.success, "{}", single.stderr);
+    let auto = cli.run(&[&narrow[..], &["--tolerance", "auto"]].concat());
+    assert!(auto.success, "{}", auto.stderr);
+    assert_ne!(auto.stdout, single.stdout);
+    let auto = cli.run(&["influence", "large.txt", "--tolerance", "auto"]);
+    assert!(auto.success, "{}", auto.stderr);
     let default = cli.run(&["influence", "v.txt"]);
     assert!(default.success, "{}", default.stderr);
     for arguments in [
@@ -486,6 +513,37 @@ fn analysis_commands_accept_tolerance() {
         (
             &["compare", "v.txt", "--tolerance", "-1"],
             "0 以上の有限の数ではない",
+        ),
+        // auto は --tolerance の値。比には使えず、もう一方との併用や Shapley 値との併用もできない。
+        (
+            &["influence", "v.txt", "--rel-tolerance", "auto"][..],
+            "--rel-tolerance の値",
+        ),
+        (
+            &[
+                "compare",
+                "v.txt",
+                "--tolerance",
+                "auto",
+                "--rel-tolerance",
+                "1e-9",
+            ],
+            "どちらか一方だけ",
+        ),
+        (
+            &[
+                "influence",
+                "v.txt",
+                "--solver",
+                "shapley",
+                "--tolerance",
+                "auto",
+            ],
+            "nucleolus・prenucleolus のときだけ",
+        ),
+        (
+            &["nucleolus", "v.txt", "--exact", "--tolerance", "auto"],
+            "--exact は許容誤差を使わない",
         ),
         // 値に比べて大きすぎる比は、解を省かずにエラーにする。
         (
