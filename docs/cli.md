@@ -124,6 +124,7 @@ time=0.000167s lp_solves=3 rows_added=0 solver=lp tolerance=6e-7 refinements=0 g
 費用のゲームで `--missing zero` を使うと、値が分からない提携の費用を 0 とみなす ([入力形式](input-format.md#値が分からない提携))。
 
 同じオプションを 2 回書くとエラーにする (どちらの値を使うかが曖昧になるため)。
+`--lex` は 1 行 1 値のファイル (`v.txt`) の並び順の指定なので、JSON・CSV の入力に付けるとエラーにする (どのコマンドでも同じ)。
 
 ## 特定のゲームを解く
 

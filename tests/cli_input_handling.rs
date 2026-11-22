@@ -335,6 +335,44 @@ fn misread_inputs_are_pointed_out() {
     }
 }
 
+/// --lex は 1 行 1 値の並び順の指定なので、JSON・CSV の入力に付けるとエラーにする (黙って無視しない)。
+#[test]
+fn lex_is_rejected_for_table_input() {
+    let cli = Cli::new("lex_table");
+    cli.file(
+        "game.csv",
+        "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|2,3\n1|2,2\n0|1|2,6\n",
+    )
+    .file(
+        "game.json",
+        r#"{"values": {"0": 0, "1": 0, "2": 0, "0,1": 4, "0,2": 3, "1,2": 2, "0,1,2": 6}}"#,
+    )
+    .file(
+        "partial.csv",
+        "coalition,value\n0,0\n1,0\n2,0\n0|2,3\n1|2,2\n0|1|2,6\n",
+    )
+    .file("v.txt", V_TXT)
+    .file("sol.txt", "3\n2\n1\n");
+    for args in [
+        &["nucleolus", "game.csv", "--lex"][..],
+        &["nucleolus", "game.json", "--lex"],
+        &["nucleolus", "game.json", "--lex", "--exact"],
+        &["nucleolus", "partial.csv", "--lex", "--missing", "ignore"],
+        &["shapley", "game.csv", "--lex"],
+        &["certify", "game.json", "sol.txt", "--lex", "--rational"],
+    ] {
+        let stderr = cli.run(args).error().to_string();
+        assert!(stderr.contains("--lex"), "{args:?}: {stderr}");
+        assert!(stderr.contains("JSON・CSV"), "{args:?}: {stderr}");
+    }
+    // 1 行 1 値の入力では --lex を使える。付けなければ JSON・CSV も読める。
+    assert_eq!(cli.run(&["nucleolus", "v.txt", "--lex"]).values().len(), 3);
+    assert_eq!(
+        cli.run(&["nucleolus", "game.csv"]).values(),
+        vec![3.0, 2.0, 1.0]
+    );
+}
+
 /// compare は、計算できない解 (人数の上限を超える modiclus など) を省き、省いた解と理由を標準エラーに出す。
 #[test]
 fn compare_reports_solutions_it_omits() {

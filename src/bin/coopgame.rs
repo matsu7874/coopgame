@@ -68,7 +68,7 @@ const USAGE: &str = "\
   coopgame bench      [--types 1,2,3,4,5] [--n 4..10] [--seeds 3] [--methods nucleolus,nucleolus-full,kernel]
 
   v.txt    特性関数を 1 行 1 値で書いたファイル (既定はビット順、--lex で辞書式順)。
-           拡張子が .json・.csv なら提携ごとの値を書いた形式で読む (提携はプレイヤーの番号で書く)
+           拡張子が .json・.csv なら提携ごとの値を書いた形式で読む (提携はプレイヤーの番号で書く。--lex は使えない)
   --missing error|zero|ignore  JSON・CSV で値が分からない提携の扱い (既定 error)。
            zero は 0 とみなす (費用のゲームでは費用 0 とみなすので、その提携の節約は 1 人提携の費用の和になる)。
            ignore は nucleolus (--exact なし) だけで使え、値が分かる提携だけで解く (63 人まで)。
@@ -1075,6 +1075,22 @@ fn is_table(path: &str) -> bool {
     path.ends_with(".json") || path.ends_with(".csv")
 }
 
+/// 提携ごとの値を書いた形式 (JSON・CSV) か。--lex は 1 行 1 値の並び順の指定で JSON・CSV では意味を
+/// 持たないので、付いていればエラーにする (黙って無視しない)。
+fn is_table_input(args: &Args, path: &str) -> CliResult<bool> {
+    if !is_table(path) {
+        return Ok(false);
+    }
+    if args.has("--lex") {
+        return Err(format!(
+            "{path}: --lex は 1 行 1 値のファイルの並び順の指定で、JSON・CSV の入力には使えない \
+             (JSON・CSV は提携をプレイヤーの番号で書く)"
+        )
+        .into());
+    }
+    Ok(true)
+}
+
 /// 読んだゲームと値の種類。v.txt は価値として読む (費用として読むかは --cost で決める)。
 struct Input<G> {
     game: G,
@@ -1085,7 +1101,7 @@ struct Input<G> {
 fn read_input(args: &Args, position: usize) -> CliResult<Input<ExplicitGame>> {
     let path = args.file(position)?;
     let text = read_text(path)?;
-    if is_table(path) {
+    if is_table_input(args, path)? {
         let data = io::parse_by_extension(path, &text).map_err(|e| format!("{path}: {e}"))?;
         let game = data
             .to_explicit(args.missing.table())
@@ -1167,7 +1183,7 @@ fn read_prepared(args: &Args, position: usize) -> CliResult<Prepared> {
 fn read_exact_input(args: &Args, position: usize) -> CliResult<Input<exact::ExactGame>> {
     let path = args.file(position)?;
     let text = read_text(path)?;
-    if is_table(path) {
+    if is_table_input(args, path)? {
         let data = io::parse_exact_by_extension(path, &text).map_err(|e| format!("{path}: {e}"))?;
         let game = data
             .to_exact(args.missing.table())
@@ -1207,7 +1223,7 @@ fn exact_savings(costs: &exact::ExactGame) -> CliResult<(exact::ExactGame, Vec<e
 /// 分からない提携があるかは、提携を列挙せずに数で判定する (全提携の表を作れない 31 人以上でも解けるように)。
 fn nucleolus_known_only(args: &Args, tolerance: Tolerance) -> CliResult<bool> {
     let path = args.file(0)?;
-    if !is_table(path) {
+    if !is_table_input(args, path)? {
         return Ok(false);
     }
     let mut data =
