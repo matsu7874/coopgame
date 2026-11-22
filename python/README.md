@@ -1,7 +1,7 @@
 # coopgame (Python バインディング)
 
 Rust ライブラリ coopgame の機能を Python から使うためのバインディング (PyO3)。
-Python 3.9 以降で動く (abi3)。
+Python 3.10 以降で動く (abi3)。
 
 ## インストール
 

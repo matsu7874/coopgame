@@ -6,7 +6,7 @@ coopgame の開発に参加する人向けに、開発環境、コミット前�
 ## 開発環境
 
 - Rust 1.88 以上 (edition 2024)。
-- Python バインディングを変更する場合は、Python 3.9 以上と [maturin](https://www.maturin.rs/)、pytest。
+- Python バインディングを変更する場合は、Python 3.10 以上と [maturin](https://www.maturin.rs/)、pytest。
 - 計測結果を他の実装と比べ直す場合は、R と比較対象のパッケージ (`scripts/compare/setup.sh` が用意する)。
 
 CLI は feature `cli` を有効にしたときだけビルドされる。
