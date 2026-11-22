@@ -109,11 +109,12 @@ fn guarantee_of<G: Separation + ?Sized>(game: &G) -> Guarantee {
 }
 
 #[derive(Clone, Copy)]
-enum RowForm {
+enum RowForm<'x> {
     /// `x(S) + t >= v(S)`
     WithLevel(Variable),
-    /// `x(S) >= v(S) - bound`
-    AtMost(f64),
+    /// `x(S) >= min(v(S) - level, anchor(S))`: 超過を `level` 以下にする。ただし `anchor` がすでに
+    /// `level` を超えている提携は、`anchor` での超過まで許す ([`Sequential::maximize_coalition`])。
+    AtMost { level: f64, anchor: &'x [f64] },
 }
 
 struct Sequential<'a, G: Separation + ?Sized> {
@@ -271,21 +272,28 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
     ) -> (Vec<(Variable, f64)>, f64) {
         let mut terms = Self::terms(x, coalition);
         let value = self.game.value(coalition);
+        // 行にする提携は、remember と solve_rows が値の有限なものに限っている。
+        debug_assert!(
+            value.is_finite(),
+            "値が有限でない提携 {coalition} を行にしようとした"
+        );
         match form {
             RowForm::WithLevel(t) => {
                 terms.push((t, 1.0));
                 (terms, value)
             }
-            RowForm::AtMost(bound) => (terms, value - bound),
+            RowForm::AtMost { level, anchor } => {
+                (terms, (value - level).min(coalition.sum(anchor)))
+            }
         }
     }
 
     /// 行を入れて LP を解き、違反する提携を超過の大きい順に追加しながら解き直す。
-    fn solve_rows(
+    fn solve_rows<'x>(
         &mut self,
-        build: impl Fn(&Self) -> (Problem, Vec<Variable>, RowForm),
+        build: impl Fn(&Self) -> (Problem, Vec<Variable>, RowForm<'x>),
         seed: &[PlayerSet],
-    ) -> Result<(Solution, Vec<Variable>, RowForm)> {
+    ) -> Result<(Solution, Vec<Variable>, RowForm<'x>)> {
         for coalition in seed {
             self.remember(coalition.clone());
         }
@@ -308,7 +316,7 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
             let values: Vec<f64> = x.iter().map(|&var| solution[var]).collect();
             let bound = match form {
                 RowForm::WithLevel(t) => solution[t],
-                RowForm::AtMost(bound) => bound,
+                RowForm::AtMost { level, .. } => level,
             };
             let skip =
                 |coalition: &PlayerSet| in_lp.contains(coalition) || self.is_determined(coalition);
@@ -322,12 +330,14 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
                 return Ok((solution, x, form));
             }
             for coalition in violated {
-                let (terms, rhs) = self.row(&x, form, &coalition);
-                if !rhs.is_finite() {
+                // 右辺ではなく値で確かめる。確定判定の行の右辺は `min(v(S) - level, anchor(S))` で、
+                // `f64::min` は NaN でない側を返すので、値が NaN でも右辺は有限になる。
+                if !self.game.value(&coalition).is_finite() {
                     return Err(Error::InvalidArgument(format!(
                         "分離オラクルが値の有限でない提携 {coalition} を返した"
                     )));
                 }
+                let (terms, rhs) = self.row(&x, form, &coalition);
                 solution = lp::add_to_solution(solution, terms, Cmp::Ge, rhs)?;
                 in_lp.insert(coalition.clone());
                 self.remember(coalition);
@@ -351,13 +361,30 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
         Ok((solution[t], x.iter().map(|&var| solution[var]).collect()))
     }
 
-    fn maximize_coalition(&mut self, target: &PlayerSet, level: f64) -> Result<(f64, Vec<f64>)> {
-        let bound = level + 0.01 * self.tolerance;
+    /// 最大超過が `level` 以下の配分の中で `x(target)` を最大化する。
+    ///
+    /// 各行は一律には緩めず、段の解 `anchor` を実行可能に保つのに要る分だけ緩める。各行を `delta` ずつ緩めると、
+    /// `x(target)` の最大値は緩めた行の双対変数の和の `delta` 倍だけ増える。この和は行の数とともに増え
+    /// (同じ額を受け取る n 人の段で 1 人提携を目的にすると、残り `n - 1` 個の 1 人提携が等しく効くので `n - 1`)、
+    /// 許容誤差の 1% ずつ緩めると、この和が 100 を超える段 (同じ額を受け取る人が 101 人以上) では増分が許容誤差を
+    /// 超え、本当は確定する提携をどれも確定と判定できない (tests/oracle.rs の
+    /// `bankruptcy_oracle_fixes_many_equal_awards` が、101 人が同じ額を受け取る破産ゲームで確かめる)。
+    ///
+    /// 段の LP に入っていた行は `anchor` が LP の精度で満たすので、緩める量は丸め誤差の大きさで済む。
+    /// 段の LP の後で加わった行 (分離オラクルのしきい値の余裕の範囲で `anchor` の超過が `level` を超えうる) も、
+    /// `anchor` での値までは許すので、`anchor` は確定済みの等式 ([`Self::fix_tight_rows`]) とあわせて
+    /// 常に実行可能点であり、LP が実行不可能にならない。
+    fn maximize_coalition(
+        &mut self,
+        target: &PlayerSet,
+        level: f64,
+        anchor: &[f64],
+    ) -> Result<(f64, Vec<f64>)> {
         let build = |this: &Self| {
             let mut problem = lp::maximize();
             let x = this.add_players(&mut problem, Some(target));
             this.add_fixed(&mut problem, &x);
-            (problem, x, RowForm::AtMost(bound))
+            (problem, x, RowForm::AtMost { level, anchor })
         };
         // 補集合の行は x(target) の上限を直接与える。値が分からなければ remember が除く
         // (除いても、1 人提携とその補集合の行があれば LP は有界)。
@@ -400,7 +427,7 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
                 continue;
             }
             let tight_sum = self.game.value(&target) - level;
-            let (max_sum, witness) = self.maximize_coalition(&target, level)?;
+            let (max_sum, witness) = self.maximize_coalition(&target, level, x)?;
             if max_sum <= tight_sum + self.tolerance {
                 self.span.insert(&target.indicator());
                 let fixed_sum = target.sum(x);
@@ -606,5 +633,72 @@ mod tests {
             nucleolus_with(&broken(3.0, f64::INFINITY), Domain::Imputation, 1e-7),
             Err(Error::InvalidArgument(_))
         ));
+    }
+
+    /// 確定判定の LP (`AtMost` の行) を解いているときに分離オラクルが値の NaN の提携を返しても、
+    /// [`Error::InvalidArgument`] になる。この行の右辺 `min(v(S) - level, anchor(S))` は `f64::min` が
+    /// NaN でない側を返すので有限になり、右辺で確かめると見逃して架空の行を入れてしまう。
+    #[test]
+    fn non_finite_value_in_fixing_lp_is_rejected() {
+        use std::cell::Cell;
+        /// 3 人ゲーム。`v({0, 1})` だけ NaN。分離オラクルは最初の呼び出し (最大超過の最小化) では違反なしと答え、
+        /// 2 回目以降 (確定判定の LP) で NaN の提携を返す。
+        struct LateNan {
+            nan: PlayerSet,
+            calls: Cell<usize>,
+        }
+        impl crate::SetFunction for LateNan {
+            fn players(&self) -> usize {
+                3
+            }
+            fn value(&self, coalition: &PlayerSet) -> f64 {
+                if *coalition == self.nan {
+                    f64::NAN
+                } else if coalition.is_full() {
+                    3.0
+                } else if coalition.len() == 1 {
+                    0.0
+                } else {
+                    1.0
+                }
+            }
+        }
+        impl Separation for LateNan {
+            fn violated(
+                &self,
+                _x: &[f64],
+                _bound: f64,
+                skip: &dyn Fn(&PlayerSet) -> bool,
+                _limit: usize,
+            ) -> Vec<(PlayerSet, f64)> {
+                let calls = self.calls.get();
+                self.calls.set(calls + 1);
+                if calls == 0 || skip(&self.nan) {
+                    Vec::new()
+                } else {
+                    vec![(self.nan.clone(), f64::NAN)]
+                }
+            }
+            fn value_scale(&self) -> f64 {
+                1.0
+            }
+        }
+        let nan = PlayerSet::from_coalition(3, crate::Coalition::from_players(&[0, 1]));
+        for domain in [Domain::Imputation, Domain::Preimputation] {
+            let game = LateNan {
+                nan: nan.clone(),
+                calls: Cell::new(0),
+            };
+            match nucleolus_with(&game, domain, 1e-7) {
+                Err(Error::InvalidArgument(message)) => {
+                    assert!(message.contains("{0, 1}"), "{message}")
+                }
+                other => panic!("{domain:?}: {other:?}"),
+            }
+            assert!(
+                game.calls.get() >= 2,
+                "{domain:?}: 確定判定の LP まで進んでいない"
+            );
+        }
     }
 }
