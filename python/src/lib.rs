@@ -1279,7 +1279,7 @@ fn check_samples(name: &str, count: usize) -> PyResult<()> {
 
 /// ランダムな順列 `permutations` 個 (1 以上) で Shapley 値を推定する (Castro et al. 2009)。
 ///
-/// `evaluations` は関数を呼んだ回数 (`1 + permutations * (n - 1)`。空提携は呼ばず、全体提携は 1 回だけ呼ぶ)。
+/// `evaluations` は関数を呼んだ回数 (`permutations * n`。空提携は呼ばない。全体提携は順列ごとに呼ぶ)。
 #[pyfunction]
 #[pyo3(signature = (game, permutations, seed = 0))]
 fn shapley_sampling<'py>(
@@ -1297,7 +1297,7 @@ fn shapley_sampling<'py>(
 
 /// ランダムな提携 `samples` 個 (1 以上) での限界貢献の平均で Banzhaf 値を推定する。
 ///
-/// `evaluations` は関数を呼んだ回数 (標本あたり最大 `n + 1` 回。空提携は呼ばず、全体提携は 1 回だけ呼ぶ)。
+/// `evaluations` は関数を呼んだ回数 (標本あたり最大 `n + 1` 回。空提携は呼ばないので、その分少なくなる)。
 #[pyfunction]
 #[pyo3(signature = (game, samples, seed = 0))]
 fn banzhaf_sampling<'py>(

@@ -121,7 +121,8 @@ impl Estimate {
 
     /// 特性関数 ([`SetFunction::value`]) を実際に呼んだ回数。
     ///
-    /// 空提携は `v(∅) = 0` ([`SetFunction`] の約束) として呼ばず、全体提携は最初の 1 回だけ呼んで値を使い回す。
+    /// 空提携は `v(∅) = 0` ([`SetFunction`] の約束) として呼ばないので数えない。
+    /// 全体提携を含むそれ以外の提携は、標本ごとに呼び直す (呼ぶたびに値が揺れる関数でも、揺れが標本間で平均される)。
     pub fn evaluations(&self) -> usize {
         self.evaluations
     }
@@ -133,11 +134,9 @@ impl Estimate {
 
 /// 特性関数を呼んだ回数を数えながら値を返す。
 ///
-/// 空提携は `v(∅) = 0` ([`SetFunction`] の約束) として呼ばず、全体提携の値は最初に呼んだときに覚えて使い回す。
-/// 同じ値を何度も呼び直さないので、呼んだ回数がそのまま [`Estimate::evaluations`] になる。
+/// 空提携は `v(∅) = 0` ([`SetFunction`] の約束) として呼ばない。それ以外は毎回呼ぶ (値を覚えて使い回さない)。
 struct Evaluator<'a, G: ?Sized> {
     game: &'a G,
-    grand: Option<f64>,
     evaluations: usize,
 }
 
@@ -145,7 +144,6 @@ impl<'a, G: SetFunction + ?Sized> Evaluator<'a, G> {
     fn new(game: &'a G) -> Evaluator<'a, G> {
         Evaluator {
             game,
-            grand: None,
             evaluations: 0,
         }
     }
@@ -154,16 +152,8 @@ impl<'a, G: SetFunction + ?Sized> Evaluator<'a, G> {
         if coalition.is_empty() {
             return 0.0;
         }
-        let is_grand = coalition.len() == self.game.players();
-        if is_grand && let Some(value) = self.grand {
-            return value;
-        }
         self.evaluations += 1;
-        let value = self.game.value(coalition);
-        if is_grand {
-            self.grand = Some(value);
-        }
-        value
+        self.game.value(coalition)
     }
 }
 
@@ -217,8 +207,7 @@ impl Accumulator {
 
 /// ランダムな順列 `permutations` 個の限界貢献の平均で Shapley 値を推定する。
 ///
-/// 評価回数 ([`Estimate::evaluations`]) は、`permutations` が 1 以上なら `1 + permutations (n - 1)`
-/// (順列ごとに空でない真部分提携 `n - 1` 個と、全体提携を最初の 1 回だけ)。
+/// 評価回数 ([`Estimate::evaluations`]) は `permutations n` (順列ごとに、空でない提携 n 個。全体提携も順列ごとに呼ぶ)。
 ///
 /// `permutations` が 0 なら、推定値は全て 0、標準誤差は全て `inf` になる (評価回数は 0)。
 /// 標本がないことを表す値なので、推定値として使わないこと。
@@ -258,7 +247,7 @@ pub fn shapley_sampling<G: SetFunction + ?Sized>(
 /// `S` から `i` を除いた提携は他の人の部分集合として一様なので、`v(S ∪ {i}) - v(S \ {i})` は不偏推定量になる。
 ///
 /// 評価回数 ([`Estimate::evaluations`]) は標本あたり最大 n + 1 回 (`S` と、`S` で 1 人の所属を反転した n 個の提携)。
-/// 空提携は評価せず、全体提携は最初の 1 回だけ評価するので、これより少ないことがある。
+/// 空提携は評価しないので、`S` や反転した提携が空になる標本ではこれより少ない。
 ///
 /// `samples` が 0 なら、推定値は全て 0、標準誤差は全て `inf` になる (評価回数は 0)。
 /// 標本がないことを表す値なので、推定値として使わないこと。
@@ -390,7 +379,7 @@ mod tests {
         }
     }
 
-    /// `evaluations` は特性関数を実際に呼んだ回数と一致し、空提携は呼ばず、全体提携は 1 回だけ呼ぶ。
+    /// `evaluations` は特性関数を実際に呼んだ回数と一致し、空提携は呼ばない。全体提携は順列ごとに呼ぶ。
     #[test]
     fn evaluations_count_actual_calls() {
         for n in [1, 2, 3, 6] {
@@ -408,7 +397,7 @@ mod tests {
                 counting.calls.set(0);
                 let shapley = shapley_sampling(&counting, samples, 3);
                 assert_eq!(shapley.evaluations(), counting.calls.get());
-                assert_eq!(shapley.evaluations(), 1 + samples * (n - 1), "n = {n}");
+                assert_eq!(shapley.evaluations(), samples * n, "n = {n}");
 
                 counting.calls.set(0);
                 let banzhaf = banzhaf_sampling(&counting, samples, 3);

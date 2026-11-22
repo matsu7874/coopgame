@@ -155,7 +155,7 @@ def test_sampling_explicit_and_function_games_agree():
 
 @pytest.mark.parametrize("players", [1, 2, 10])
 def test_sampling_evaluations_match_actual_calls(players):
-    """evaluations は関数を実際に呼んだ回数。空提携は呼ばず、全体提携は 1 回だけ呼ぶ。"""
+    """evaluations は関数を実際に呼んだ回数。空提携は呼ばない。全体提携は順列ごとに呼ぶ。"""
     calls = []
 
     def value(coalition):
@@ -164,15 +164,38 @@ def test_sampling_evaluations_match_actual_calls(players):
 
     game = coopgame.FunctionGame(players, value)
     shapley = coopgame.shapley_sampling(game, 10, seed=1)
-    assert shapley["evaluations"] == len(calls) == 1 + 10 * (players - 1)
-    assert calls.count(tuple(range(players))) == 1
+    assert shapley["evaluations"] == len(calls) == 10 * players
+    assert calls.count(tuple(range(players))) == 10
+    assert () not in calls
     for run in (coopgame.banzhaf_sampling, coopgame.sampled_nucleolus, coopgame.sampled_least_core):
         if players == 1 and run is not coopgame.banzhaf_sampling:
             continue  # サンプリングした仁・最小コアは 2 人以上
         calls.clear()
         result = run(game, 10, seed=1)
         assert result["evaluations"] == len(calls), run.__name__
-        assert calls.count(tuple(range(players))) <= 1, run.__name__
+        assert () not in calls, run.__name__
+
+
+def test_sampling_averages_noise_of_grand_coalition():
+    """呼ぶたびに値が揺れる関数では、全体提携も順列ごとに呼び直し、揺れを標本の分散に反映する。
+
+    v(S) = |S| + ノイズ (全体提携だけ)。全体提携の値を使い回すと、最後に加わる人の限界貢献の揺れが
+    消えず、推定値の和が 1 回目のノイズに固定される。
+    """
+    import random
+
+    rng = random.Random(0)
+    players = 3
+
+    def value(coalition):
+        return float(len(coalition)) + (rng.gauss(0.0, 1.0) if len(coalition) == players else 0.0)
+
+    result = coopgame.shapley_sampling(coopgame.FunctionGame(players, value), 4000, seed=2)
+    # 順列ごとのノイズの平均は 0 に近づく (標準偏差 1/sqrt(4000) の 5 倍以内)。
+    assert abs(sum(result["values"]) - players) < 5 / math.sqrt(4000)
+    # 限界貢献は、最後に加わる (確率 1/3) ときだけノイズを含むので分散は 1/3。標準誤差は sqrt(1/3) / sqrt(4000)。
+    for se in result["standard_errors"]:
+        assert se == pytest.approx(math.sqrt(1 / 3) / math.sqrt(4000), rel=0.2)
 
 
 @pytest.mark.parametrize("players", [1, 2, 6])

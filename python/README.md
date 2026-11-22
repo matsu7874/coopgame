@@ -86,5 +86,5 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 - `domain` は `"imputation"` (仁・カーネル) か `"preimputation"` (プレ仁・プレカーネル)。
 - 結果は辞書で返す。キーは Rust の結果の構造体のフィールド名と同じ。`guarantee` に保証の種類が入る。
 - Python の関数が例外を投げると (Ctrl-C の `KeyboardInterrupt` を含む)、計算を打ち切ってその例外をそのまま送出する。関数が nan・inf を返した場合も、計算を打ち切って `ValueError` を送出する。
-- サンプリング (`shapley_sampling`・`banzhaf_sampling`・`sampled_nucleolus`・`sampled_least_core`) の `evaluations` は、値の関数を実際に呼んだ回数。空提携は `v(空集合) = 0` として呼ばず、全体提携は 1 回だけ呼ぶ。`shapley_sampling` では `1 + permutations * (n - 1)` になる。
+- サンプリング (`shapley_sampling`・`banzhaf_sampling`・`sampled_nucleolus`・`sampled_least_core`) の `evaluations` は、値の関数を実際に呼んだ回数。空提携は `v(空集合) = 0` として呼ばないので数えない。全体提携を含むそれ以外の提携は標本ごとに呼び直す (呼ぶたびに値が揺れる関数でも、揺れが標本間で平均される)。`shapley_sampling` では `permutations * n` になる。
 - 入力の誤りは `ValueError`、LP の失敗などは `RuntimeError` になる。
