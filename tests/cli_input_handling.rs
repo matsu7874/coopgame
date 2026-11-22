@@ -309,6 +309,32 @@ fn missing_option_conflicts_are_reported() {
     );
 }
 
+/// 出力の名前 (Python の parse_game の kind) を入力のキーに使った JSON と、1 始まりの番号で書いた入力は、
+/// 原因を示してエラーにする。
+#[test]
+fn misread_inputs_are_pointed_out() {
+    let cli = Cli::new("misread_inputs");
+    cli.file(
+        "kind.json",
+        r#"{"kind": "cost", "values": {"0": 4, "1": 5, "0,1": 7}}"#,
+    )
+    .file(
+        "onebased.csv",
+        "coalition,value\n1,0\n2,0\n3,0\n1|2,4\n1|3,3\n2|3,2\n1|2|3,6\n",
+    )
+    .file(
+        "onebased.json",
+        r#"{"values": {"1": 0, "2": 0, "3": 0, "1,2": 4, "1,3": 3, "2,3": 2, "1,2,3": 6}}"#,
+    );
+    let stderr = cli.run(&["nucleolus", "kind.json"]).error().to_string();
+    assert!(stderr.contains("\"type\" の書き間違い"), "{stderr}");
+    for file in ["onebased.csv", "onebased.json"] {
+        let stderr = cli.run(&["nucleolus", file]).error().to_string();
+        assert!(stderr.contains("全体提携の値がない"), "{file}: {stderr}");
+        assert!(stderr.contains("0 始まり"), "{file}: {stderr}");
+    }
+}
+
 /// compare は、計算できない解 (人数の上限を超える modiclus など) を省き、省いた解と理由を標準エラーに出す。
 #[test]
 fn compare_reports_solutions_it_omits() {
