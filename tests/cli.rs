@@ -181,6 +181,32 @@ fn missing_ignore_honors_cost_and_rejects_full() {
     assert!(run.stderr.contains("--full"), "{}", run.stderr);
 }
 
+/// 値が分かる提携の補集合の値がない入力も --missing ignore で解く (値が分からない提携を LP の行に入れない)。
+/// 5 人で |S| >= 2 なら 1、3 人提携の値がない。値が分かる提携の集まりが入れ替えで不変なので等分の 0.2 ずつ。
+#[test]
+fn missing_ignore_without_complements_of_known_coalitions() {
+    let cli = Cli::new("missing_ignore_complements");
+    let mut csv = String::from("coalition,value\n");
+    for mask in 1u32..32 {
+        let members: Vec<String> = (0..5)
+            .filter(|i| mask >> i & 1 == 1)
+            .map(|i| i.to_string())
+            .collect();
+        let value = match members.len() {
+            1 => 0,
+            3 => continue,
+            _ => 1,
+        };
+        csv.push_str(&format!("{},{value}\n", members.join("|")));
+    }
+    cli.file("p5.csv", &csv);
+    for extra in [&[][..], &["--pre"][..]] {
+        let mut args = vec!["nucleolus", "p5.csv", "--missing", "ignore"];
+        args.extend_from_slice(extra);
+        assert_close(&cli.run(&args).values(), &[0.2; 5]);
+    }
+}
+
 #[test]
 fn explain_separates_efficiency_from_blocking() {
     let cli = Cli::new("explain_reasons");
