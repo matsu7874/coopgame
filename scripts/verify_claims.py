@@ -239,6 +239,18 @@ def verify_oracle_bench():
     check(doc, "請求 1-1000 の 100 人で 23 秒以下の seed の数", sum(t <= 23 for t in wide), 9)
 
 
+def verify_oracle_tolerance():
+    doc = "docs/performance.md (上限と既定値の根拠)"
+    rows = read("data/bench/oracle-tolerance.csv")
+    check(doc, "40 人の投票ゲームを解いた比", [r["ratio"] for r in rows], ["1e-7", "1e-8", "1e-9"])
+    check(doc, "40 人の投票ゲーム (全て解けた, 最大の秒, 追加した行, 仁との差の最大)",
+          (all(not r["max_error"].startswith("error") for r in rows),
+           round(max(float(r["seconds"]) for r in rows), 1),
+           {int(r["rows_added"]) for r in rows},
+           float(f"{max(float(r['max_error']) for r in rows):.1e}")),
+          (True, 0.2, {160}, 1.9e-15))
+
+
 def verify_guarantees():
     doc = "docs/guarantees.md"
     rows = read("data/analysis/assumption-study.csv")
@@ -492,6 +504,7 @@ def main():
     verify_comparison()
     verify_phase2_bench()
     verify_oracle_bench()
+    verify_oracle_tolerance()
     verify_certified()
     verify_sampled()
     verify_guarantees()

@@ -113,10 +113,10 @@ per capita 仁・比例仁・disruption nucleolus・交渉集合の判定の上�
 - 値が `1e10` 程度の 16 人のゲームは、14 人のゲームよりさらに時間がかかるので、計測に含めていない。
 
 既定の許容誤差そのものは小さくしていない。
-40 人の重み付き投票ゲーム (`examples/large_games.rs` と同じゲーム) のオラクル版の仁は、以前は比 `1e-7` では 0.25 秒で解け、
-比 `1e-8` (`oracle::nucleolus_with(&game, Domain::Imputation, 1e-8)`) では 180 秒で終わらなかった。
-確定判定の LP で全ての行を許容誤差の 1% ずつ緩めるのをやめ、段の解を実行可能に保つのに要る分だけ緩めるようにした後は、
-比 `1e-7`・`1e-8`・`1e-9` のどれでも 0.2 秒で解け、追加した行は 160 だった (Apple M4 Pro、release ビルド)。
+40 人の重み付き投票ゲーム (`examples/large_games.rs` と同じゲーム) のオラクル版の仁を、比 `1e-7`・`1e-8`・`1e-9`
+(`oracle::nucleolus_with(&game, Domain::Imputation, 比)`。値の最大絶対値は 1) で解くと、どれも 0.2 秒で解け、
+追加した行は 160、仁 (1/3, 1/3, 1/3, 0, ..., 0) との差は 1.9e-15 だった
+(`cargo run --release --example bench_oracle_tolerance`、`data/bench/oracle-tolerance.csv`。Apple M4 Pro、release ビルド)。
 
 ## 制約
 
