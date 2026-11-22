@@ -18,6 +18,7 @@
 //! - `players` (人数) を省くと、現れた最大の番号 + 1 人とする。
 //! - 他のトップレベルのキーは無視する (説明などを書き添えてよい)。ただし `"tpye"` や `"Players"` のように
 //!   上の 3 つの書き間違いらしいキー (大文字小文字の違い、1 文字の違い・隣り合う 2 文字の入れ替え) はエラーにする。
+//!   Python の `parse_game` が値の種類を返す名前 `kind` も、`type` の書き間違いとしてエラーにする。
 //! - 値は数で書く。[`parse_json_exact`] は数の字面を 10 進数の値どおりの有理数として読む。
 //! - 同じオブジェクトの中で同じキーを 2 回書くとエラーにする (後の値で黙って上書きしない)。
 //!
@@ -33,6 +34,8 @@
 //! - 同じ提携の値を 2 回書くとエラーにする (`"0,1"` と `"1,0"` のように順序だけが違う書き方も同じ提携)。
 //! - 1 つの提携の中で同じ番号を 2 回書くとエラーにする (`0|0` は `0|1` の打ち間違いかもしれないので、`{0}` とは読まない)。
 //! - 番号は `players` 未満 (`players` を省いたときは 63 未満。人数は 63 人まで)。
+//! - 番号 0 がどの提携にも現れないときは、範囲外の番号と全体提携がないエラーに「プレイヤー番号は 0 始まり」と添える
+//!   (1 始まりで書いた入力は、`players` を省くと全体提携がないエラーになる)。
 //!
 //! # 値が分からない提携
 //!
@@ -209,6 +212,9 @@ type Known<T> = Vec<(Coalition, T)>;
 /// 読める人数の上限。提携を `u64` のビットで表し、全体提携 `2^n - 1` を作れる範囲。
 const MAX_FILE_PLAYERS: usize = 63;
 
+/// 番号 0 がどの提携にも現れないときに、エラーに添える案内。
+const ONE_BASED_HINT: &str = " (番号 0 がどの提携にも現れない。プレイヤー番号は 0 始まり)";
+
 /// 提携のメンバーの番号を検査する (`limit` 未満で、重複がない)。`players` は入力に書かれた人数。
 fn check_members(
     members: &[usize],
@@ -249,11 +255,18 @@ fn build<T>(
             max: MAX_FILE_PLAYERS,
         });
     }
+    // 番号 0 がどの提携にも現れなければ、1 始まりで書いた入力かもしれないので、範囲外の番号と
+    // 全体提携がないエラーに案内を添える (受け付ける入力は変えない)。
+    let hint = if raw.entries.iter().any(|e| e.members.contains(&0)) {
+        ""
+    } else {
+        ONE_BASED_HINT
+    };
     // 番号を先に検査する (人数を省いたときに、最大の番号 + 1 があふれないように)。
     let limit = raw.players.unwrap_or(MAX_FILE_PLAYERS);
     for entry in &raw.entries {
         check_members(&entry.members, limit, raw.players)
-            .map_err(|message| error_at(entry.line, message))?;
+            .map_err(|message| error_at(entry.line, format!("{message}{hint}")))?;
     }
     let highest = raw.entries.iter().flat_map(|e| &e.members).max();
     let n = raw.players.unwrap_or(highest.map_or(0, |&i| i + 1));
@@ -281,13 +294,17 @@ fn build<T>(
     known.sort_by_key(|(c, _)| c.0);
     let grand = Coalition::grand(n).0;
     if !known.iter().any(|(c, _)| c.0 == grand) {
-        return Err(parse_error("全体提携の値がない"));
+        return Err(parse_error(format!("全体提携の値がない{hint}")));
     }
     Ok((n, raw.kind, known))
 }
 
 /// JSON のトップレベルのキー。これ以外のキーは無視する (説明などを書き添えられるように)。
 const JSON_KEYS: [&str; 3] = ["players", "type", "values"];
+
+/// 出力の名前で、入力のキーと取り違えやすいもの (`looks_like` の綴りの近さでは見つからない) と、
+/// 入力での正しいキー。Python の `parse_game`・`partial_nucleolus` は値の種類を `kind` で返す。
+const OUTPUT_NAMES: [(&str, &str); 1] = [("kind", "type")];
 
 /// `key` が `known` の書き間違いらしいか (大文字小文字の違い、または 1 文字の挿入・削除・置換・隣り合う 2 文字の入れ替え)。
 fn looks_like(key: &str, known: &str) -> bool {
@@ -380,7 +397,13 @@ fn raw_json(text: &str) -> Result<RawGame> {
         if JSON_KEYS.contains(&key.as_str()) {
             continue;
         }
-        if let Some(known) = JSON_KEYS.iter().find(|known| looks_like(key, known)) {
+        let output_name = OUTPUT_NAMES
+            .iter()
+            .find(|(name, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, known)| known);
+        if let Some(known) =
+            output_name.or_else(|| JSON_KEYS.iter().find(|known| looks_like(key, known)))
+        {
             return Err(parse_error(format!(
                 "未知のキー {key:?} ({known:?} の書き間違いではないか)"
             )));
@@ -1171,6 +1194,48 @@ mod tests {
         // 書き間違いらしくないキーは無視する (説明などを書き添えられる)。
         let data = parse_json(r#"{"name": "例", "description": "x", "values": {"0": 1}}"#).unwrap();
         assert_eq!(data.kind, Kind::Value);
+    }
+
+    #[test]
+    fn output_names_are_not_read_as_input_keys() {
+        // Python の parse_game は値の種類を kind で返すが、入力のキーは type。
+        // kind を無視すると費用のゲームを価値のゲームとして読んでしまう。
+        let err = parse_json(r#"{"kind": "cost", "values": {"0": 1}}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("\"kind\""), "{err}");
+        assert!(err.contains("\"type\" の書き間違い"), "{err}");
+        let err = parse_json(r#"{"Kind": "cost", "type": "cost", "values": {"0": 1}}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("\"type\" の書き間違い"), "{err}");
+    }
+
+    #[test]
+    fn one_based_numbers_are_pointed_out() {
+        // 1 始まりで書くと番号 0 が現れず、全体提携 {0, 1, 2, 3} の値がないことになる。
+        let csv = "coalition,value\n1,0\n2,0\n3,0\n1|2,4\n1|3,3\n2|3,2\n1|2|3,6\n";
+        let err = parse_csv(csv).unwrap_err().to_string();
+        assert!(err.contains("全体提携の値がない"), "{err}");
+        assert!(err.contains("0 始まり"), "{err}");
+        let json =
+            r#"{"values": {"1": 0, "2": 0, "3": 0, "1,2": 4, "1,3": 3, "2,3": 2, "1,2,3": 6}}"#;
+        let err = parse_json(json).unwrap_err().to_string();
+        assert!(err.contains("0 始まり"), "{err}");
+        // players を書いたときは、人数以上の番号のエラーに同じ案内を添える。
+        let json = r#"{"players": 3, "values": {"1": 0, "2": 0, "3": 0, "1,2,3": 6}}"#;
+        let err = parse_json(json).unwrap_err().to_string();
+        assert!(err.contains("人数 3 以上"), "{err}");
+        assert!(err.contains("0 始まり"), "{err}");
+        // 番号 0 が現れるなら、案内は添えない。
+        let err = parse_csv("coalition,value\n0,1\n1,1\n")
+            .unwrap_err()
+            .to_string();
+        assert!(!err.contains("0 始まり"), "{err}");
+        let err = parse_json(r#"{"players": 2, "values": {"0": 1, "2": 1}}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(!err.contains("0 始まり"), "{err}");
     }
 
     #[test]

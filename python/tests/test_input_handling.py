@@ -113,6 +113,26 @@ def test_parse_game_reports_huge_player_index():
         coopgame.parse_game("coalition,value\n18446744073709551615,1\n", format="csv")
 
 
+def test_parse_game_rejects_kind_as_input_key():
+    # parse_game は値の種類を kind で返すが、入力のキーは type。kind を無視して価値のゲームとして読まない。
+    loaded = coopgame.parse_game('{"type": "cost", "values": {"0": 4, "1": 5, "0,1": 7}}')
+    assert loaded["kind"] == "cost"
+    with pytest.raises(ValueError, match='"type" の書き間違い'):
+        coopgame.parse_game('{"kind": "cost", "values": {"0": 4, "1": 5, "0,1": 7}}')
+
+
+@pytest.mark.parametrize(
+    "text, format",
+    [
+        ("coalition,value\n1,0\n2,0\n3,0\n1|2,4\n1|3,3\n2|3,2\n1|2|3,6\n", "csv"),
+        ('{"values": {"1": 0, "2": 0, "3": 0, "1,2": 4, "1,3": 3, "2,3": 2, "1,2,3": 6}}', "json"),
+    ],
+)
+def test_parse_game_points_out_one_based_numbers(text, format):
+    with pytest.raises(ValueError, match="全体提携の値がない.*0 始まり"):
+        coopgame.parse_game(text, format=format)
+
+
 def test_parse_game_suggests_how_to_handle_missing_values():
     partial = "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|1|2,6\n"
     with pytest.raises(ValueError, match="partial_nucleolus"):

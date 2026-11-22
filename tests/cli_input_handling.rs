@@ -309,6 +309,143 @@ fn missing_option_conflicts_are_reported() {
     );
 }
 
+/// 出力の名前 (Python の parse_game の kind) を入力のキーに使った JSON と、1 始まりの番号で書いた入力は、
+/// 原因を示してエラーにする。
+#[test]
+fn misread_inputs_are_pointed_out() {
+    let cli = Cli::new("misread_inputs");
+    cli.file(
+        "kind.json",
+        r#"{"kind": "cost", "values": {"0": 4, "1": 5, "0,1": 7}}"#,
+    )
+    .file(
+        "onebased.csv",
+        "coalition,value\n1,0\n2,0\n3,0\n1|2,4\n1|3,3\n2|3,2\n1|2|3,6\n",
+    )
+    .file(
+        "onebased.json",
+        r#"{"values": {"1": 0, "2": 0, "3": 0, "1,2": 4, "1,3": 3, "2,3": 2, "1,2,3": 6}}"#,
+    );
+    let stderr = cli.run(&["nucleolus", "kind.json"]).error().to_string();
+    assert!(stderr.contains("\"type\" の書き間違い"), "{stderr}");
+    for file in ["onebased.csv", "onebased.json"] {
+        let stderr = cli.run(&["nucleolus", file]).error().to_string();
+        assert!(stderr.contains("全体提携の値がない"), "{file}: {stderr}");
+        assert!(stderr.contains("0 始まり"), "{file}: {stderr}");
+    }
+}
+
+/// --lex は 1 行 1 値の並び順の指定なので、JSON・CSV の入力に付けるとエラーにする (黙って無視しない)。
+#[test]
+fn lex_is_rejected_for_table_input() {
+    let cli = Cli::new("lex_table");
+    cli.file(
+        "game.csv",
+        "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|2,3\n1|2,2\n0|1|2,6\n",
+    )
+    .file(
+        "game.json",
+        r#"{"values": {"0": 0, "1": 0, "2": 0, "0,1": 4, "0,2": 3, "1,2": 2, "0,1,2": 6}}"#,
+    )
+    .file(
+        "partial.csv",
+        "coalition,value\n0,0\n1,0\n2,0\n0|2,3\n1|2,2\n0|1|2,6\n",
+    )
+    .file("v.txt", V_TXT)
+    .file("sol.txt", "3\n2\n1\n");
+    for args in [
+        &["nucleolus", "game.csv", "--lex"][..],
+        &["nucleolus", "game.json", "--lex"],
+        &["nucleolus", "game.json", "--lex", "--exact"],
+        &["nucleolus", "partial.csv", "--lex", "--missing", "ignore"],
+        &["shapley", "game.csv", "--lex"],
+        &["certify", "game.json", "sol.txt", "--lex", "--rational"],
+    ] {
+        let stderr = cli.run(args).error().to_string();
+        assert!(stderr.contains("--lex"), "{args:?}: {stderr}");
+        assert!(stderr.contains("JSON・CSV"), "{args:?}: {stderr}");
+    }
+    // 1 行 1 値の入力では --lex を使える。付けなければ JSON・CSV も読める。
+    assert_eq!(cli.run(&["nucleolus", "v.txt", "--lex"]).values().len(), 3);
+    assert_eq!(
+        cli.run(&["nucleolus", "game.csv"]).values(),
+        vec![3.0, 2.0, 1.0]
+    );
+}
+
+/// --missing は JSON・CSV で値が分からない提携の扱いなので、1 行 1 値の入力に付けるとエラーにする
+/// (--lex と同じく、効果のないオプションを黙って無視しない。既定と同じ --missing error も同じ)。
+#[test]
+fn missing_is_rejected_for_vector_input() {
+    let cli = Cli::new("missing_vector");
+    cli.file("v.txt", V_TXT).file("sol.txt", "3\n2\n1\n").file(
+        "game.csv",
+        "coalition,value\n0,0\n1,0\n2,0\n0|1,4\n0|2,3\n1|2,2\n0|1|2,6\n",
+    );
+    for args in [
+        &["nucleolus", "v.txt", "--missing", "zero"][..],
+        &["nucleolus", "v.txt", "--missing", "ignore"],
+        &["nucleolus", "v.txt", "--missing", "error"],
+        &["nucleolus", "v.txt", "--missing", "zero", "--exact"],
+        &["shapley", "v.txt", "--missing", "zero"],
+        &[
+            "certify",
+            "v.txt",
+            "sol.txt",
+            "--missing",
+            "zero",
+            "--rational",
+        ],
+    ] {
+        let stderr = cli.run(args).error().to_string();
+        assert!(stderr.contains("--missing"), "{args:?}: {stderr}");
+        assert!(stderr.contains("JSON・CSV"), "{args:?}: {stderr}");
+    }
+    // JSON・CSV の入力では使える。
+    for policy in ["error", "zero", "ignore"] {
+        let run = cli.run(&["nucleolus", "game.csv", "--missing", policy]);
+        assert_eq!(run.values(), vec![3.0, 2.0, 1.0], "{policy}");
+    }
+}
+
+/// ゲームのファイルを読まないコマンドは、ゲームの入力についてのオプション (--missing・--lex) を
+/// 受け付けない (効果のないオプションを黙って無視しない)。
+#[test]
+fn input_options_are_rejected_without_game_file() {
+    let cli = Cli::new("no_game_file");
+    for base in [
+        &["talmud", "--estate", "100", "--claims", "100,200,300"][..],
+        &["airport", "--costs", "1,2,3,6"],
+        &["generate", "--type", "1", "--n", "3"],
+        &[
+            "bench",
+            "--types",
+            "1",
+            "--n",
+            "3..3",
+            "--seeds",
+            "1",
+            "--methods",
+            "nucleolus",
+        ],
+    ] {
+        assert!(cli.run(base).success, "{base:?}");
+        for extra in [
+            &["--missing", "zero"][..],
+            &["--missing", "error"],
+            &["--lex"],
+        ] {
+            let mut args = base.to_vec();
+            args.extend_from_slice(extra);
+            let stderr = cli.run(&args).error().to_string();
+            assert!(
+                stderr.contains(&format!("未知のオプション {}", extra[0])),
+                "{args:?}: {stderr}"
+            );
+        }
+    }
+}
+
 /// compare は、計算できない解 (人数の上限を超える modiclus など) を省き、省いた解と理由を標準エラーに出す。
 #[test]
 fn compare_reports_solutions_it_omits() {
