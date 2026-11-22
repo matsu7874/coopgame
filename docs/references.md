@@ -44,6 +44,7 @@
 | BFN2021 | Benedek, M., Fliege, J., Nguyen, T.-D. (2021). Finding and verifying the nucleolus of cooperative games. *Mathematical Programming*, 135–170. | doi:[10.1007/s10107-020-01527-9](https://doi.org/10.1007/s10107-020-01527-9) | [Southampton eprints](https://eprints.soton.ac.uk/426473)、Springer の補足資料の URL |
 | Fer | Ferguson, T. S. *Game Theory* (UCLA の講義ノート)、協力ゲームの章。 | [coal.pdf](https://www.math.ucla.edu/~tom/Game_Theory/coal.pdf) | CoopGame の `tests/testthat/test_49_nucleolus.R` の引用 (この環境からは本文を取得できず) |
 | YP2021 | Yan, T., Procaccia, A. D. (2021). If you like Shapley then you'll love the core. *Proceedings of the AAAI Conference on Artificial Intelligence*, 35(6), 5751–5759. | doi:[10.1609/aaai.v35i6.16721](https://doi.org/10.1609/aaai.v35i6.16721) | [AAAI](https://ojs.aaai.org/index.php/AAAI/article/view/16721) (検索結果の書誌情報) |
+| GZ2019 | Ghorbani, A., Zou, J. (2019). What is your data worth? Equitable valuation of data. arXiv preprint (v2). | arXiv:[1904.02868](https://arxiv.org/abs/1904.02868) | arXiv の本文 (v2、式 (1)。2026-11 に確認) |
 | AM1964 | Aumann, R. J., Maschler, M. (1964). The bargaining set for cooperative games. In M. Dresher, L. S. Shapley, A. W. Tucker (Eds.), *Advances in Game Theory*, Annals of Mathematics Studies 52, 443–476. Princeton University Press. | DOI なし | 検索結果の書誌情報 (他論文の引用) |
 | You1985 | Young, H. P. (1985). Monotonic solutions of cooperative games. *International Journal of Game Theory*, 14(2), 65–72. | doi:[10.1007/BF01769885](https://doi.org/10.1007/BF01769885) | CoopGame の `perCapitaNucleolus` のヘルプ、検索結果の書誌情報 |
 | You1985CA | Young, H. P. (1985). Methods and principles of cost allocation. In H. P. Young (Ed.), *Cost Allocation: Methods, Principles, Applications*. | DOI なし | [IIASA の本文](https://pure.iiasa.ac.at/id/eprint/2596/1/XB-85-003.pdf) (pp. 13–14。2026-11 に確認) |
@@ -107,6 +108,7 @@
 | 空港ゲーム (費用が提携内の最大値) の Shapley 値は、費用の増分を必要とする人数で等分した和 | LO1973 | `src/games/airport.rs`、テスト | `airport_game_shapley_matches_littlechild_owen` (ランダムな 100 問)、`ibn_ezra_inheritance_shapley_value`、明示ゲームの Shapley 値と一致 (`airport_game_matches_explicit_cost_game`) |
 | Ibn Ezra の相続問題の解は Shapley 値に一致する | Aum2010 (CoopGame の `shapleyValue` のヘルプが引用) | テスト | `ibn_ezra_inheritance_shapley_value` |
 | 重み付き投票ゲームの仁は擬多項式時間で計算できる | Pas2022 (EP2009 も同じ主張をしたが、アルゴリズムは仁を計算する保証がないと後続研究で指摘されている) | `src/games/voting.rs` の位置づけ | なし (本実装は制約生成で、計算量の保証はない) |
+| Data Shapley (データ点の価値) は、データ点をプレイヤーとした Shapley 値の定数倍 | GZ2019 (式 (1)) | `docs/choosing.md` の機械学習の節 | なし (定義の対応) |
 | データ評価に最小コアを使い、提携をサンプリングして近似する | YP2021 (題名と要旨の範囲) | `src/nucleolus/sampled.rs`、`examples/study_data_valuation.rs` | 文献の実験は再現していない。本リポジトリの合成データでの比較のみ |
 | 交渉集合 (異議と反論) の定義 | AM1964, PS2007 | `src/bargaining.rs` | 3 人多数決ゲームの手計算 (`bargaining::tests`) |
 | カーネルは交渉集合に含まれる | DM1965 (原典の該当箇所は未確認) | `tests/variants.rs` | `kernel_points_lie_in_bargaining_set` (BNF タイプ 1-4、n = 3-6 の仁とカーネルの点) |

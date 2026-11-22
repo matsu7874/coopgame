@@ -135,6 +135,10 @@ pub fn random_convex(n: usize, seed: u64) -> Result<ExplicitGame> {
 
 /// 優加法的なゲーム。提携ごとに `[0, |S|)` の一様乱数を基本値とし、
 /// 分割して稼いだ方が大きければその値に置き換える(優加法的な包)。計算量は `3^n`。
+///
+/// 包は浮動小数点数の和で計算するので、値を有理数として読むと優加法性がわずかに破れることがある
+/// (`v(N) < Σ v({i})` になり、有理数の仁 [`crate::nucleolus::exact::nucleolus`] が配分集合が空のエラーを返すなど)。
+/// 有理数の手法や厳密な検証と組み合わせるときは [`random_superadditive_exact`] を使う。
 pub fn random_superadditive(n: usize, seed: u64) -> Result<ExplicitGame> {
     check_size(n)?;
     let mut rng = SplitMix64::new(seed);
@@ -179,6 +183,9 @@ fn superadditive_cover<T: PartialOrd>(values: &mut [T], add: impl Fn(&T, &T) -> 
 ///
 /// `bnf1`・`bnf2`・`bnf4` ([`bnf`] のタイプ 1, 2, 4)、`superadditive` ([`random_superadditive`])、
 /// `convex` ([`random_convex`])、`voting` ([`random_weighted_voting`])。
+///
+/// `superadditive` は浮動小数点数で作るので、有理数の手法と組み合わせると優加法性が破れて見えることがある
+/// ([`random_superadditive`] の注意)。その場合は [`random_superadditive_exact`] を使う。
 pub fn by_class(class: &str, n: usize, seed: u64) -> Result<ExplicitGame> {
     match class {
         "bnf1" => bnf(1, n, seed),

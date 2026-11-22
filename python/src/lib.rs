@@ -437,6 +437,11 @@ fn prenucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict
 }
 
 /// 最小コアの epsilon と、それを達成する配分の 1 つ。
+///
+/// 最大超過 `max_S (v(S) - x(S))` を最小にする。`domain` は配分 `x` の範囲で、既定の `"imputation"` は
+/// 個人合理性 (`x_i >= v({i})`) を課す。個人合理性を課さずに全体の和だけを合わせるには
+/// `domain="preimputation"` を渡す。教科書によって定義域が異なり、2 つの `epsilon` は異なることがある
+/// (Peleg–Sudhölter Example 5.5.12 のゲームでは前者が 8、後者が 4)。
 #[pyfunction]
 #[pyo3(signature = (game, domain = "imputation"))]
 fn least_core<'py>(py: Python<'py>, game: &Game, domain: &str) -> PyResult<Bound<'py, PyDict>> {
