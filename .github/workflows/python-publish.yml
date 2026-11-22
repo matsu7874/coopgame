@@ -47,7 +47,7 @@ jobs:
 
   macos:
     needs: check-version
-    runs-on: macos-14
+    runs-on: macos-latest
     strategy:
       matrix:
         target: [x86_64, aarch64]
@@ -105,11 +105,15 @@ jobs:
   test:
     needs: [linux, macos, windows]
     strategy:
+      # 1 つの OS の失敗で他の OS のテストを取り消さない (どの OS で失敗したかが分かるようにする)。
+      fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # 対応する最小の版 (Python 3.9) でテストする。setup-python は Ubuntu 26.04 向けの Python 3.9 を
+          # 用意していないので、Linux は ubuntu-24.04 で動かす。
+          - os: ubuntu-24.04
             artifact: wheels-linux-x86_64
-          - os: macos-14
+          - os: macos-latest
             artifact: wheels-macos-aarch64
           - os: windows-latest
             artifact: wheels-windows-x64
