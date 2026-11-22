@@ -31,7 +31,7 @@ CoopGame の誤りと判定した 4 件について、超過を降順に並べ�
 | `data/bench/results-n4-12.csv` | 明示ベクトルの計測 (`docs/performance.md` の計測例) | コミット `3f85dc1` | `coopgame bench --n 4..12 --seeds 2 --methods nucleolus,nucleolus-full,prenucleolus,kernel,prekernel` |
 | `data/bench/results-n13-16.csv` | 同上 | コミット `3f85dc1` | `coopgame bench --n 13..16 --seeds 1 --methods nucleolus,nucleolus-full,kernel` |
 | `data/bench/results-n17-22.csv` | 同上 | コミット `3f85dc1` | `coopgame bench --n 17..22 --seeds 1 --methods nucleolus,kernel` |
-| `data/bench/oracle-scaling.csv` | オラクル版の仁の計測 (`docs/performance.md` のオラクルの計測) | Shapley/Banzhaf 値を追加したコミット | `bench_oracle bankruptcy 10,20,40,70,100 3`、`majority 9,13,17,19,21 1`、`voting 10,15,20,25 2` (`cargo run --release --example bench_oracle -- ...`) |
+| `data/bench/oracle-scaling.csv` | オラクル版の仁の計測 (`docs/performance.md` のオラクルの計測) | オラクル版の確定判定の LP で行を一律に緩めるのをやめたコミット | `bench_oracle bankruptcy 10,20,40,70,100 3`、`bankruptcy-wide 40,70,100 10`、`majority 9,13,17,19,21 1`、`voting 10,15,20,25 2` (`cargo run --release --example bench_oracle -- ...`。Apple M4 Pro・macOS・rustc 1.99.1 で、他の重い処理を止めて計測。秒の列は実行ごとに変わる) |
 | `data/compare/certified.csv` | 比較の全配分の有理数による検証 | 有理数の検証を追加したコミット | `python3 scripts/compare/certify_results.py scripts/compare/work` |
 | `data/analysis/sampled-convergence.csv` | サンプリングした仁の収束 | サンプリングした仁を追加したコミット | `cargo run --release --example study_data_valuation -- convergence` |
 | `data/analysis/assumption-study.csv` | 凸と仮定した手法を一般のゲームに使う実験 ([guarantees.md](guarantees.md)) | 保証の種類を追加したコミット | `cargo run --release --example study_assumption -- 4,5,6,7,8,9,10 10` |
@@ -49,8 +49,6 @@ CoopGame の誤りと判定した 4 件について、超過を降順に並べ�
 
 補足:
 
-- `data/bench/oracle-scaling.csv` の作成後に `oracle/voting.rs` を変更したので、
-  再実行して、18 行で段数・LP の数・追加行数が一致することを確かめた。
 - `small.csv` は、`run.py` をリポジトリに入れる前の版で作った。この版は TUGLab のエラーを
   `error:Execution halted` と記録する。現在の版は R のエラー文 (`Error in ...`) を記録する。計算内容は同じである。
 - `tuglab-retry-tol1e-8.csv` の対象は、`small.csv` で TUGLab が失敗・時間切れ・省略・誤りになった

@@ -2,11 +2,13 @@
 //!
 //! ```bash
 //! cargo run --release --example bench_oracle -- bankruptcy 10,20,40,70,100
+//! cargo run --release --example bench_oracle -- bankruptcy-wide 40,70,100
 //! cargo run --release --example bench_oracle -- majority 9,15,21,31
 //! cargo run --release --example bench_oracle -- voting 10,20,30,40
 //! ```
 //!
 //! - bankruptcy: 請求 1-100 の一様整数、遺産は請求の和の一様乱数倍。タルムード則との差を出す。
+//! - bankruptcy-wide: 請求を 1-1000 の一様整数にした bankruptcy。bankruptcy より段の数が多くなる。
 //! - majority: 全員の重みが 1 の多数決ゲーム。等分 (1/n) との差を出す。
 //! - voting: 重み 1-10 の一様整数、基準は過半数。
 
@@ -51,8 +53,9 @@ fn main() {
             let mut rng = SplitMix64::new(seed + 1000 * n as u64);
             let started = Instant::now();
             let (result, expected) = match kind.as_str() {
-                "bankruptcy" => {
-                    let claims: Vec<f64> = (0..n).map(|_| rng.range(1, 100) as f64).collect();
+                "bankruptcy" | "bankruptcy-wide" => {
+                    let max_claim = if kind == "bankruptcy" { 100 } else { 1000 };
+                    let claims: Vec<f64> = (0..n).map(|_| rng.range(1, max_claim) as f64).collect();
                     let estate = (rng.next_f64() * claims.iter().sum::<f64>()).round();
                     let game = BankruptcyGame::new(estate, claims.clone()).unwrap();
                     (

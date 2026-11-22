@@ -205,21 +205,38 @@ def verify_oracle_bench():
     doc = "docs/performance.md (オラクルの計測)"
     rows = read("data/bench/oracle-scaling.csv")
     check(doc, "全ての計算に成功", all(not r["max_error"].startswith("error") for r in rows), True)
-    exact = [r for r in rows if r["kind"] in ("bankruptcy", "majority")]
-    check(doc, "破産ゲーム・多数決ゲームの基準との差が全て 2e-12 以下",
-          max(float(r["max_error"]) for r in exact) <= 2e-12, True)
-    check(doc, "破産ゲームは行を追加しない", {r["rows_added"] for r in rows if r["kind"] == "bankruptcy"}, {"0"})
 
     def worst(kind, n, column):
         return max(float(r[column]) for r in rows if (r["kind"], r["n"]) == (kind, n))
 
-    check(doc, "表の最大時間 (破産 40, 70, 100、多数決 21、投票 25)",
+    def error(kind, n):
+        return float(f"{worst(kind, n, 'max_error'):.1e}")
+
+    check(doc, "破産ゲームのタルムード則との差 (請求 1-100 の 40, 70, 100、請求 1-1000 の 40, 70, 100)",
+          tuple(error(kind, n) for kind in ("bankruptcy", "bankruptcy-wide") for n in ("40", "70", "100")),
+          (1.1e-12, 4.9e-12, 7.3e-12, 1.2e-11, 4.7e-11, 1.0e-10))
+    check(doc, "多数決ゲームの等分との差が全て 1.3e-15 以下",
+          max(float(r["max_error"]) for r in rows if r["kind"] == "majority") <= 1.3e-15, True)
+    check(doc, "破産ゲームは行を追加しない",
+          {r["rows_added"] for r in rows if r["kind"].startswith("bankruptcy")}, {"0"})
+    check(doc, "seed 数 (請求 1-100 の 100、請求 1-1000 の 100、投票 25)",
+          tuple(sum((r["kind"], r["n"]) == key for r in rows)
+                for key in (("bankruptcy", "100"), ("bankruptcy-wide", "100"), ("voting", "25"))),
+          (3, 10, 2))
+    check(doc, "表の最大時間 (請求 1-100 の 40, 70, 100、請求 1-1000 の 40, 70, 100、多数決 21、投票 25)",
           (round(worst("bankruptcy", "40", "seconds"), 2), round(worst("bankruptcy", "70", "seconds"), 1),
-           round(worst("bankruptcy", "100", "seconds"), 1), round(worst("majority", "21", "seconds"), 1),
-           round(worst("voting", "25", "seconds"), 1)),
-          (0.68, 25.6, 15.0, 4.7, 15.6))
+           round(worst("bankruptcy", "100", "seconds"), 1), round(worst("bankruptcy-wide", "40", "seconds"), 2),
+           round(worst("bankruptcy-wide", "70", "seconds"), 1), round(worst("bankruptcy-wide", "100", "seconds"), 1),
+           round(worst("majority", "21", "seconds"), 2), round(worst("voting", "25", "seconds"), 2)),
+          (0.30, 12.6, 8.1, 0.74, 17.4, 148.8, 0.06, 0.20))
+    check(doc, "表の段の数 (請求 1-100 の 40, 70, 100、請求 1-1000 の 40, 70, 100)",
+          tuple(int(worst(kind, n, "levels")) for kind in ("bankruptcy", "bankruptcy-wide")
+                for n in ("40", "70", "100")),
+          (24, 37, 21, 26, 54, 68))
     check(doc, "表の追加行数 (多数決 21、投票 25)",
-          (int(worst("majority", "21", "rows_added")), int(worst("voting", "25", "rows_added"))), (3962, 6280))
+          (int(worst("majority", "21", "rows_added")), int(worst("voting", "25", "rows_added"))), (336, 400))
+    wide = sorted(float(r["seconds"]) for r in rows if (r["kind"], r["n"]) == ("bankruptcy-wide", "100"))
+    check(doc, "請求 1-1000 の 100 人で 23 秒以下の seed の数", sum(t <= 23 for t in wide), 9)
 
 
 def verify_guarantees():

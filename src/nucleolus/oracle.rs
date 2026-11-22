@@ -104,11 +104,12 @@ fn guarantee_of<G: Separation + ?Sized>(game: &G) -> Guarantee {
 }
 
 #[derive(Clone, Copy)]
-enum RowForm {
+enum RowForm<'x> {
     /// `x(S) + t >= v(S)`
     WithLevel(Variable),
-    /// `x(S) >= v(S) - bound`
-    AtMost(f64),
+    /// `x(S) >= min(v(S) - level, anchor(S))`: 超過を `level` 以下にする。ただし `anchor` がすでに
+    /// `level` を超えている提携は、`anchor` での超過まで許す ([`Sequential::maximize_coalition`])。
+    AtMost { level: f64, anchor: &'x [f64] },
 }
 
 struct Sequential<'a, G: Separation + ?Sized> {
@@ -254,16 +255,18 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
                 terms.push((t, 1.0));
                 (terms, value)
             }
-            RowForm::AtMost(bound) => (terms, value - bound),
+            RowForm::AtMost { level, anchor } => {
+                (terms, (value - level).min(coalition.sum(anchor)))
+            }
         }
     }
 
     /// 行を入れて LP を解き、違反する提携を超過の大きい順に追加しながら解き直す。
-    fn solve_rows(
+    fn solve_rows<'x>(
         &mut self,
-        build: impl Fn(&Self) -> (Problem, Vec<Variable>, RowForm),
+        build: impl Fn(&Self) -> (Problem, Vec<Variable>, RowForm<'x>),
         seed: &[PlayerSet],
-    ) -> Result<(Solution, Vec<Variable>, RowForm)> {
+    ) -> Result<(Solution, Vec<Variable>, RowForm<'x>)> {
         for coalition in seed {
             self.remember(coalition.clone());
         }
@@ -286,7 +289,7 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
             let values: Vec<f64> = x.iter().map(|&var| solution[var]).collect();
             let bound = match form {
                 RowForm::WithLevel(t) => solution[t],
-                RowForm::AtMost(bound) => bound,
+                RowForm::AtMost { level, .. } => level,
             };
             let skip =
                 |coalition: &PlayerSet| in_lp.contains(coalition) || self.is_determined(coalition);
@@ -324,13 +327,28 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
         Ok((solution[t], x.iter().map(|&var| solution[var]).collect()))
     }
 
-    fn maximize_coalition(&mut self, target: &PlayerSet, level: f64) -> Result<(f64, Vec<f64>)> {
-        let bound = level + 0.01 * self.tolerance;
+    /// 最大超過が `level` 以下の配分の中で `x(target)` を最大化する。
+    ///
+    /// 各行は一律には緩めず、段の解 `anchor` を実行可能に保つのに要る分だけ緩める。各行を `delta` ずつ緩めると、
+    /// `x(target)` の最大値は緩めた行の双対変数の和の `delta` 倍だけ増える。この和は行の数とともに増え
+    /// (n 人の対称な段では `n - 1` 個の 1 人提携が等しく効くので `n - 1`)、以前のように許容誤差の 1% ずつ
+    /// 緩めると 101 人以上で増分が許容誤差を超え、本当は確定する提携をどれも確定と判定できなくなっていた。
+    ///
+    /// 段の LP に入っていた行は `anchor` が LP の精度で満たすので、緩める量は丸め誤差の大きさで済む。
+    /// 段の LP の後で加わった行 (分離オラクルのしきい値の余裕の範囲で `anchor` の超過が `level` を超えうる) も、
+    /// `anchor` での値までは許すので、`anchor` は確定済みの等式 ([`Self::fix_tight_rows`]) とあわせて
+    /// 常に実行可能点であり、LP が実行不可能にならない。
+    fn maximize_coalition(
+        &mut self,
+        target: &PlayerSet,
+        level: f64,
+        anchor: &[f64],
+    ) -> Result<(f64, Vec<f64>)> {
         let build = |this: &Self| {
             let mut problem = lp::maximize();
             let x = this.add_players(&mut problem, Some(target));
             this.add_fixed(&mut problem, &x);
-            (problem, x, RowForm::AtMost(bound))
+            (problem, x, RowForm::AtMost { level, anchor })
         };
         let seed = [target.clone(), target.complement()];
         let (solution, x, _) = self.solve_rows(build, &seed)?;
@@ -371,7 +389,7 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
                 continue;
             }
             let tight_sum = self.game.value(&target) - level;
-            let (max_sum, witness) = self.maximize_coalition(&target, level)?;
+            let (max_sum, witness) = self.maximize_coalition(&target, level, x)?;
             if max_sum <= tight_sum + self.tolerance {
                 self.span.insert(&target.indicator());
                 let fixed_sum = target.sum(x);

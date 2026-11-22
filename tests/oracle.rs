@@ -37,6 +37,35 @@ fn bankruptcy_oracle_matches_talmud_rule_for_large_n() {
     }
 }
 
+/// 101 人以上が同じ額を受け取る段がある破産ゲーム。最後の段では 1 人提携 (遺産が請求の和の半分より多いときは
+/// その補集合) が 101 個以上タイトになり、どれも確定する。確定判定の LP で各行を一律に緩めていたときは、
+/// 緩めの効きが行の数だけ積み重なって許容誤差を超え、どの提携も確定と判定できずに `Error::Numerical` になった。
+#[test]
+fn bankruptcy_oracle_fixes_many_equal_awards() {
+    let mut claims = vec![2.0, 4.0, 6.0];
+    claims.extend([10.0; 101]);
+    let total: f64 = claims.iter().sum();
+    // 3 人は請求の半分 (1, 2, 3)、101 人は 4 を受け取る。逆の遺産では 101 人の損失が 4 になる。
+    for estate in [410.0, total - 410.0] {
+        let game = BankruptcyGame::new(estate, claims.clone()).unwrap();
+        let expected = common::talmud_rule(estate, &claims);
+        for domain in [Domain::Imputation, Domain::Preimputation] {
+            let result = oracle_nucleolus::nucleolus_with(
+                &game,
+                domain,
+                oracle_nucleolus::default_tolerance(&game),
+            )
+            .unwrap();
+            assert_close(
+                result.allocation(),
+                &expected,
+                1e-9 * total,
+                &format!("E={estate} {domain:?}"),
+            );
+        }
+    }
+}
+
 #[test]
 fn bankruptcy_oracle_matches_explicit_solver() {
     let mut rng = SplitMix64::new(7);
@@ -102,9 +131,8 @@ fn voting_oracle_matches_explicit_solver() {
 /// 全員の重みが等しい多数決ゲームの仁は、対称性から等分になる (仁は一意で、プレイヤーの入れ替えで不変)。
 #[test]
 fn symmetric_majority_game_splits_equally() {
-    // 同じ超過の提携が多く、制約生成で追加する行が急増するため、n は小さめにする
-    // (n = 19 で約 2,200 行、2 秒)。
-    for n in [9, 15, 19] {
+    // n = 19 で 380 行を追加し、0.05 秒 (`data/bench/oracle-scaling.csv`)。31 人でも 620 行・0.2 秒で解ける。
+    for n in [9, 15, 19, 31] {
         let game = WeightedVotingGame::new(vec![1; n], (n / 2 + 1) as u64).unwrap();
         let result = oracle_nucleolus::nucleolus(&game).unwrap();
         assert_close(
