@@ -153,6 +153,28 @@ def test_sampling_explicit_and_function_games_agree():
         assert run(explicit, 50, seed=7) == run(function, 50, seed=7)
 
 
+@pytest.mark.parametrize("players", [1, 2, 10])
+def test_sampling_evaluations_match_actual_calls(players):
+    """evaluations は関数を実際に呼んだ回数。空提携は呼ばず、全体提携は 1 回だけ呼ぶ。"""
+    calls = []
+
+    def value(coalition):
+        calls.append(coalition)
+        return float(len(coalition)) ** 1.5
+
+    game = coopgame.FunctionGame(players, value)
+    shapley = coopgame.shapley_sampling(game, 10, seed=1)
+    assert shapley["evaluations"] == len(calls) == 1 + 10 * (players - 1)
+    assert calls.count(tuple(range(players))) == 1
+    for run in (coopgame.banzhaf_sampling, coopgame.sampled_nucleolus, coopgame.sampled_least_core):
+        if players == 1 and run is not coopgame.banzhaf_sampling:
+            continue  # サンプリングした仁・最小コアは 2 人以上
+        calls.clear()
+        result = run(game, 10, seed=1)
+        assert result["evaluations"] == len(calls), run.__name__
+        assert calls.count(tuple(range(players))) <= 1, run.__name__
+
+
 def test_callback_exception_is_raised():
     def broken(coalition):
         raise KeyError("broken")
