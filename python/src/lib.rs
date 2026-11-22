@@ -253,10 +253,32 @@ struct Callback<'a, 'py> {
     error: RefCell<Option<PyErr>>,
 }
 
-/// [`Callback`] が計算を打ち切るときの unwind の payload。
+/// Python の関数の例外で Rust の計算を打ち切るときの unwind の payload ([`abort`]・[`catch_abort`])。
+struct Abort;
+
+/// 例外を `slot` に保存し、[`Abort`] を payload にして unwind する。
 ///
 /// `std::panic::resume_unwind` で投げるので、panic hook (標準エラーへの出力) は呼ばれない。
-struct Abort;
+/// ライブラリの計算は残りを実行せずに終わり、[`catch_abort`] が例外を返す。
+fn abort(slot: &RefCell<Option<PyErr>>, error: PyErr) -> ! {
+    *slot.borrow_mut() = Some(error);
+    std::panic::resume_unwind(Box::new(Abort))
+}
+
+/// `run` を実行し、[`abort`] で打ち切られたら `slot` に保存した例外を返す。
+///
+/// ライブラリの panic (不具合) はそのまま伝える (PyO3 が PanicException にする)。
+fn catch_abort<T>(slot: &RefCell<Option<PyErr>>, run: impl FnOnce() -> PyResult<T>) -> PyResult<T> {
+    // unwind した計算の途中の状態は捨てるので、UnwindSafe でない値を閉じ込めても問題ない。
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
+        Ok(result) => result,
+        Err(payload) if payload.is::<Abort>() => Err(slot
+            .borrow_mut()
+            .take()
+            .expect("abort は例外を保存してから unwind する")),
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
 
 impl Callback<'_, '_> {
     fn call(&self, coalition: &PlayerSet) -> PyResult<f64> {
@@ -288,10 +310,7 @@ impl SetFunction for Callback<'_, '_> {
         }
         match self.call(coalition) {
             Ok(value) => value,
-            Err(error) => {
-                *self.error.borrow_mut() = Some(error);
-                std::panic::resume_unwind(Box::new(Abort))
-            }
+            Err(error) => abort(&self.error, error),
         }
     }
 }
@@ -317,17 +336,7 @@ fn with_set_function<T>(
             function: &function.function,
             error: RefCell::new(None),
         };
-        // unwind した計算の途中の状態は捨てるので、UnwindSafe でない値を閉じ込めても問題ない。
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&callback)));
-        return match result {
-            Ok(result) => result,
-            Err(payload) if payload.is::<Abort>() => Err(callback
-                .error
-                .into_inner()
-                .expect("Abort は例外を保存してから投げる")),
-            // ライブラリの panic (不具合) はそのまま伝える (PyO3 が PanicException にする)。
-            Err(payload) => std::panic::resume_unwind(payload),
-        };
+        return catch_abort(&callback.error, || run(&callback));
     }
     Err(PyValueError::new_err(
         "game は coopgame.Game、coopgame.FunctionGame、coopgame.InducedSubgraphGame のいずれか",
@@ -946,6 +955,7 @@ fn nucleolus_exact<'py>(
 
 /// 反例であることを保ったまま、ゲームをより単純にする (プレイヤーの除去、値を 0・整数・半分にする)。
 /// `predicate(game)` は「反例であるか」を返す関数。戻り値は `(縮小したゲーム, 受け入れた変形の数)`。
+/// `predicate` が例外を投げると (Ctrl-C の KeyboardInterrupt を含む)、縮小を打ち切ってその例外を送出する。
 #[pyfunction]
 #[pyo3(signature = (game, predicate, budget = 2000))]
 fn shrink(
@@ -956,29 +966,24 @@ fn shrink(
 ) -> PyResult<(Game, usize)> {
     let error: RefCell<Option<PyErr>> = RefCell::new(None);
     let mut call = |candidate: &ExplicitGame| -> bool {
-        if error.borrow().is_some() {
-            return false;
-        }
-        let result = Py::new(
-            py,
-            Game {
-                inner: candidate.clone(),
-            },
-        )
-        .and_then(|object| predicate.call1((object,)))
-        .and_then(|value| value.is_truthy());
-        match result {
-            Ok(value) => value,
-            Err(err) => {
-                *error.borrow_mut() = Some(err);
-                false
-            }
-        }
+        // predicate が Python のバイトコードを実行しない場合にも Ctrl-C で止まるようにする。
+        let result = py
+            .check_signals()
+            .and_then(|()| {
+                Py::new(
+                    py,
+                    Game {
+                        inner: candidate.clone(),
+                    },
+                )
+            })
+            .and_then(|object| predicate.call1((object,)))
+            .and_then(|value| value.is_truthy());
+        result.unwrap_or_else(|err| abort(&error, err))
     };
-    let (shrunk, steps) = search_core::shrink(&game.inner, &mut call, budget);
-    if let Some(err) = error.into_inner() {
-        return Err(err);
-    }
+    let (shrunk, steps) = catch_abort(&error, || {
+        Ok(search_core::shrink(&game.inner, &mut call, budget))
+    })?;
     Ok((Game { inner: shrunk }, steps))
 }
 

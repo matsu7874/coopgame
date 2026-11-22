@@ -550,6 +550,30 @@ def test_shrink_counterexample():
         coopgame.shrink(game, broken)
 
 
+@pytest.mark.parametrize("error", [RuntimeError, KeyboardInterrupt])
+def test_shrink_aborts_on_predicate_exception(error):
+    """predicate が例外 (Ctrl-C の KeyboardInterrupt を含む) を投げたら、縮小を打ち切ってすぐ送出する。
+
+    以前は例外を保存したまま predicate を False として縮小を続け、候補を全て作り直していた。
+    続けた縮小は predicate を呼ばないので、打ち切らない場合に数秒以上かかる規模にして、緩い時間の上限で確かめる。
+    """
+    game = coopgame.Game([float(i % 7) for i in range(2**16 - 1)])
+    calls = 0
+
+    def predicate(candidate):
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise error("stop")
+        return False
+
+    start = time.perf_counter()
+    with pytest.raises(error, match="stop"):
+        coopgame.shrink(game, predicate, budget=10**9)
+    assert time.perf_counter() - start < 2.0
+    assert calls == 3
+
+
 # ---------------------------------------------------------------- JSON・CSV の入力・値が分からない提携
 
 
