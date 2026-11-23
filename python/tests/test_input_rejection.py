@@ -87,3 +87,75 @@ def test_tolerance_rejects_bool(flag):
         coopgame.nucleolus(GAME, tolerance=flag)
     with pytest.raises(TypeError, match="bool"):
         coopgame.nucleolus(GAME, rel_tolerance=flag)
+
+
+# ---------------------------------------------------------------- 費用のゲームを価値のゲームとして使わない
+
+COST_JSON = '{"type": "cost", "values": {"0": 4, "1": 5, "0,1": 7}}'
+
+
+def test_parsed_cost_game_is_not_used_as_value_game():
+    cost = coopgame.parse_game(COST_JSON)["game"]
+    assert cost.kind == "cost" and repr(cost) == 'Game(players=2, kind="cost")'
+    # 費用を価値として計算する関数は、費用のゲームを受け付ける関数を案内して ValueError にする。
+    for run in (
+        lambda g: coopgame.explain(g, [2, 5]),
+        lambda g: coopgame.nucleolus(g),
+        lambda g: coopgame.least_core(g),
+        lambda g: coopgame.dual(g),
+        lambda g: coopgame.shapley_sampling(g, 10),
+        lambda g: coopgame.convex_nucleolus(g, assume=True),
+        lambda g: coopgame.auto_nucleolus(g),
+        lambda g: coopgame.verify_solution(g, [2, 5]),
+        lambda g: coopgame.nucleolus_exact(g),
+        lambda g: g.is_convex(),
+        lambda g: g.is_in_core([2, 5]),
+    ):
+        with pytest.raises(ValueError, match="cost_nucleolus"):
+            run(cost)
+    # 費用のゲームを受け付ける関数: 仁による費用の分担と、線形な値 (費用の分担になる)。
+    assert coopgame.cost_nucleolus(cost) == pytest.approx([3, 4])
+    assert coopgame.shapley(cost) == pytest.approx([3, 4])
+    assert coopgame.banzhaf(cost) == pytest.approx([3, 4])
+    # 節約ゲームに直せば、価値のゲームの関数を使える。
+    savings = cost.savings()
+    assert savings.kind == "value" and savings.values() == [0, 0, 2]
+    assert coopgame.nucleolus(savings)["allocation"] == pytest.approx([1, 1])
+    with pytest.raises(ValueError, match="費用のゲーム"):
+        savings.savings()
+
+
+def test_game_kind_can_be_given_explicitly():
+    assert coopgame.Game([0, 0, 4]).kind == "value"
+    cost = coopgame.Game([4, 5, 7], kind="cost")
+    assert cost.kind == "cost" and cost.values() == [4, 5, 7]
+    with pytest.raises(ValueError, match="cost_nucleolus"):
+        coopgame.nucleolus(cost)
+    with pytest.raises(ValueError, match="kind"):
+        coopgame.Game([4, 5, 7], kind="costs")
+
+
+# ---------------------------------------------------------------- Game だけを受け付ける関数の案内
+
+
+def test_game_only_functions_point_to_usable_functions():
+    function_game = coopgame.FunctionGame(3, lambda s: float(len(s) >= 2))
+    graph = coopgame.InducedSubgraphGame(3, [(0, 1, 1.0)])
+    with pytest.raises(TypeError, match="shapley_sampling.*Game.from_function"):
+        coopgame.nucleolus(function_game)
+    with pytest.raises(TypeError, match="convex_nucleolus.*Game.from_function"):
+        coopgame.shapley(graph)
+    with pytest.raises(TypeError, match="coopgame.Game"):
+        coopgame.explain([0, 0, 4], [2, 2])
+    # 案内した変換で表にできる。
+    table = coopgame.Game.from_function(graph.players, graph.value)
+    assert coopgame.shapley(table) == pytest.approx([0.5, 0.5, 0])
+
+
+def test_nucleolus_exact_accepts_game():
+    game = coopgame.Game([0, 0, 0, 10, 0, 0, 2], order="lex")
+    assert coopgame.nucleolus_exact(game)["allocation"] == [1, 1, 0]
+    assert coopgame.nucleolus_exact(game, domain="preimputation")["allocation"] == [3, 3, -4]
+    # Game は並び順を持つので、order を指定しても効果がない。
+    with pytest.raises(ValueError, match="order"):
+        coopgame.nucleolus_exact(game, order="lex")
