@@ -318,6 +318,51 @@ def verify_oracle_tolerance():
           (True, 0.2, {160}, 1.9e-15))
 
 
+def verify_uncertainty_bench():
+    doc = "docs/performance.md (値の不確かさの分析の時間)"
+    rows = read("data/bench/uncertainty.csv")
+    # (分析, ゲーム, 区間の幅) -> 人数 -> mode -> 行
+    pairs = collections.defaultdict(lambda: collections.defaultdict(dict))
+    for r in rows:
+        pairs[(r["analysis"], r["family"], r["relative"])][int(r["players"])][r["mode"]] = r
+
+    def seconds(key, mode, digits):
+        return [round(float(by_mode[mode]["seconds"]), digits) for _, by_mode in sorted(pairs[key].items())]
+
+    check(doc, "人数", {key: sorted(by_players) for key, by_players in pairs.items()},
+          {("uncertainty", "bnf1", "1e-1"): [5, 8, 10, 12], ("influence", "bnf1", ""): [5, 8, 10, 12],
+           ("uncertainty", "integer-1e9", "1e-1"): [4, 6, 8], ("influence", "integer-1e9", ""): [4, 6],
+           ("uncertainty", "integer-1e9", "1e-12"): [4, 6]})
+    check(doc, "uncertainty (±10%) BNF の秒 (1 回だけ解く, 既定)",
+          (seconds(("uncertainty", "bnf1", "1e-1"), "fixed", 2), seconds(("uncertainty", "bnf1", "1e-1"), "auto", 2)),
+          ([0.04, 0.40, 0.93, 2.23], [0.04, 0.41, 0.95, 2.29]))
+    check(doc, "uncertainty (±10%) 整数の秒 (1 回だけ解く, 既定)",
+          (seconds(("uncertainty", "integer-1e9", "1e-1"), "fixed", 2), seconds(("uncertainty", "integer-1e9", "1e-1"), "auto", 2)),
+          ([0.02, 0.14, 0.46], [0.02, 0.14, 0.46]))
+    check(doc, "influence BNF の秒 (1 回だけ解く, 既定)",
+          ([float(f"{v:.2g}") for v in seconds(("influence", "bnf1", ""), "fixed", 3)],
+           [float(f"{v:.2g}") for v in seconds(("influence", "bnf1", ""), "auto", 3)]),
+          ([0.002, 0.034, 0.12, 0.35], [0.002, 0.033, 0.12, 0.35]))
+    key = ("influence", "integer-1e9", "")
+    check(doc, "influence 整数の秒 (1 回だけ解く, 既定) と (解き直した, 有理数, 解いた回数)",
+          (seconds(key, "fixed", 3), [float(f"{v:.3g}") for v in seconds(key, "auto", 3)],
+           [(int(m["auto"]["refined"]), int(m["auto"]["rational"]), int(m["auto"]["solves"])) for _, m in sorted(pairs[key].items())]),
+          ([0.003, 0.098], [0.094, 11.4], [(19, 14, 31), (90, 68, 127)]))
+    key = ("uncertainty", "integer-1e9", "1e-12")
+    check(doc, "uncertainty (±1e-12 倍) 整数の秒 (1 回だけ解く, 既定) と (解き直した, 有理数)",
+          ([float(f"{v:.2g}") for v in seconds(key, "fixed", 3)], [float(f"{v:.3g}") for v in seconds(key, "auto", 3)],
+           [(int(m["auto"]["refined"]), int(m["auto"]["rational"])) for _, m in sorted(pairs[key].items())]),
+          ([0.015, 0.16], [2.98, 37.2], [(200, 200), (200, 200)]))
+    plain = [m for by_players in pairs.values() for m in by_players.values() if m["auto"]["refined"] == "0"]
+    check(doc, "解き直しがない行は、既定でも解き直し・有理数・approximate が 0",
+          all((m["auto"]["rational"], m["auto"]["approximate"]) == ("0", "0") for m in plain), True)
+    ratios = [float(m["auto"]["seconds"]) / float(m["fixed"]["seconds"]) for m in plain]
+    check(doc, "解き直しがない行の時間の比 (既定 / 1 回だけ解く) の範囲", (round(min(ratios), 2), round(max(ratios), 2)), (0.97, 1.09))
+    slow = [m for by_players in pairs.values() for m in by_players.values() if m["auto"]["refined"] != "0"]
+    ratios = [float(m["auto"]["seconds"]) / float(m["fixed"]["seconds"]) for m in slow]
+    check(doc, "解き直した行の時間の比の範囲", (round(min(ratios)), round(max(ratios))), (31, 237))
+
+
 def verify_guarantees():
     doc = "docs/guarantees.md"
     rows = read("data/analysis/assumption-study.csv")
@@ -572,6 +617,7 @@ def main():
     verify_phase2_bench()
     verify_oracle_bench()
     verify_oracle_tolerance()
+    verify_uncertainty_bench()
     verify_voting_bench()
     verify_certified()
     verify_sampled()

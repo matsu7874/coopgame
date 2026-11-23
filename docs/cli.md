@@ -185,7 +185,7 @@ coopgame bargaining v.txt sol.txt           # 交渉集合に属するか (属�
 coopgame explain v.txt sol.txt              # 不満の大きい提携、安定性、プレイヤーごとの不満
 coopgame compare v.txt                      # 仁・プレ仁・Shapley 値・per capita 仁・modiclus を安定性で比べる
 coopgame influence v.txt                    # 配分を決めている提携と、その値に対する感度
-coopgame uncertainty v.txt --relative 0.1 --samples 200   # 各値 ±10% の誤差での配分の分布
+coopgame uncertainty v.txt --relative 0.1 --samples 200   # 各値 ±10% の誤差での配分の分布 (--relative は必須)
 coopgame plot v.txt > figure.svg            # 3-4 人の配分集合の図 (SVG)。頂点などの表を標準エラーに出す
 ```
 
@@ -207,13 +207,13 @@ $ coopgame compare v.txt
 3	per capita 仁
 4	modiclus
 $ coopgame influence v.txt
-coalition	max|dx/dv|	dx/dv (プレイヤー順)	difference
-{0, 1}	0.5833	0.2917 0.2917 -0.5833	central
-{0, 2}	0.5833	0.4167 -0.5833 0.1667	central
-{1, 2}	0.5833	-0.5833 0.4167 0.1667	central
-{0, 1, 2}	0.4167	0.2917 0.2917 0.4167	central
-{2}	0.2500	-0.1250 -0.1250 0.2500	central
-{1}	0.0000	0.0000 0.0000 -0.0000	central
+coalition	max|dx/dv|	dx/dv (プレイヤー順)	difference	guarantees
+{0, 1}	0.5833	0.2917 0.2917 -0.5833	central	exact:2
+{0, 2}	0.5833	0.4167 -0.5833 0.1667	central	exact:2
+{1, 2}	0.5833	-0.5833 0.4167 0.1667	central	exact:2
+{0, 1, 2}	0.4167	0.2917 0.2917 0.4167	central	exact:2
+{2}	0.2500	-0.1250 -0.1250 0.2500	central	exact:2
+{1}	0.0000	0.0000 0.0000 -0.0000	central	exact:2
 ```
 
 `compare` は、計算できない解を省き、省いた解と理由を標準エラーに出す。
@@ -221,10 +221,22 @@ coalition	max|dx/dv|	dx/dv (プレイヤー順)	difference
 (人数の上限は [性能と制約](performance.md))。解の番号は、省いた解を詰めて振る。
 
 仁・プレ仁の許容誤差は、`compare`・`influence`・`uncertainty` でも `--tolerance`・`--rel-tolerance` で指定できる。
-指定しない場合、`compare` は `nucleolus` と同じ既定の手順 (正しさを優先) で仁を求める。
-`influence` と `uncertainty` は仁を何度も解くので、比 `1e-7` の許容誤差で 1 回だけ解く。
-`--tolerance auto` を付けると、`influence` と `uncertainty` も既定の手順で解く
-(有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
+指定しない場合は、どれも `nucleolus` と同じ既定の手順 (正しさを優先) で仁を求める。
+`influence` と `uncertainty` は標本・差分の数だけ仁を解くので、解き直しや有理数の逐次 LP に切り替わるゲームでは時間が延びる
+(実測は [性能と制約](performance.md#値の不確かさの分析の時間))。
+速さを優先するなら、`--rel-tolerance 1e-7` などで許容誤差を指定し、確かめずに 1 回だけ解く
+(値の大きい整数のゲームなどでは、仁と異なる配分が混ざりうる)。
+
+`uncertainty` は誤差の幅 `--relative` (各値の前後の比。`0.1` で ±10%) が必須である。
+標準エラーの `guarantees=` は解けた標本の保証の内訳 (`exact:198,approximate:2` など) で、
+`approximate` は正しいと言えない解 (仁の既定の手順で Kohlberg 基準を確かめられなかった解など) である。
+平均などは、保証によらず解けた標本を全て使って求める。
+
+`influence` の `guarantees` の列は、差分に使った 2 つの解の保証の内訳である。
+差分に使った解の許容誤差 (返した配分を求めた逐次 LP の許容誤差。有理数の逐次 LP で求めた解は 0) が `--delta` 以上なら、
+配分の変化が許容誤差に埋もれるので、エラーにする。`--delta` を大きくするか、より小さい許容誤差で解く。
+既定の手順で Kohlberg 基準を確かめた解も、最初に解いた許容誤差 (比 `1e-7`) で比べる。
+確かめた解でも、値が `1e12` 程度のゲームでは仁と数単位ずれることがあるためである。
 
 `influence` は提携の値を `±delta` 動かしたゲームを解き、`difference` の列に差分の取り方を書く。
 `central` は中心差分 `(x(v(S) + δ) - x(v(S) - δ)) / 2δ` である。
