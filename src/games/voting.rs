@@ -264,6 +264,11 @@ impl WeightedVotingGame {
     /// より大きく `accept(S)` が真のものを探す (モジュールの説明の 2 と 3)。
     ///
     /// `accept` は `S` が確定済みの空間に入らないことも確かめる。違反する提携があれば空でない列を返す。
+    ///
+    /// どの素数でも `basis` が `F_p` 上で一次従属なら `None` を返す (素数の探索では判定できない)。
+    /// `basis` が実数上で一次独立なら補題 4 からこれは起こらないが、`basis` の独立性は浮動小数点数の消去
+    /// ([`Span`]) で判定しているので、判定が食い違ったときに「違反なし」と誤って答えないよう、呼び出し側は
+    /// 超過の順の探索に戻る。
     fn search_by_primes(
         &self,
         x: &[f64],
@@ -272,12 +277,15 @@ impl WeightedVotingGame {
         accept: &dyn Fn(&PlayerSet) -> bool,
         limit: usize,
         randomized: bool,
-    ) -> Vec<(PlayerSet, f64)> {
+    ) -> Option<Vec<(PlayerSet, f64)>> {
         let n = self.weights.len();
         let complements: Vec<(u64, Vec<Vec<u64>>)> = hadamard_primes(n)
             .into_iter()
             .filter_map(|p| orthogonal_complement(basis, n, p).map(|vectors| (p, vectors)))
             .collect();
+        if complements.is_empty() {
+            return None;
+        }
         // 2. 最も大きい素数で、直交補空間の基底の乱数の線形結合を 1 つ試す。
         if randomized && let Some((p, vectors)) = complements.last() {
             let mut rng =
@@ -291,7 +299,7 @@ impl WeightedVotingGame {
             }
             let found = self.search_residue(x, bound, (&combination, *p), accept, limit);
             if !found.is_empty() {
-                return found;
+                return Some(found);
             }
         }
         // 3. 全ての素数と、直交補空間の基底の全てのベクトルで確かめる。
@@ -299,11 +307,59 @@ impl WeightedVotingGame {
             for vector in vectors {
                 let found = self.search_residue(x, bound, (vector, *p), accept, limit);
                 if !found.is_empty() {
-                    return found;
+                    return Some(found);
                 }
             }
         }
-        Vec::new()
+        Some(Vec::new())
+    }
+
+    /// [`OracleGame::search_outside_span`] の本体。超過の順に読む数の上限 `budget` を受け取る
+    /// (テストでは上限を小さくして、素数の探索に進む経路を小さいゲームで通す)。
+    fn search_outside_span_with_budget(
+        &self,
+        x: &[f64],
+        bound: f64,
+        fixed: &[PlayerSet],
+        skip: &dyn Fn(&PlayerSet) -> bool,
+        limit: usize,
+        budget: usize,
+    ) -> Vec<(PlayerSet, f64)> {
+        let n = self.players();
+        let (span, basis) = independent_basis(fixed, n);
+        // 全体提携 (と空) だけが張る空間には、真部分提携は入らない。超過の順に探せばよい。
+        if basis.iter().all(PlayerSet::is_full) {
+            return violated_in_order(self.excess_order(x), bound, skip, limit);
+        }
+        // 1. 超過の順に budget 個まで読む。
+        let mut found = Vec::new();
+        let mut read = 0;
+        for (coalition, excess) in self.excess_order(x).take(budget) {
+            if excess <= bound || found.len() >= limit {
+                return found;
+            }
+            read += 1;
+            if !skip(&coalition) {
+                found.push((coalition, excess));
+            }
+        }
+        if read < budget || !found.is_empty() {
+            return found;
+        }
+        // 2・3. 素数を法とする動的計画法で、確定済みの空間に入らない提携を探す。
+        let accept =
+            |coalition: &PlayerSet| !skip(coalition) && !span.contains(&coalition.indicator());
+        match self.search_by_primes(x, bound, &basis, &accept, limit, true) {
+            Some(found) => found,
+            None => {
+                debug_assert!(
+                    false,
+                    "実数上で一次独立と判定した基底 {basis:?} が、どの素数でも F_p 上で従属"
+                );
+                // 正しさを優先し、超過の順に全て読む探索に戻る (skip は確定済みの提携を除く)。
+                violated_in_order(self.excess_order(x), bound, skip, limit)
+            }
+        }
     }
 }
 
@@ -519,31 +575,7 @@ impl OracleGame for WeightedVotingGame {
         skip: &dyn Fn(&PlayerSet) -> bool,
         limit: usize,
     ) -> Vec<(PlayerSet, f64)> {
-        let n = self.players();
-        let (span, basis) = independent_basis(fixed, n);
-        // 全体提携 (と空) だけが張る空間には、真部分提携は入らない。超過の順に探せばよい。
-        if basis.iter().all(PlayerSet::is_full) {
-            return violated_in_order(self.excess_order(x), bound, skip, limit);
-        }
-        // 1. 超過の順に ENUMERATION_BUDGET 個まで読む。
-        let mut found = Vec::new();
-        let mut read = 0;
-        for (coalition, excess) in self.excess_order(x).take(ENUMERATION_BUDGET) {
-            if excess <= bound || found.len() >= limit {
-                return found;
-            }
-            read += 1;
-            if !skip(&coalition) {
-                found.push((coalition, excess));
-            }
-        }
-        if read < ENUMERATION_BUDGET || !found.is_empty() {
-            return found;
-        }
-        // 2・3. 素数を法とする動的計画法で、確定済みの空間に入らない提携を探す。
-        let accept =
-            |coalition: &PlayerSet| !skip(coalition) && !span.contains(&coalition.indicator());
-        self.search_by_primes(x, bound, &basis, &accept, limit, true)
+        self.search_outside_span_with_budget(x, bound, fixed, skip, limit, ENUMERATION_BUDGET)
     }
 }
 
@@ -772,8 +804,10 @@ mod tests {
                 .collect();
             let limit = rng.range(1, 6) as usize;
             let results = [
-                game.search_by_primes(&x, bound, &basis, &accept, limit, true),
-                game.search_by_primes(&x, bound, &basis, &accept, limit, false),
+                game.search_by_primes(&x, bound, &basis, &accept, limit, true)
+                    .expect("実数上で独立な基底は、ある素数で独立"),
+                game.search_by_primes(&x, bound, &basis, &accept, limit, false)
+                    .expect("実数上で独立な基底は、ある素数で独立"),
                 game.search_outside_span(&x, bound, &fixed, &skip, limit),
             ];
             for (which, found) in results.iter().enumerate() {
@@ -787,6 +821,103 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// 列挙の上限を超えて素数の探索に進む経路を、拒否権のある 10-12 人のランダムな投票ゲームで総当たりと比べる。
+    /// 上限は既定の 256 と、テスト用に小さくした 8 の両方で、探索全体 (`search_outside_span_with_budget`) を通す。
+    /// 600 問のうち、素数の探索に進んで違反なしと確かめたものが上限 256 で 76 問・8 で 96 問、違反を見つけたものが
+    /// 15 問・89 問ある (種 2027)。
+    #[test]
+    fn search_beyond_budget_matches_brute_force_on_veto_games() {
+        let mut rng = SplitMix64::new(2027);
+        // 上限ごとに、素数の探索に進んで (違反なしと確かめた数, 違反を見つけた数)
+        let mut beyond = [(0usize, 0usize); 2];
+        for case in 0..600 {
+            let n = rng.range(10, 12) as usize;
+            let vetoes = rng.range(1, 3) as usize;
+            let mut weights: Vec<u64> = (0..n).map(|_| rng.range(1, 5)).collect();
+            weights[..vetoes].fill(100);
+            let small: u64 = weights[vetoes..].iter().sum();
+            let quota = 100 * vetoes as u64 + rng.range(1, small);
+            let game = WeightedVotingGame::new(weights.clone(), quota).unwrap();
+            let x: Vec<f64> = (0..n)
+                .map(|i| {
+                    if i < vetoes {
+                        1.0 / vetoes as f64 + rng.next_f64() * 0.1 - 0.05
+                    } else {
+                        rng.next_f64() * 0.1 - 0.03
+                    }
+                })
+                .collect();
+            // 確定済み: 全体提携、小さいプレイヤーの大半の 1 人提携、ときどき任意の提携。
+            let mut fixed = vec![PlayerSet::grand(n)];
+            for i in vetoes..n {
+                if rng.range(0, 4) > 0 {
+                    fixed.push(PlayerSet::singleton(n, i));
+                }
+            }
+            for _ in 0..rng.range(0, 2) {
+                fixed.push(set_of(n, rng.range(1, (1 << n) - 2) as usize));
+            }
+            let (span, _) = independent_basis(&fixed, n);
+            let in_lp: Vec<PlayerSet> = (0..rng.range(0, 4))
+                .map(|_| set_of(n, rng.range(1, (1 << n) - 2) as usize))
+                .collect();
+            let in_span = |s: &PlayerSet| span.contains(&s.indicator());
+            let skip = |s: &PlayerSet| in_lp.contains(s) || in_span(s);
+            let bound = rng.next_f64() * 0.8 - 0.7;
+            let excess = |s: &PlayerSet| game.value(s) - s.sum(&x);
+            let above: Vec<PlayerSet> = (1..(1usize << n) - 1)
+                .map(|bits| set_of(n, bits))
+                .filter(|s| excess(s) > bound)
+                .collect();
+            let expected: Vec<&PlayerSet> = above.iter().filter(|s| !skip(s)).collect();
+            let skipped_above = above.len() - expected.len();
+            // 違反する提携のうち最大の超過より大きい超過の、読み飛ばす提携の数 (超過の順でそれより前に並ぶ)
+            let best = expected
+                .iter()
+                .map(|s| excess(s))
+                .fold(f64::NEG_INFINITY, f64::max);
+            let skipped_before_best = above.iter().filter(|s| skip(s) && excess(s) > best).count();
+            let limit = rng.range(1, 8) as usize;
+            for (slot, budget) in [ENUMERATION_BUDGET, 8].into_iter().enumerate() {
+                // 超過の順で上位 budget 個が全て読み飛ばす提携なら、素数の探索に進む。
+                if expected.is_empty() && skipped_above >= budget {
+                    beyond[slot].0 += 1;
+                } else if !expected.is_empty() && skipped_before_best >= budget {
+                    beyond[slot].1 += 1;
+                }
+                let found =
+                    game.search_outside_span_with_budget(&x, bound, &fixed, &skip, limit, budget);
+                let label = format!("case={case} budget={budget} w={weights:?} q={quota}");
+                assert_eq!(found.is_empty(), expected.is_empty(), "{label}");
+                assert!(found.len() <= limit, "{label}");
+                for (s, e) in &found {
+                    assert!(expected.contains(&s), "{label}: {s}");
+                    assert!((e - excess(s)).abs() < 1e-12, "{label}: {s}");
+                }
+            }
+        }
+        // 両方の上限で、素数の探索に進んで違反がないと確かめる場合と、違反を見つける場合を十分に含む。
+        assert!(
+            beyond.iter().all(|&(none, some)| none >= 10 && some >= 10),
+            "{beyond:?}"
+        );
+    }
+
+    /// 基底がどの素数でも F_p 上で従属なら、素数の探索は判定できないことを `None` で伝える
+    /// (呼び出し側は超過の順の探索に戻る)。実数上で従属な基底 (同じ提携を 2 回) で確かめる。
+    #[test]
+    fn search_by_primes_reports_dependent_basis() {
+        let n = 6;
+        let game = WeightedVotingGame::new(vec![3, 1, 1, 1, 1, 1], 5).unwrap();
+        let x = vec![0.3, 0.1, 0.1, 0.1, 0.1, 0.1];
+        let pair = set_of(n, 0b11);
+        let basis = [PlayerSet::grand(n), pair.clone(), pair];
+        assert!(
+            game.search_by_primes(&x, -1.0, &basis, &|_| true, 4, true)
+                .is_none()
+        );
     }
 
     /// 拒否権 3 人のゲームで、確定済みの提携が超過の上位を占める状況 (仁の 2 段目) を作り、探索が
