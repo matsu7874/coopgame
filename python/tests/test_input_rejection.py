@@ -159,3 +159,52 @@ def test_nucleolus_exact_accepts_game():
     # Game は並び順を持つので、order を指定しても効果がない。
     with pytest.raises(ValueError, match="order"):
         coopgame.nucleolus_exact(game, order="lex")
+
+
+# ---------------------------------------------------------------- 数の列と数の引数の型 (全ての引数で共通)
+
+
+@pytest.mark.parametrize("text", ["007", b"\x00\x00\x07", bytearray(b"\x00\x00\x07")])
+def test_number_sequences_reject_text(text):
+    # bytes を 1 バイトずつの整数の列として読まない。
+    for run in (
+        lambda: coopgame.Game(text),
+        lambda: GAME.value(text),
+        lambda: coopgame.verify(GAME, text),
+        lambda: coopgame.normalize(text),
+        lambda: coopgame.Game.weighted_voting(text, 1),
+        lambda: coopgame.aumann_dreze(GAME, [text]),
+        lambda: coopgame.airport(text),
+    ):
+        with pytest.raises(TypeError, match="文字列"):
+            run()
+
+
+def test_number_arguments_reject_bool():
+    for run in (
+        lambda: coopgame.Game([0, 0, True]),
+        lambda: coopgame.verify(GAME, [3, 2, True]),
+        lambda: GAME.is_in_core([3, 2, 1], tolerance=True),
+        lambda: coopgame.shapley_sampling(GAME, True),
+        lambda: coopgame.shapley_sampling(GAME, 10, seed=False),
+        lambda: coopgame.explain(GAME, [3, 2, 1], levels=True),
+        lambda: coopgame.Game.bankruptcy(True, [1, 2]),
+        lambda: coopgame.talmud(True, [1, 2]),
+        lambda: coopgame.talmud(1, [True, 2], exact=True),
+        lambda: coopgame.uncertainty(GAME, relative=True),
+        lambda: coopgame.myerson(GAME, [(0, True)]),
+        lambda: coopgame.InducedSubgraphGame(3, [(0, 1, True)]),
+        lambda: coopgame.FunctionGame(True, len),
+    ):
+        with pytest.raises(TypeError, match="bool"):
+            run()
+
+
+def test_number_sequences_still_accept_sequences_of_numbers():
+    import fractions
+
+    assert coopgame.Game((0, 0, 4)).values() == [0, 0, 4]
+    assert coopgame.verify(GAME, (3.0, 2, 1))["satisfied"]
+    assert coopgame.talmud(fractions.Fraction(1), [1, 2]) == pytest.approx([0.5, 0.5])
+    with pytest.raises(TypeError):
+        coopgame.verify(GAME, {3, 2, 1})  # 順序のない集合は配分として読まない

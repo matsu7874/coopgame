@@ -87,5 +87,5 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 - 結果は辞書で返す。キーは Rust の結果の構造体のフィールド名と同じ。`guarantee` に保証の種類が入る。
 - Python の関数が例外を投げると (Ctrl-C の `KeyboardInterrupt` を含む)、計算を打ち切ってその例外をそのまま送出する。関数が nan・inf を返した場合も、計算を打ち切って `ValueError` を送出する。
 - サンプリング (`shapley_sampling`・`banzhaf_sampling`・`sampled_nucleolus`・`sampled_least_core`) の `evaluations` は、値の関数を実際に呼んだ回数。空提携は `v(空集合) = 0` として呼ばないので数えない。全体提携を含むそれ以外の提携は標本ごとに呼び直す (呼ぶたびに値が揺れる関数でも、揺れが標本間で平均される)。`shapley_sampling` では `permutations * n` になる。
-- 入力の誤りは `ValueError`、LP の失敗などは `RuntimeError` になる。引数の型の誤り (数の列に文字列、許容誤差に `True` など) は `TypeError` になる。
+- 入力の誤りは `ValueError`、LP の失敗などは `RuntimeError` になる。引数の型の誤りは `TypeError` になる: 数の列に str・bytes・bytearray (1 文字・1 バイトずつの列として読まない) や集合 (順序がない) を渡したとき、数の引数に bool (`True` を 1 として読まない) を渡したとき。
 - 提携の中の同じ番号の重複 (`[0, 1, 1]`)、配分の長さ違いと nan・inf、効果のない引数の指定は ValueError になる。

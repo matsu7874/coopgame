@@ -33,7 +33,7 @@ use coopgame::{Coalition, Domain, ExplicitGame, generators, properties};
 use coopgame::{bargaining, communication, compromise, power, values};
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyString, PyTuple};
+use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PySequence, PyString, PyTuple};
 
 fn to_py_err(error: coopgame::Error) -> PyErr {
     match error {
@@ -70,26 +70,117 @@ fn fractions<'py>(py: Python<'py>, values: &[Rational]) -> PyResult<Vec<Bound<'p
 
 /// int・float・`Fraction`・`"8/3"` のような文字列を有理数にする (`str()` を経由する)。
 fn rational_of(value: &Bound<'_, PyAny>) -> PyResult<Rational> {
+    reject_bool(value)?;
     let text: String = value.str()?.extract()?;
     exact::parse_rational(&text).map_err(to_py_err)
 }
 
-/// 許容誤差などの数の引数。`f64` と同じく int・float を受け付けるが、bool は TypeError にする
-/// (`tolerance=True` を 1.0 として読まない)。
-#[derive(Clone, Copy)]
-struct Number(f64);
+/// 数・数の列の引数 (`Arg<f64>`・`Arg<usize>`・`Arg<Vec<f64>>`・`Arg<Vec<(usize, usize)>>` など)。
+///
+/// 全ての数と数の列の引数はこの型で受け取り、入力の誤りを別の意味で読まないようにする。
+/// - 数に bool を渡すと TypeError (`True` を 1 として読まない)。
+/// - 数の列に str・bytes・bytearray を渡すと TypeError (`"007"` を `[0, 0, 7]`、`b"12"` を `[49, 50]` と読まない)。
+/// - 数の列は順序のある列 (list・tuple など。`collections.abc.Sequence`) に限る (集合は順序がないので受け付けない)。
+///
+/// 今後引数を足すときも `Vec<f64>` や `usize` を直接使わず、この型を通す。
+struct Arg<T>(T);
 
-impl<'a, 'py> FromPyObject<'a, 'py> for Number {
+impl<T> std::ops::Deref for Arg<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+/// [`Arg`] で受け取れる型と、その検査つきの読み方。
+trait Strict: Sized {
+    fn extract_strict(value: &Bound<'_, PyAny>) -> PyResult<Self>;
+}
+
+/// 数に bool が渡されたら TypeError にする (bool は int の部分型なので、そのままでは 1・0 として読める)。
+fn reject_bool(value: &Bound<'_, PyAny>) -> PyResult<()> {
+    if value.is_instance_of::<PyBool>() {
+        return Err(PyTypeError::new_err(format!(
+            "数を指定する (bool は受け付けない): {}",
+            value.repr()?
+        )));
+    }
+    Ok(())
+}
+
+macro_rules! strict_number {
+    ($($t:ty),*) => {$(
+        impl Strict for $t {
+            fn extract_strict(value: &Bound<'_, PyAny>) -> PyResult<Self> {
+                reject_bool(value)?;
+                value.extract::<$t>()
+            }
+        }
+    )*};
+}
+strict_number!(f64, usize, u64, u8);
+
+/// 数の列の要素を順に読む。列が文字列か、順序のある列でなければ TypeError。
+fn sequence_items<'py>(value: &Bound<'py, PyAny>) -> PyResult<Vec<Bound<'py, PyAny>>> {
+    reject_text_sequence(value)?;
+    let sequence = value.cast::<PySequence>().map_err(|_| {
+        let type_name = value
+            .get_type()
+            .name()
+            .map_or_else(|_| "?".to_string(), |name| name.to_string());
+        PyTypeError::new_err(format!(
+            "数の列は list・tuple などの順序のある列で渡す (受け取った型: {type_name})"
+        ))
+    })?;
+    sequence.try_iter()?.collect()
+}
+
+impl<T: Strict> Strict for Vec<T> {
+    fn extract_strict(value: &Bound<'_, PyAny>) -> PyResult<Self> {
+        sequence_items(value)?
+            .iter()
+            .map(T::extract_strict)
+            .collect()
+    }
+}
+
+/// 組 (辺など) を、長さを確かめて読む。
+fn tuple_items<'py>(value: &Bound<'py, PyAny>, len: usize) -> PyResult<Vec<Bound<'py, PyAny>>> {
+    let items = sequence_items(value)?;
+    if items.len() != len {
+        return Err(PyTypeError::new_err(format!(
+            "長さ {len} の組を渡す (長さ {}): {}",
+            items.len(),
+            value.repr()?
+        )));
+    }
+    Ok(items)
+}
+
+impl<A: Strict, B: Strict> Strict for (A, B) {
+    fn extract_strict(value: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let items = tuple_items(value, 2)?;
+        Ok((A::extract_strict(&items[0])?, B::extract_strict(&items[1])?))
+    }
+}
+
+impl<A: Strict, B: Strict, C: Strict> Strict for (A, B, C) {
+    fn extract_strict(value: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let items = tuple_items(value, 3)?;
+        Ok((
+            A::extract_strict(&items[0])?,
+            B::extract_strict(&items[1])?,
+            C::extract_strict(&items[2])?,
+        ))
+    }
+}
+
+impl<'a, 'py, T: Strict> FromPyObject<'a, 'py> for Arg<T> {
     type Error = PyErr;
 
-    fn extract(value: Borrowed<'a, 'py, PyAny>) -> PyResult<Number> {
-        if value.is_instance_of::<PyBool>() {
-            return Err(PyTypeError::new_err(format!(
-                "数を指定する (bool は受け付けない): {}",
-                value.repr()?
-            )));
-        }
-        Ok(Number(value.extract::<f64>()?))
+    fn extract(value: Borrowed<'a, 'py, PyAny>) -> PyResult<Arg<T>> {
+        T::extract_strict(&value).map(Arg)
     }
 }
 
@@ -108,31 +199,28 @@ fn is_lex(order: &str) -> PyResult<bool> {
 ///
 /// 文字列は 1 文字ずつ (bytes は 1 バイトずつの整数) の列として読めてしまうので、`"007"` を `[0, 0, 7]`、
 /// `b"12"` を `[49, 50]` と読まないようにする。
-fn reject_text_sequence(name: &str, values: &Bound<'_, PyAny>) -> PyResult<()> {
+fn reject_text_sequence(values: &Bound<'_, PyAny>) -> PyResult<()> {
     if values.is_instance_of::<PyString>()
         || values.is_instance_of::<PyBytes>()
         || values.is_instance_of::<PyByteArray>()
     {
         return Err(PyTypeError::new_err(format!(
-            "{name} は数の列 (list・tuple など)。文字列は数の列として読まない: {}",
+            "文字列 (str・bytes・bytearray) は数の列として読まない。list・tuple などで渡す: {}",
             values.repr()?
         )));
     }
     Ok(())
 }
 
-/// 有理数の値 (int・Fraction・"8/3"・"0.1") の列を読む。列が文字列なら TypeError ([`reject_text_sequence`])。
-fn rational_sequence(name: &str, values: &Bound<'_, PyAny>) -> PyResult<Vec<Rational>> {
-    reject_text_sequence(name, values)?;
-    values
-        .try_iter()?
-        .map(|value| rational_of(&value?))
-        .collect()
+/// 有理数の値 (int・Fraction・"8/3"・"0.1") の列を読む。列の検査は [`Arg`] の数の列と同じ
+/// (文字列と、順序のない列は TypeError)。
+fn rational_sequence(values: &Bound<'_, PyAny>) -> PyResult<Vec<Rational>> {
+    sequence_items(values)?.iter().map(rational_of).collect()
 }
 
 /// 有理数の値 (int・Fraction・"8/3"・"0.1") の列から、`order` の並びのゲームを作る。
 fn exact_game(values: &Bound<'_, PyAny>, order: &str) -> PyResult<exact::ExactGame> {
-    let values = rational_sequence("values", values)?;
+    let values = rational_sequence(values)?;
     if is_lex(order)? {
         exact::ExactGame::from_lex(values)
     } else {
@@ -181,7 +269,8 @@ impl Game {
 impl Game {
     #[new]
     #[pyo3(signature = (values, order = "binary", kind = "value"))]
-    fn new(values: Vec<f64>, order: &str, kind: &str) -> PyResult<Game> {
+    fn new(values: Arg<Vec<f64>>, order: &str, kind: &str) -> PyResult<Game> {
+        let values = values.0;
         let kind = io_core::Kind::parse(kind).ok_or_else(|| {
             PyValueError::new_err(format!("kind は \"value\" か \"cost\": {kind:?}"))
         })?;
@@ -218,7 +307,8 @@ impl Game {
 
     /// `function(coalition)` (提携はプレイヤー番号のタプル) を全ての空でない提携で評価して作る。
     #[staticmethod]
-    fn from_function(players: usize, function: &Bound<'_, PyAny>) -> PyResult<Game> {
+    fn from_function(players: Arg<usize>, function: &Bound<'_, PyAny>) -> PyResult<Game> {
+        let players = players.0;
         if players == 0 || players > coopgame::game::MAX_PLAYERS {
             return Err(PyValueError::new_err(format!(
                 "人数は 1 以上 {} 以下",
@@ -233,26 +323,33 @@ impl Game {
                     .extract::<f64>()
             })
             .collect::<PyResult<_>>()?;
-        Game::new(values, "binary", "value")
+        Game::new(Arg(values), "binary", "value")
     }
 
     /// 重み付き投票ゲーム: 重みの和が `quota` 以上の提携の値が 1、他は 0。
     #[staticmethod]
-    fn weighted_voting(weights: Vec<f64>, quota: f64) -> PyResult<Game> {
+    fn weighted_voting(weights: Arg<Vec<f64>>, quota: Arg<f64>) -> PyResult<Game> {
+        let weights = weights.0;
+        let quota = quota.0;
         let inner = generators::weighted_voting(&weights, quota).map_err(to_py_err)?;
         Ok(Game::of_values(inner))
     }
 
     /// 破産ゲーム `v(S) = max(0, estate - claims(N \ S))`。
     #[staticmethod]
-    fn bankruptcy(estate: f64, claims: Vec<f64>) -> PyResult<Game> {
+    fn bankruptcy(estate: Arg<f64>, claims: Arg<Vec<f64>>) -> PyResult<Game> {
+        let estate = estate.0;
+        let claims = claims.0;
         let inner = generators::bankruptcy(estate, &claims).map_err(to_py_err)?;
         Ok(Game::of_values(inner))
     }
 
     /// Benedek, Fliege & Nguyen (2021) のゲームタイプ 1-5 の乱数ゲーム。
     #[staticmethod]
-    fn bnf(kind: u8, players: usize, seed: u64) -> PyResult<Game> {
+    fn bnf(kind: Arg<u8>, players: Arg<usize>, seed: Arg<u64>) -> PyResult<Game> {
+        let kind = kind.0;
+        let players = players.0;
+        let seed = seed.0;
         let inner = generators::bnf(kind, players, seed).map_err(to_py_err)?;
         Ok(Game::of_values(inner))
     }
@@ -263,7 +360,8 @@ impl Game {
     }
 
     /// 提携 (プレイヤー番号の列) の値。空の提携は 0。
-    fn value(&self, coalition: Vec<usize>) -> PyResult<f64> {
+    fn value(&self, coalition: Arg<Vec<usize>>) -> PyResult<f64> {
+        let coalition = coalition.0;
         let coalition = coalition_of(self.inner.players(), &coalition)?;
         Ok(self.inner.value(coalition))
     }
@@ -294,8 +392,10 @@ impl Game {
     }
 
     /// 配分 `x` がコアに属するか。長さがプレイヤー数と異なれば ValueError。
-    #[pyo3(signature = (x, tolerance = 1e-9))]
-    fn is_in_core(&self, x: Vec<f64>, tolerance: f64) -> PyResult<bool> {
+    #[pyo3(signature = (x, tolerance = Arg(1e-9)))]
+    fn is_in_core(&self, x: Arg<Vec<f64>>, tolerance: Arg<f64>) -> PyResult<bool> {
+        let x = x.0;
+        let tolerance = tolerance.0;
         self.require_value()?;
         check_length(self, &x)?;
         properties::is_in_core(&self.inner, &x, tolerance).map_err(to_py_err)
@@ -327,7 +427,8 @@ struct FunctionGame {
 #[pymethods]
 impl FunctionGame {
     #[new]
-    fn new(players: usize, function: Py<PyAny>) -> PyResult<FunctionGame> {
+    fn new(players: Arg<usize>, function: Py<PyAny>) -> PyResult<FunctionGame> {
+        let players = players.0;
         if players == 0 {
             return Err(PyValueError::new_err("人数は 1 以上"));
         }
@@ -545,7 +646,7 @@ fn nucleolus_dict<'py>(
 /// どちらの指定もなければ `None` (関数ごとの既定を使う)。
 fn parse_tolerance(
     tolerance: Option<&Bound<'_, PyAny>>,
-    rel_tolerance: Option<Number>,
+    rel_tolerance: Option<f64>,
 ) -> PyResult<Option<Tolerance>> {
     // 値は解く前に確かめる (uncertainty は解けなかった標本を数えるだけなので、指定の誤りが紛れないようにする)。
     // `-0.0` は 0 として扱う。
@@ -569,13 +670,13 @@ fn parse_tolerance(
             }
             Err(_) => Some(Tolerance::Absolute(checked(
                 "tolerance",
-                value.extract::<Number>()?.0,
+                f64::extract_strict(value)?,
             )?)),
         },
     };
     let relative = match rel_tolerance {
         None => None,
-        Some(Number(ratio)) => Some(Tolerance::Relative(checked("rel_tolerance", ratio)?)),
+        Some(ratio) => Some(Tolerance::Relative(checked("rel_tolerance", ratio)?)),
     };
     match (absolute, relative) {
         (Some(_), Some(_)) => Err(PyValueError::new_err(
@@ -616,8 +717,9 @@ fn nucleolus<'py>(
     domain: &str,
     method: &str,
     tolerance: Option<&Bound<'_, PyAny>>,
-    rel_tolerance: Option<Number>,
+    rel_tolerance: Option<Arg<f64>>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let rel_tolerance = rel_tolerance.map(|Arg(v)| v);
     let mut options = Options::new(parse_domain(domain)?);
     options.tolerance = parse_tolerance(tolerance, rel_tolerance)?.unwrap_or(Tolerance::Auto);
     options.method = match method {
@@ -668,9 +770,11 @@ fn kernel_point<'py>(
     py: Python<'py>,
     game: ValueGame<'_>,
     domain: &str,
-    start: Option<Vec<f64>>,
-    max_iterations: Option<usize>,
+    start: Option<Arg<Vec<f64>>>,
+    max_iterations: Option<Arg<usize>>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let start = start.map(|Arg(v)| v);
+    let max_iterations = max_iterations.map(|Arg(v)| v);
     let mut options = TransferOptions::for_game(&game.inner);
     if let Some(max_iterations) = max_iterations {
         options.max_iterations = max_iterations;
@@ -695,7 +799,8 @@ fn kernel_point<'py>(
 /// `x` の長さがプレイヤー数と異なるか、nan・inf を含めば ValueError。
 #[pyfunction]
 #[pyo3(signature = (game, x, domain = "imputation"))]
-fn kernel_violation(game: ValueGame<'_>, x: Vec<f64>, domain: &str) -> PyResult<f64> {
+fn kernel_violation(game: ValueGame<'_>, x: Arg<Vec<f64>>, domain: &str) -> PyResult<f64> {
+    let x = x.0;
     kernel::kernel_violation(&game.inner, &x, parse_domain(domain)?).map_err(to_py_err)
 }
 
@@ -704,14 +809,13 @@ fn kernel_violation(game: ValueGame<'_>, x: Vec<f64>, domain: &str) -> PyResult<
 #[pyo3(signature = (game, x, domain = "imputation", tolerance = None))]
 fn is_in_kernel(
     game: ValueGame<'_>,
-    x: Vec<f64>,
+    x: Arg<Vec<f64>>,
     domain: &str,
-    tolerance: Option<Number>,
+    tolerance: Option<Arg<f64>>,
 ) -> PyResult<bool> {
-    let tolerance = tolerance.map_or_else(
-        || coopgame::game::default_tolerance(&game.inner),
-        |Number(t)| t,
-    );
+    let x = x.0;
+    let tolerance = tolerance.map(|Arg(v)| v);
+    let tolerance = tolerance.unwrap_or_else(|| coopgame::game::default_tolerance(&game.inner));
     kernel::is_in_kernel(&game.inner, &x, parse_domain(domain)?, tolerance).map_err(to_py_err)
 }
 
@@ -740,9 +844,10 @@ fn kernel_set<'py>(
     py: Python<'py>,
     game: ValueGame<'_>,
     domain: &str,
-    max_nodes: Option<usize>,
+    max_nodes: Option<Arg<usize>>,
     merge: bool,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let max_nodes = max_nodes.map(|Arg(v)| v);
     let mut options = SetOptions::for_game(&game.inner);
     if let Some(max_nodes) = max_nodes {
         options.max_nodes = max_nodes;
@@ -791,9 +896,10 @@ fn check_length(game: &Game, x: &[f64]) -> PyResult<()> {
 fn verify<'py>(
     py: Python<'py>,
     game: ValueGame<'_>,
-    x: Vec<f64>,
+    x: Arg<Vec<f64>>,
     domain: &str,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let x = x.0;
     check_length(&game, &x)?;
     let report =
         verify_core::kohlberg(&game.inner, &x, parse_domain(domain)?).map_err(to_py_err)?;
@@ -812,9 +918,10 @@ fn verify<'py>(
 fn certify<'py>(
     py: Python<'py>,
     game: ValueGame<'_>,
-    x: Vec<f64>,
+    x: Arg<Vec<f64>>,
     domain: &str,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let x = x.0;
     check_length(&game, &x)?;
     let report = verify_core::certify(&game.inner, &x, parse_domain(domain)?).map_err(to_py_err)?;
     let dict = PyDict::new(py);
@@ -834,10 +941,11 @@ fn certify<'py>(
 fn certify_rational<'py>(
     py: Python<'py>,
     values: &Bound<'py, PyAny>,
-    x: Vec<f64>,
+    x: Arg<Vec<f64>>,
     domain: &str,
     order: &str,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let x = x.0;
     let game = exact_game(values, order)?;
     if x.len() != game.players() {
         return Err(PyValueError::new_err("配分の長さがプレイヤー数と異なる"));
@@ -855,13 +963,15 @@ fn certify_rational<'py>(
 /// プレイヤーごとの最も不満な提携。`text` に日本語の説明文が入る (プレイヤーは 0 始まりの番号)。
 /// `x` の長さがプレイヤー数と異なるか、nan・inf を含めば ValueError。
 #[pyfunction]
-#[pyo3(signature = (game, x, levels = 3))]
+#[pyo3(signature = (game, x, levels = Arg(3)))]
 fn explain<'py>(
     py: Python<'py>,
     game: ValueGame<'_>,
-    x: Vec<f64>,
-    levels: usize,
+    x: Arg<Vec<f64>>,
+    levels: Arg<usize>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let x = x.0;
+    let levels = levels.0;
     let mut options = explain_core::ExplainOptions::default();
     options.levels = levels;
     let report = explain_core::report(&game.inner, &x, options).map_err(to_py_err)?;
@@ -918,8 +1028,9 @@ fn explain<'py>(
 fn compare<'py>(
     py: Python<'py>,
     game: ValueGame<'_>,
-    candidates: Vec<Vec<f64>>,
+    candidates: Arg<Vec<Vec<f64>>>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let candidates = candidates.0;
     let rows = explain_core::compare(&game.inner, &candidates).map_err(to_py_err)?;
     let dict = PyDict::new(py);
     dict.set_item("text", explain_core::render_comparison(&rows))?;
@@ -951,7 +1062,8 @@ fn cost_nucleolus(game: AnyKindGame<'_>) -> PyResult<Vec<f64>> {
 /// 空港ゲーム (提携の費用 = 提携内の最大の費用) の費用分担。`shapley` は Littlechild & Owen (1973) の式、
 /// `nucleolus` は凸ゲームの手法 (節約ゲームが凸)。人数の上限はない。
 #[pyfunction]
-fn airport<'py>(py: Python<'py>, costs: Vec<f64>) -> PyResult<Bound<'py, PyDict>> {
+fn airport<'py>(py: Python<'py>, costs: Arg<Vec<f64>>) -> PyResult<Bound<'py, PyDict>> {
+    let costs = costs.0;
     let game = AirportGame::new(costs).map_err(to_py_err)?;
     let dict = PyDict::new(py);
     dict.set_item("shapley", game.shapley_costs())?;
@@ -965,9 +1077,10 @@ fn airport<'py>(py: Python<'py>, costs: Vec<f64>) -> PyResult<Bound<'py, PyDict>
 #[pyo3(signature = (costs, nucleolus = true))]
 fn spanning_tree<'py>(
     py: Python<'py>,
-    costs: Vec<Vec<f64>>,
+    costs: Arg<Vec<Vec<f64>>>,
     nucleolus: bool,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let costs = costs.0;
     let game = SpanningTreeGame::new(costs).map_err(to_py_err)?;
     let dict = PyDict::new(py);
     dict.set_item("bird", game.bird_rule())?;
@@ -986,10 +1099,13 @@ fn spanning_tree<'py>(
 #[pyfunction]
 fn linear_production<'py>(
     py: Python<'py>,
-    technology: Vec<Vec<f64>>,
-    prices: Vec<f64>,
-    resources: Vec<Vec<f64>>,
+    technology: Arg<Vec<Vec<f64>>>,
+    prices: Arg<Vec<f64>>,
+    resources: Arg<Vec<Vec<f64>>>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let technology = technology.0;
+    let prices = prices.0;
+    let resources = resources.0;
     let game = LinearProductionGame::new(technology, prices, resources).map_err(to_py_err)?;
     let dict = PyDict::new(py);
     dict.set_item("shadow_prices", game.shadow_prices().map_err(to_py_err)?)?;
@@ -1006,7 +1122,7 @@ fn linear_production<'py>(
 fn solver_by_name(
     name: &str,
     tolerance: Option<&Bound<'_, PyAny>>,
-    rel_tolerance: Option<Number>,
+    rel_tolerance: Option<f64>,
 ) -> PyResult<uncertainty_core::Solver> {
     let tolerance = match parse_tolerance(tolerance, rel_tolerance)? {
         None => Tolerance::Relative(1e-7),
@@ -1035,19 +1151,23 @@ fn solver_by_name(
 /// 比 `1e-7` の許容誤差で 1 回だけ解く。`tolerance="auto"` は、`nucleolus` の既定の手順で解く
 /// (有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
 #[pyfunction]
-#[pyo3(signature = (game, relative = None, upper = None, samples = 200, seed = 0, solver = "nucleolus", tolerance = None, rel_tolerance = None))]
+#[pyo3(signature = (game, relative = None, upper = None, samples = Arg(200), seed = Arg(0), solver = "nucleolus", tolerance = None, rel_tolerance = None))]
 #[allow(clippy::too_many_arguments)]
 fn uncertainty<'py>(
     py: Python<'py>,
     game: ValueGame<'_>,
-    relative: Option<f64>,
+    relative: Option<Arg<f64>>,
     upper: Option<ValueGame<'py>>,
-    samples: usize,
-    seed: u64,
+    samples: Arg<usize>,
+    seed: Arg<u64>,
     solver: &str,
     tolerance: Option<&Bound<'_, PyAny>>,
-    rel_tolerance: Option<Number>,
+    rel_tolerance: Option<Arg<f64>>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let relative = relative.map(|Arg(v)| v);
+    let samples = samples.0;
+    let seed = seed.0;
+    let rel_tolerance = rel_tolerance.map(|Arg(v)| v);
     let interval = match (relative, upper) {
         (Some(relative), None) => uncertainty_core::IntervalGame::around(&game.inner, relative),
         (None, Some(upper)) => {
@@ -1095,13 +1215,17 @@ type InfluenceRow = (Vec<usize>, Vec<f64>, String);
 #[pyo3(signature = (game, coalitions = None, solver = "nucleolus", levels = None, delta = None, tolerance = None, rel_tolerance = None))]
 fn influence(
     game: ValueGame<'_>,
-    coalitions: Option<Vec<Vec<usize>>>,
+    coalitions: Option<Arg<Vec<Vec<usize>>>>,
     solver: &str,
-    levels: Option<usize>,
-    delta: Option<f64>,
+    levels: Option<Arg<usize>>,
+    delta: Option<Arg<f64>>,
     tolerance: Option<&Bound<'_, PyAny>>,
-    rel_tolerance: Option<Number>,
+    rel_tolerance: Option<Arg<f64>>,
 ) -> PyResult<Vec<InfluenceRow>> {
+    let coalitions = coalitions.map(|Arg(v)| v);
+    let levels = levels.map(|Arg(v)| v);
+    let delta = delta.map(|Arg(v)| v);
+    let rel_tolerance = rel_tolerance.map(|Arg(v)| v);
     let n = game.inner.players();
     if coalitions.is_some() && levels.is_some() {
         return Err(PyValueError::new_err(
@@ -1175,13 +1299,14 @@ fn nucleolus_exact<'py>(
 /// `predicate(game)` は「反例であるか」を返す関数。戻り値は `(縮小したゲーム, 受け入れた変形の数)`。
 /// `predicate` が例外を投げると (Ctrl-C の KeyboardInterrupt を含む)、縮小を打ち切ってその例外を送出する。
 #[pyfunction]
-#[pyo3(signature = (game, predicate, budget = 2000))]
+#[pyo3(signature = (game, predicate, budget = Arg(2000)))]
 fn shrink(
     py: Python<'_>,
     game: ValueGame<'_>,
     predicate: &Bound<'_, PyAny>,
-    budget: usize,
+    budget: Arg<usize>,
 ) -> PyResult<(Game, usize)> {
+    let budget = budget.0;
     let error: RefCell<Option<PyErr>> = RefCell::new(None);
     let mut call = |candidate: &ExplicitGame| -> bool {
         // predicate が Python のバイトコードを実行しない場合にも Ctrl-C で止まるようにする。
@@ -1279,8 +1404,9 @@ fn partial_nucleolus<'py>(
     format: &str,
     domain: &str,
     tolerance: Option<&Bound<'_, PyAny>>,
-    rel_tolerance: Option<Number>,
+    rel_tolerance: Option<Arg<f64>>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let rel_tolerance = rel_tolerance.map(|Arg(v)| v);
     let data = parse_game_data(text, format)?;
     let domain = parse_domain(domain)?;
     let tolerance = parse_tolerance(tolerance, rel_tolerance)?.unwrap_or(Tolerance::Auto);
@@ -1303,14 +1429,16 @@ fn coalition_structure(
 
 /// Aumann–Drèze 値: 提携構造 `blocks` (プレイヤー番号のリストのリスト、N の分割) の各ブロック内の Shapley 値。
 #[pyfunction]
-fn aumann_dreze(game: ValueGame<'_>, blocks: Vec<Vec<usize>>) -> PyResult<Vec<f64>> {
+fn aumann_dreze(game: ValueGame<'_>, blocks: Arg<Vec<Vec<usize>>>) -> PyResult<Vec<f64>> {
+    let blocks = blocks.0;
     let structure = coalition_structure(&game, blocks)?;
     partition::aumann_dreze(&game.inner, &structure).map_err(to_py_err)
 }
 
 /// Owen 値: 事前の連合 `unions` (N の分割) のもとでの値 (連合の順序と連合内の順序を一様に選ぶ)。
 #[pyfunction]
-fn owen(game: ValueGame<'_>, unions: Vec<Vec<usize>>) -> PyResult<Vec<f64>> {
+fn owen(game: ValueGame<'_>, unions: Arg<Vec<Vec<usize>>>) -> PyResult<Vec<f64>> {
+    let unions = unions.0;
     let structure = coalition_structure(&game, unions)?;
     partition::owen(&game.inner, &structure).map_err(to_py_err)
 }
@@ -1321,9 +1449,10 @@ fn owen(game: ValueGame<'_>, unions: Vec<Vec<usize>>) -> PyResult<Vec<f64>> {
 fn structured_nucleolus<'py>(
     py: Python<'py>,
     game: ValueGame<'_>,
-    blocks: Vec<Vec<usize>>,
+    blocks: Arg<Vec<Vec<usize>>>,
     domain: &str,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let blocks = blocks.0;
     let structure = coalition_structure(&game, blocks)?;
     let result =
         partition::nucleolus(&game.inner, &structure, parse_domain(domain)?).map_err(to_py_err)?;
@@ -1342,9 +1471,10 @@ fn plot_svg<'py>(
     game: ValueGame<'_>,
     kernel: bool,
     shapley: bool,
-    points: Option<Vec<Vec<f64>>>,
+    points: Option<Arg<Vec<Vec<f64>>>>,
     title: Option<String>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let points = points.map(|Arg(v)| v);
     let mut options = plot_core::PlotOptions::default();
     options.kernel = kernel;
     options.shapley = shapley;
@@ -1410,13 +1540,15 @@ fn utopia_payoffs<'py>(py: Python<'py>, game: ValueGame<'_>) -> PyResult<Bound<'
 
 /// Myerson 値: 通信グラフ `edges` (プレイヤー番号の組の列) で制限したゲームの Shapley 値 (Myerson 1977)。
 #[pyfunction]
-fn myerson(game: ValueGame<'_>, edges: Vec<(usize, usize)>) -> PyResult<Vec<f64>> {
+fn myerson(game: ValueGame<'_>, edges: Arg<Vec<(usize, usize)>>) -> PyResult<Vec<f64>> {
+    let edges = edges.0;
     communication::myerson(&game.inner, &edges).map_err(to_py_err)
 }
 
 /// グラフ制限ゲーム `v^g(S) = sum_{C in S/g} v(C)`。
 #[pyfunction]
-fn graph_restricted(game: ValueGame<'_>, edges: Vec<(usize, usize)>) -> PyResult<Game> {
+fn graph_restricted(game: ValueGame<'_>, edges: Arg<Vec<(usize, usize)>>) -> PyResult<Game> {
+    let edges = edges.0;
     let inner = communication::graph_restricted(&game.inner, &edges).map_err(to_py_err)?;
     Ok(Game::of_values(inner))
 }
@@ -1477,7 +1609,8 @@ fn dual(game: ValueGame<'_>) -> PyResult<Game> {
 
 /// 和が 1 になるように割る。
 #[pyfunction]
-fn normalize(values: Vec<f64>) -> Vec<f64> {
+fn normalize(values: Arg<Vec<f64>>) -> Vec<f64> {
+    let values = values.0;
     values::normalize(&values)
 }
 
@@ -1494,13 +1627,15 @@ fn estimate_dict<'py>(py: Python<'py>, estimate: values::Estimate) -> PyResult<B
 ///
 /// `evaluations` は関数を呼んだ回数 (`permutations * n`。空提携は呼ばない。全体提携は順列ごとに呼ぶ)。
 #[pyfunction]
-#[pyo3(signature = (game, permutations, seed = 0))]
+#[pyo3(signature = (game, permutations, seed = Arg(0)))]
 fn shapley_sampling<'py>(
     py: Python<'py>,
     game: &Bound<'py, PyAny>,
-    permutations: usize,
-    seed: u64,
+    permutations: Arg<usize>,
+    seed: Arg<u64>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let permutations = permutations.0;
+    let seed = seed.0;
     let estimate = with_set_function(game, |g| {
         values::shapley_sampling(g, permutations, seed).map_err(to_py_err)
     })?;
@@ -1511,13 +1646,15 @@ fn shapley_sampling<'py>(
 ///
 /// `evaluations` は関数を呼んだ回数 (標本あたり最大 `n + 1` 回。空提携は呼ばないので、その分少なくなる)。
 #[pyfunction]
-#[pyo3(signature = (game, samples, seed = 0))]
+#[pyo3(signature = (game, samples, seed = Arg(0)))]
 fn banzhaf_sampling<'py>(
     py: Python<'py>,
     game: &Bound<'py, PyAny>,
-    samples: usize,
-    seed: u64,
+    samples: Arg<usize>,
+    seed: Arg<u64>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let samples = samples.0;
+    let seed = seed.0;
     let estimate = with_set_function(game, |g| {
         values::banzhaf_sampling(g, samples, seed).map_err(to_py_err)
     })?;
@@ -1526,14 +1663,16 @@ fn banzhaf_sampling<'py>(
 
 /// 提携を `pairs` 組 (補集合と組で) サンプルし、サンプルした提携だけで仁 (既定はプレ仁) を求める。
 #[pyfunction]
-#[pyo3(signature = (game, pairs, seed = 0, domain = "preimputation"))]
+#[pyo3(signature = (game, pairs, seed = Arg(0), domain = "preimputation"))]
 fn sampled_nucleolus<'py>(
     py: Python<'py>,
     game: &Bound<'py, PyAny>,
-    pairs: usize,
-    seed: u64,
+    pairs: Arg<usize>,
+    seed: Arg<u64>,
     domain: &str,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let pairs = pairs.0;
+    let seed = seed.0;
     let domain = parse_domain(domain)?;
     let result = with_set_function(game, |g| {
         sampled::nucleolus(g, pairs, seed, domain).map_err(to_py_err)
@@ -1549,14 +1688,16 @@ fn sampled_nucleolus<'py>(
 
 /// 提携を `pairs` 組サンプルし、サンプルした提携だけで最小コアの配分を 1 つ求める (Yan & Procaccia 2021)。
 #[pyfunction]
-#[pyo3(signature = (game, pairs, seed = 0, domain = "preimputation"))]
+#[pyo3(signature = (game, pairs, seed = Arg(0), domain = "preimputation"))]
 fn sampled_least_core<'py>(
     py: Python<'py>,
     game: &Bound<'py, PyAny>,
-    pairs: usize,
-    seed: u64,
+    pairs: Arg<usize>,
+    seed: Arg<u64>,
     domain: &str,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let pairs = pairs.0;
+    let seed = seed.0;
     let domain = parse_domain(domain)?;
     let (least, evaluations) = with_set_function(game, |g| {
         sampled::least_core(g, pairs, seed, domain).map_err(to_py_err)
@@ -1625,14 +1766,14 @@ fn modiclus<'py>(py: Python<'py>, game: ValueGame<'_>) -> PyResult<Bound<'py, Py
 fn bargaining_set<'py>(
     py: Python<'py>,
     game: ValueGame<'_>,
-    x: Vec<f64>,
+    x: Arg<Vec<f64>>,
     domain: &str,
-    tolerance: Option<Number>,
+    tolerance: Option<Arg<f64>>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let tolerance = tolerance.map_or_else(
-        || 10.0 * coopgame::game::default_tolerance(&game.inner),
-        |Number(t)| t,
-    );
+    let x = x.0;
+    let tolerance = tolerance.map(|Arg(v)| v);
+    let tolerance =
+        tolerance.unwrap_or_else(|| 10.0 * coopgame::game::default_tolerance(&game.inner));
     let report =
         bargaining::check(&game.inner, &x, parse_domain(domain)?, tolerance).map_err(to_py_err)?;
     let dict = PyDict::new(py);
@@ -1667,7 +1808,9 @@ struct GraphGame {
 #[pymethods]
 impl GraphGame {
     #[new]
-    fn new(players: usize, edges: Vec<(usize, usize, f64)>) -> PyResult<GraphGame> {
+    fn new(players: Arg<usize>, edges: Arg<Vec<(usize, usize, f64)>>) -> PyResult<GraphGame> {
+        let players = players.0;
+        let edges = edges.0;
         let inner = InducedSubgraphGame::new(players, edges).map_err(to_py_err)?;
         Ok(GraphGame { inner })
     }
@@ -1677,7 +1820,8 @@ impl GraphGame {
         SetFunction::players(&self.inner)
     }
 
-    fn value(&self, coalition: Vec<usize>) -> PyResult<f64> {
+    fn value(&self, coalition: Arg<Vec<usize>>) -> PyResult<f64> {
+        let coalition = coalition.0;
         let n = SetFunction::players(&self.inner);
         let coalition = PlayerSet::try_from_players(n, &coalition).map_err(to_py_err)?;
         Ok(self.inner.value(&coalition))
@@ -1824,16 +1968,19 @@ fn auto_nucleolus<'py>(py: Python<'py>, game: &Bound<'py, PyAny>) -> PyResult<Bo
 /// 厳密な配分を復元する。復元できないとき、`"auto"` (既定) は 8 人以下のときだけ有理数の逐次 LP で求め直す。
 /// `"exact"` は 10 人まで求め直す (9・10 人では数分かかることがある)。`"lp"` は逐次 LP の仁だけを使う。
 #[pyfunction]
-#[pyo3(signature = (game, allocation, domain = "imputation", pairs = 8, seed = 0, reference = "auto"))]
+#[pyo3(signature = (game, allocation, domain = "imputation", pairs = Arg(8), seed = Arg(0), reference = "auto"))]
 fn verify_solution<'py>(
     py: Python<'py>,
     game: &Bound<'py, PyAny>,
-    allocation: Vec<f64>,
+    allocation: Arg<Vec<f64>>,
     domain: &str,
-    pairs: usize,
-    seed: u64,
+    pairs: Arg<usize>,
+    seed: Arg<u64>,
     reference: &str,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let allocation = allocation.0;
+    let pairs = pairs.0;
+    let seed = seed.0;
     let domain = parse_domain(domain)?;
     let reference = parse_reference(reference)?;
     let check = with_set_function(game, |g| {
@@ -1876,13 +2023,12 @@ fn apply_rule<'py>(
     exact: bool,
 ) -> PyResult<Bound<'py, PyAny>> {
     if exact {
-        let claims = rational_sequence("claims", claims)?;
+        let claims = rational_sequence(claims)?;
         let shares = exact_rule(rational_of(estate)?, &claims).map_err(to_py_err)?;
         Ok(fractions(py, &shares)?.into_pyobject(py)?.into_any())
     } else {
-        reject_text_sequence("claims", claims)?;
-        let claims: Vec<f64> = claims.extract()?;
-        let shares = float_rule(estate.extract()?, &claims).map_err(to_py_err)?;
+        let claims = Vec::<f64>::extract_strict(claims)?;
+        let shares = float_rule(f64::extract_strict(estate)?, &claims).map_err(to_py_err)?;
         Ok(shares.into_pyobject(py)?.into_any())
     }
 }
