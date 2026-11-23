@@ -697,11 +697,22 @@ fn with_set_function<T>(
     ))
 }
 
+/// 領域の名前 (`parse_domain` が受け付ける文字列)。
+fn domain_name(domain: Domain) -> &'static str {
+    match domain {
+        Domain::Imputation => "imputation",
+        Domain::Preimputation => "preimputation",
+    }
+}
+
+/// 仁の結果の辞書。`domain` は解を探した範囲 (`"imputation"` か `"preimputation"`)。
 fn nucleolus_dict<'py>(
     py: Python<'py>,
     result: nucleolus_core::NucleolusResult,
+    domain: Domain,
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
+    dict.set_item("domain", domain_name(domain))?;
     dict.set_item("allocation", result.allocation())?;
     dict.set_item("levels", result.levels())?;
     dict.set_item("lp_solves", result.lp_solves())?;
@@ -804,7 +815,7 @@ fn nucleolus<'py>(
         }
     };
     let result = nucleolus_core::nucleolus_with(&game.inner, options).map_err(to_py_err)?;
-    nucleolus_dict(py, result)
+    nucleolus_dict(py, result, options.domain)
 }
 
 /// プレ仁 (`nucleolus(game, "preimputation")` と同じ)。
@@ -1121,30 +1132,51 @@ fn compare<'py>(
     Ok(dict)
 }
 
-/// `game` を費用ゲーム `c(S)` として読み、仁による費用の分担を返す (節約ゲームの仁を費用に直す)。
-/// `kind="cost"` のゲームも `kind="value"` のゲームも、値を費用として読む。
+/// `game` を費用ゲーム `c(S)` として読み、仁 (`domain="imputation"`) またはプレ仁による費用の分担を求める
+/// (節約ゲームの仁を費用に直す)。`kind="cost"` のゲームも `kind="value"` のゲームも、値を費用として読む。
 /// Shapley 値は線形なので、費用ゲームにそのまま `shapley(game)` を使えば費用の分担になる。
+///
+/// 戻り値は `nucleolus` と同じ形の辞書で、`allocation` が費用の分担。`levels`・`tolerance`・`guarantee` は
+/// 節約ゲームの仁のもの (費用の分担での不満 `y(S) - c(S)` は節約ゲームの超過に等しい)。
+/// `tolerance`・`rel_tolerance` と保証の規則は `nucleolus` と同じ (値は節約ゲームの値で測る)。
 #[pyfunction]
-fn cost_nucleolus(game: AnyKindGame<'_>) -> PyResult<Vec<f64>> {
-    CostGame::new(game.inner.clone())
-        .nucleolus()
-        .map_err(to_py_err)
+#[pyo3(signature = (game, domain = "imputation", tolerance = None, rel_tolerance = None))]
+fn cost_nucleolus<'py>(
+    py: Python<'py>,
+    game: AnyKindGame<'_>,
+    domain: &str,
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<Arg<f64>>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let rel_tolerance = rel_tolerance.map(|Arg(v)| v);
+    let mut options = Options::new(parse_domain(domain)?);
+    options.tolerance = parse_tolerance(tolerance, rel_tolerance)?.unwrap_or(Tolerance::Auto);
+    let result = CostGame::new(game.inner.clone())
+        .nucleolus_with(options)
+        .map_err(to_py_err)?;
+    nucleolus_dict(py, result, options.domain)
 }
 
 /// 空港ゲーム (提携の費用 = 提携内の最大の費用) の費用分担。`shapley` は Littlechild & Owen (1973) の式、
-/// `nucleolus` は凸ゲームの手法 (節約ゲームが凸)。人数の上限はない。
+/// `nucleolus` は凸ゲームの手法 (節約ゲームが凸) による仁で、`auto_nucleolus` と同じ形の辞書
+/// (`allocation` が費用の分担、`guarantee` は `"proven(convex)"`、`method`) に `domain` を足したもの。人数の上限はない。
 #[pyfunction]
 fn airport<'py>(py: Python<'py>, costs: Arg<Vec<f64>>) -> PyResult<Bound<'py, PyDict>> {
     let costs = costs.0;
     let game = AirportGame::new(costs).map_err(to_py_err)?;
     let dict = PyDict::new(py);
     dict.set_item("shapley", game.shapley_costs())?;
-    dict.set_item("nucleolus", game.nucleolus_costs().map_err(to_py_err)?)?;
+    let solution = game.nucleolus_costs().map_err(to_py_err)?;
+    let nucleolus = solution_dict(py, &solution, None)?;
+    nucleolus.set_item("domain", domain_name(solution.domain()))?;
+    dict.set_item("nucleolus", nucleolus)?;
     Ok(dict)
 }
 
 /// 最小全域木ゲーム (Bird 1976)。`costs` は供給元を頂点 0 とする `(n + 1) x (n + 1)` の対称な費用行列。
-/// `bird` は Bird 規則 (コアに属する)、`nucleolus` は全提携の表の逐次 LP による仁 (30 人まで)。
+/// `bird` は Bird 規則 (コアに属する)、`nucleolus` は全提携の表の逐次 LP による仁 (30 人まで) で、
+/// `cost_nucleolus` と同じ形の辞書 (`allocation` が費用の分担。保証の規則は `nucleolus` の既定と同じで、21 人以上は
+/// `"approximate"`)。
 #[pyfunction]
 #[pyo3(signature = (costs, nucleolus = true))]
 fn spanning_tree<'py>(
@@ -1161,7 +1193,8 @@ fn spanning_tree<'py>(
         game.cost(&PlayerSet::grand(SetFunction::players(&game))),
     )?;
     if nucleolus {
-        dict.set_item("nucleolus", game.nucleolus_costs().map_err(to_py_err)?)?;
+        let result = game.nucleolus_costs().map_err(to_py_err)?;
+        dict.set_item("nucleolus", nucleolus_dict(py, result, Domain::Imputation)?)?;
     }
     Ok(dict)
 }
@@ -1189,15 +1222,15 @@ fn linear_production<'py>(
     Ok(dict)
 }
 
-/// 分析 (`uncertainty`・`influence`) の解き方。仁・プレ仁は、許容誤差を指定しなければ `max|v(S)|` の `1e-7` 倍で
-/// 1 回だけ解く (標本や差分のために何度も解くので、仁の既定の手順の解き直しはしない)。
+/// 分析 (`uncertainty`・`influence`) の解き方。仁・プレ仁は、許容誤差を指定しなければ `nucleolus` の既定の手順で解く
+/// (許容誤差を指定すると、確かめずに 1 回だけ解く)。
 fn solver_by_name(
     name: &str,
     tolerance: Option<&Bound<'_, PyAny>>,
     rel_tolerance: Option<f64>,
 ) -> PyResult<uncertainty_core::Solver> {
     let tolerance = match parse_tolerance(tolerance, rel_tolerance)? {
-        None => Tolerance::Relative(1e-7),
+        None => Tolerance::Auto,
         Some(specified) => {
             if name == "shapley" {
                 return Err(PyValueError::new_err(
@@ -1215,13 +1248,32 @@ fn solver_by_name(
     })
 }
 
+/// 保証の内訳を `{"exact": 198, "approximate": 2}` の dict にする (保証を報告しない解は `"unreported"`)。
+fn guarantee_counts<'py>(
+    py: Python<'py>,
+    counts: &uncertainty_core::GuaranteeCounts,
+) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    for (guarantee, count) in counts.iter() {
+        dict.set_item(guarantee.to_string(), count)?;
+    }
+    if counts.unreported() > 0 {
+        dict.set_item("unreported", counts.unreported())?;
+    }
+    Ok(dict)
+}
+
 /// 値が不確かなときの配分の分布。`relative` (例: 0.1 で各値 ±10%) か、`lower`・`upper` (Game) で区間を与え、
-/// 区間内の一様分布から `samples` 個のゲームを引いて `solver` で解く。
-/// 戻り値は `mean`・`std`・`quantiles` (`{0.05: [...], 0.5: [...], 0.95: [...]}`)・`samples`・`failures`。
+/// 区間内の一様分布から `samples` 個 (1 以上) のゲームを引いて `solver` で解く。
+/// 戻り値は `mean`・`std`・`quantiles` (`{0.05: [...], 0.5: [...], 0.95: [...]}`)・`samples`・`failures`・
+/// `guarantees` (解けた標本の保証の内訳。`{"exact": 198, "approximate": 2}` など。`approximate` は正しいと言えない解)。
+/// 標本の解の許容誤差が、幅が正の区間のうち最も狭いものの幅の半分以上なら、揺れが許容誤差に埋もれるので ValueError。
+/// 値が丸め誤差程度の非 0 の提携 (`0.1 + 0.2 - 0.3` など) や、値の桁が `1e6` 倍以上離れた提携を持つゲームでは、
+/// 小さい値の提携の幅が許容誤差より狭くなりエラーになりやすい (値を 0 に丸めるか、`rel_tolerance` を小さくする)。
 ///
 /// 仁・プレ仁は、`tolerance` (値の単位) も `rel_tolerance` (`max|v(S)|` に対する比) も指定しなければ、
-/// 比 `1e-7` の許容誤差で 1 回だけ解く。`tolerance="auto"` は、`nucleolus` の既定の手順で解く
-/// (有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
+/// `nucleolus` の既定の手順で解く (有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
+/// 許容誤差を指定すると、確かめずに 1 回だけ解く (速いが、値の大きいゲームでは仁と異なりうる)。
 #[pyfunction]
 #[pyo3(signature = (game, relative = None, upper = None, samples = Arg(200), seed = Arg(0), solver = "nucleolus", tolerance = None, rel_tolerance = None))]
 #[allow(clippy::too_many_arguments)]
@@ -1252,40 +1304,48 @@ fn uncertainty<'py>(
         }
     }
     .map_err(to_py_err)?;
+    if samples == 0 {
+        return Err(PyValueError::new_err("samples は 1 以上"));
+    }
     let solve = solver_by_name(solver, tolerance, rel_tolerance)?;
     let d = uncertainty_core::interval_monte_carlo(&interval, samples, seed, solve)
         .map_err(to_py_err)?;
     let dict = PyDict::new(py);
-    dict.set_item("mean", d.mean)?;
-    dict.set_item("std", d.std)?;
+    dict.set_item("mean", d.mean())?;
+    dict.set_item("std", d.std())?;
     let quantiles = PyDict::new(py);
-    for (q, values) in d.quantiles {
+    for (q, values) in d.quantiles() {
         quantiles.set_item(q, values)?;
     }
     dict.set_item("quantiles", quantiles)?;
-    dict.set_item("samples", d.samples)?;
-    dict.set_item("failures", d.failures)?;
+    dict.set_item("samples", d.samples())?;
+    dict.set_item("failures", d.failures())?;
+    dict.set_item("guarantees", guarantee_counts(py, d.guarantees())?)?;
     Ok(dict)
 }
 
-/// [`influence`] の 1 行: (提携のメンバー, 各プレイヤーの感度, 差分の取り方)。
-type InfluenceRow = (Vec<usize>, Vec<f64>, String);
+/// [`influence`] の 1 行: (提携のメンバー, 各プレイヤーの感度, 差分の取り方, 差分に使った解の保証の内訳)。
+type InfluenceRow<'py> = (Vec<usize>, Vec<f64>, String, Bound<'py, PyDict>);
 
 /// 提携の値を `±delta` 動かしたときの配分の変化率 `dx/dv(S)`。`coalitions` を省くと、
 /// 配分で超過が大きい上位 `levels` 段 (既定は 2) の提携 (仁ではこれが配分を決める) と全体提携を調べる。
 /// `levels` は `coalitions` を省くときだけ指定できる (両方を指定すると ValueError)。
-/// 戻り値は `(提携, 感度のリスト, 差分の取り方)` の列 (感度の大きい順)。
+/// 戻り値は `(提携, 感度のリスト, 差分の取り方, 保証の内訳)` の列 (感度の大きい順)。
 ///
 /// 差分の取り方は `"central"` (中心差分)、`"forward"`・`"backward"` (片側のゲームが解けないときの片側差分。
 /// 配分集合が 1 点のゲームで v(N) を下げる・1 人提携の値を上げる場合など)。
+/// 保証の内訳は、差分に使った 2 つの解の `{"exact": 2}` などの dict (`approximate` は正しいと言えない解)。
 /// 両側とも解けない提携があれば、その提携を示した ValueError。
+/// 解の許容誤差が `delta` 以上 (変化が許容誤差に埋もれる) なら ValueError。
 ///
 /// 仁・プレ仁は、`tolerance` (値の単位) も `rel_tolerance` (`max|v(S)|` に対する比) も指定しなければ、
-/// 比 `1e-7` の許容誤差で 1 回だけ解く。`tolerance="auto"` は、`nucleolus` の既定の手順で解く
-/// (有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
+/// `nucleolus` の既定の手順で解く (有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
+/// 許容誤差を指定すると、確かめずに 1 回だけ解く。
 #[pyfunction]
 #[pyo3(signature = (game, coalitions = None, solver = "nucleolus", levels = None, delta = None, tolerance = None, rel_tolerance = None))]
-fn influence(
+#[allow(clippy::too_many_arguments)]
+fn influence<'py>(
+    py: Python<'py>,
     game: ValueGame<'_>,
     coalitions: Option<Arg<Vec<Vec<usize>>>>,
     solver: &str,
@@ -1293,7 +1353,7 @@ fn influence(
     delta: Option<Arg<f64>>,
     tolerance: Option<&Bound<'_, PyAny>>,
     rel_tolerance: Option<Arg<f64>>,
-) -> PyResult<Vec<InfluenceRow>> {
+) -> PyResult<Vec<InfluenceRow<'py>>> {
     let coalitions = coalitions.map(|Arg(v)| v);
     let levels = levels.map(|Arg(v)| v);
     let delta = delta.map(|Arg(v)| v);
@@ -1312,7 +1372,7 @@ fn influence(
             .collect::<PyResult<_>>()?,
         None => {
             let x = solve(&game.inner).map_err(to_py_err)?;
-            uncertainty_core::key_coalitions(&game.inner, &x, levels.unwrap_or(2))
+            uncertainty_core::key_coalitions(&game.inner, x.allocation(), levels.unwrap_or(2))
                 .map_err(to_py_err)?
         }
     };
@@ -1320,16 +1380,16 @@ fn influence(
     let mut rows =
         uncertainty_core::influence(&game.inner, &coalitions, delta, solve).map_err(to_py_err)?;
     rows.sort_by(|a, b| b.magnitude().total_cmp(&a.magnitude()));
-    Ok(rows
-        .into_iter()
+    rows.into_iter()
         .map(|row| {
-            (
-                row.coalition.members().collect(),
-                row.sensitivity,
-                row.difference.to_string(),
-            )
+            Ok((
+                row.coalition().members().collect(),
+                row.sensitivity().to_vec(),
+                row.difference().to_string(),
+                guarantee_counts(py, row.guarantees())?,
+            ))
         })
-        .collect())
+        .collect()
 }
 
 /// 有理数の値 (int・Fraction・"8/3"・"0.1") のゲームの仁 (プレ仁) を、有理数だけの逐次 LP で求める (10 人まで)。
@@ -1485,7 +1545,7 @@ fn partial_nucleolus<'py>(
     let result = data
         .partial_nucleolus_with(domain, tolerance)
         .map_err(to_py_err)?;
-    let dict = nucleolus_dict(py, result.solved)?;
+    let dict = nucleolus_dict(py, result.solved, domain)?;
     dict.set_item("allocation", result.allocation)?;
     dict.set_item("kind", data.kind.as_str())?;
     dict.set_item("known", data.known.len())?;
@@ -1515,20 +1575,28 @@ fn owen(game: ValueGame<'_>, unions: Arg<Vec<Vec<usize>>>) -> PyResult<Vec<f64>>
     partition::owen(&game.inner, &structure).map_err(to_py_err)
 }
 
-/// 提携構造 `blocks` のもとでの仁 (各ブロックで x(B) = v(B))。
+/// 提携構造 `blocks` のもとでの仁 (各ブロックで x(B) = v(B))。戻り値は `nucleolus` と同じ形の辞書。
+///
+/// `tolerance` (値の単位) か `rel_tolerance` (`max|v(S)|` に対する比) を指定すると、その許容誤差で 1 回だけ解き、
+/// `guarantee` は `"exact"` (許容誤差の範囲で成り立つ)。どちらも指定しなければ (`tolerance="auto"` と同じ)、
+/// 全体 1 ブロックなら `nucleolus` の既定の手順で求め、全員が単独なら `x_i = v({i})` で `"exact"`、
+/// それ以外は比 `1e-7` で 1 回だけ解き、確かめていないので `"approximate"`。
 #[pyfunction]
-#[pyo3(signature = (game, blocks, domain = "imputation"))]
+#[pyo3(signature = (game, blocks, domain = "imputation", tolerance = None, rel_tolerance = None))]
 fn structured_nucleolus<'py>(
     py: Python<'py>,
     game: ValueGame<'_>,
     blocks: Arg<Vec<Vec<usize>>>,
     domain: &str,
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<Arg<f64>>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let blocks = blocks.0;
     let structure = coalition_structure(&game, blocks)?;
-    let result =
-        partition::nucleolus(&game.inner, &structure, parse_domain(domain)?).map_err(to_py_err)?;
-    nucleolus_dict(py, result)
+    let mut options = Options::new(parse_domain(domain)?);
+    options.tolerance = variant_tolerance(tolerance, rel_tolerance)?;
+    let result = partition::nucleolus_with(&game.inner, &structure, options).map_err(to_py_err)?;
+    nucleolus_dict(py, result, options.domain)
 }
 
 /// 3-4 人のゲームの配分集合の図 (SVG)。コア・カーネル・仁・Shapley 値と `points` (配分のリスト) の点を描く。
@@ -1650,10 +1718,21 @@ fn power_indices<'py>(py: Python<'py>, game: ValueGame<'_>) -> PyResult<Bound<'p
 }
 
 /// disruption nucleolus (Littlechild & Vaidya 1976)。コアが空なら ValueError (16 人まで)。
-/// 戻り値は `per_capita_nucleolus` と同じ形の辞書。
+/// 戻り値と `tolerance`・`rel_tolerance`・保証の規則は `per_capita_nucleolus` と同じ
+/// (コアが空かどうかの判定は、指定によらず `has_nonempty_core` で行う)。
 #[pyfunction]
-fn disruption_nucleolus<'py>(py: Python<'py>, game: ValueGame<'_>) -> PyResult<Bound<'py, PyDict>> {
-    let result = variants::disruption_nucleolus(&game.inner).map_err(to_py_err)?;
+#[pyo3(signature = (game, tolerance = None, rel_tolerance = None))]
+fn disruption_nucleolus<'py>(
+    py: Python<'py>,
+    game: ValueGame<'_>,
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<Arg<f64>>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let result = variants::disruption_nucleolus_with(
+        &game.inner,
+        variant_tolerance(tolerance, rel_tolerance)?,
+    )
+    .map_err(to_py_err)?;
     lexicographic_dict(py, result)
 }
 
@@ -1662,7 +1741,7 @@ fn disruption_nucleolus<'py>(py: Python<'py>, game: ValueGame<'_>) -> PyResult<B
 #[pyfunction]
 fn anti_prenucleolus<'py>(py: Python<'py>, game: ValueGame<'_>) -> PyResult<Bound<'py, PyDict>> {
     let result = variants::anti_prenucleolus(&game.inner).map_err(to_py_err)?;
-    nucleolus_dict(py, result)
+    nucleolus_dict(py, result, Domain::Preimputation)
 }
 
 /// anti-nucleolus (双対ゲームの仁)。anti-imputation の集合が空なら ValueError。
@@ -1670,7 +1749,7 @@ fn anti_prenucleolus<'py>(py: Python<'py>, game: ValueGame<'_>) -> PyResult<Boun
 #[pyfunction]
 fn anti_nucleolus<'py>(py: Python<'py>, game: ValueGame<'_>) -> PyResult<Bound<'py, PyDict>> {
     let result = variants::anti_nucleolus(&game.inner).map_err(to_py_err)?;
-    nucleolus_dict(py, result)
+    nucleolus_dict(py, result, Domain::Imputation)
 }
 
 /// 双対ゲーム `v*(S) = v(N) - v(N \ S)`。値が有限でない提携があれば ValueError。
@@ -1793,42 +1872,79 @@ fn lexicographic_dict<'py>(
     dict.set_item("levels", result.levels())?;
     dict.set_item("lp_solves", result.lp_solves())?;
     dict.set_item("guarantee", result.guarantee().to_string())?;
+    dict.set_item("tolerance", result.tolerance())?;
     Ok(dict)
+}
+
+/// 仁の変種と提携構造つきの仁の許容誤差。指定しなければ `Tolerance::Auto`
+/// (関数ごとの既定。変種は既定の許容誤差で 1 回だけ解き、保証は `"approximate"`)。
+fn variant_tolerance(
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<Arg<f64>>,
+) -> PyResult<Tolerance> {
+    let rel_tolerance = rel_tolerance.map(|Arg(v)| v);
+    Ok(parse_tolerance(tolerance, rel_tolerance)?.unwrap_or(Tolerance::Auto))
 }
 
 /// per capita 仁: `e(S, x) / |S|` を辞書式に最小化する (17 人まで)。
 /// 原典 (weak nucleolus) の定義は `domain="preimputation"`。
+///
+/// 戻り値は辞書 (`allocation`・`levels`・`lp_solves`・`guarantee`・`tolerance`)。仁の変種は、`tolerance` (値の単位) か
+/// `rel_tolerance` (`max|v(S)|` に対する比) を指定するとその許容誤差で 1 回だけ解き、`guarantee` は `"exact"`
+/// (許容誤差の範囲で成り立つ)。指定しなければ (`tolerance="auto"` と同じ) 比 `1e-7` で 1 回だけ解き、
+/// 確かめていないので `"approximate"` (配分の集合が 1 点に決まるゲームは `"exact"`)。
 #[pyfunction]
-#[pyo3(signature = (game, domain = "imputation"))]
+#[pyo3(signature = (game, domain = "imputation", tolerance = None, rel_tolerance = None))]
 fn per_capita_nucleolus<'py>(
     py: Python<'py>,
     game: ValueGame<'_>,
     domain: &str,
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<Arg<f64>>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let result =
-        variants::per_capita_nucleolus(&game.inner, parse_domain(domain)?).map_err(to_py_err)?;
+    let result = variants::per_capita_nucleolus_with(
+        &game.inner,
+        parse_domain(domain)?,
+        variant_tolerance(tolerance, rel_tolerance)?,
+    )
+    .map_err(to_py_err)?;
     lexicographic_dict(py, result)
 }
 
 /// 比例仁: `e(S, x) / v(S)` を辞書式に最小化する (非負のゲーム、17 人まで)。
 /// `v(S) = 0` の提携は、その後に `-x(S)` で順序づける。原典の定義は `domain="preimputation"`。
+/// 戻り値と `tolerance`・`rel_tolerance`・保証の規則は `per_capita_nucleolus` と同じ。
 #[pyfunction]
-#[pyo3(signature = (game, domain = "imputation"))]
+#[pyo3(signature = (game, domain = "imputation", tolerance = None, rel_tolerance = None))]
 fn proportional_nucleolus<'py>(
     py: Python<'py>,
     game: ValueGame<'_>,
     domain: &str,
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<Arg<f64>>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let result =
-        variants::proportional_nucleolus(&game.inner, parse_domain(domain)?).map_err(to_py_err)?;
+    let result = variants::proportional_nucleolus_with(
+        &game.inner,
+        parse_domain(domain)?,
+        variant_tolerance(tolerance, rel_tolerance)?,
+    )
+    .map_err(to_py_err)?;
     lexicographic_dict(py, result)
 }
 
 /// modiclus: 空提携と全体提携を含む全ての提携の組の超過の差 `e(S, x) - e(T, x)` を
 /// 辞書式に最小化する準配分 (7 人まで)。
+/// 戻り値と `tolerance`・`rel_tolerance`・保証の規則は `per_capita_nucleolus` と同じ。
 #[pyfunction]
-fn modiclus<'py>(py: Python<'py>, game: ValueGame<'_>) -> PyResult<Bound<'py, PyDict>> {
-    let result = variants::modiclus(&game.inner).map_err(to_py_err)?;
+#[pyo3(signature = (game, tolerance = None, rel_tolerance = None))]
+fn modiclus<'py>(
+    py: Python<'py>,
+    game: ValueGame<'_>,
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<Arg<f64>>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let result = variants::modiclus_with(&game.inner, variant_tolerance(tolerance, rel_tolerance)?)
+        .map_err(to_py_err)?;
     lexicographic_dict(py, result)
 }
 

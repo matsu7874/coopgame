@@ -221,12 +221,18 @@ impl NucleolusResult {
         self.rational
     }
 
-    /// 全提携の値を持つゲームの逐次 LP ([`nucleolus`] など) では [`Guarantee::Exact`]。
-    /// ただし [`Tolerance::Auto`] で、許容誤差を下げても Kohlberg 基準を満たさず、有理数の逐次 LP にも
-    /// 切り替えなかった結果と、Kohlberg 基準を確かめない [`MAX_AUTO_CHECK_PLAYERS`] 人を超えるゲームで
-    /// LP を解いて求めた結果は [`Guarantee::Approximate`] ([`nucleolus_with`])。
-    /// オラクル版 ([`oracle`]) では、オラクルが全ての真部分提携について答えれば `Exact`、
-    /// 一部の提携だけなら [`Guarantee::Approximate`]。
+    /// 許容誤差を指定して 1 回だけ解いた結果は [`Guarantee::Exact`] (指定した許容誤差の範囲で成り立つ)。
+    /// 許容誤差を指定しない既定 ([`Tolerance::Auto`]) では、確かめた結果だけが [`Guarantee::Exact`] になる。
+    ///
+    /// - 全提携の値を持つゲームの仁 ([`nucleolus`] など): 許容誤差を下げても Kohlberg 基準を満たさず、有理数の逐次 LP にも
+    ///   切り替えなかった結果と、Kohlberg 基準を確かめない [`MAX_AUTO_CHECK_PLAYERS`] 人を超えるゲームで
+    ///   LP を解いて求めた結果は [`Guarantee::Approximate`] ([`nucleolus_with`])。
+    /// - オラクル版 ([`oracle`]): オラクルが一部の提携だけに答えれば [`Guarantee::Approximate`]。全てに答えるなら
+    ///   上と同じ規則 ([`oracle::nucleolus`])。
+    /// - 提携構造つきの仁 ([`crate::partition::nucleolus`]): 全体 1 ブロックは上と同じ規則、全員が単独なら
+    ///   [`Guarantee::Exact`]、それ以外は確かめないので [`Guarantee::Approximate`]。
+    ///
+    /// LP を解かずに決まった配分 (1 人ゲーム、配分集合が 1 点) は、オラクルが一部の提携だけに答える場合を除き [`Guarantee::Exact`]。
     pub fn guarantee(&self) -> Guarantee {
         self.guarantee
     }
@@ -260,6 +266,16 @@ impl NucleolusResult {
         check_representable(&self.allocation, "配分")?;
         check_representable(&self.levels, "最大超過")?;
         Ok(self)
+    }
+
+    /// 配分だけを `convert` で置き換えた結果 (費用ゲームで、節約ゲームの配分を費用の分担に直すなど)。
+    /// 段・許容誤差・保証などはそのまま引き継ぐ。
+    pub(crate) fn map_allocation(
+        mut self,
+        convert: impl FnOnce(&[f64]) -> Vec<f64>,
+    ) -> NucleolusResult {
+        self.allocation = convert(&self.allocation);
+        self
     }
 
     /// 手法によらない共通の結果にする (保証はこの結果のものを引き継ぐ)。
@@ -504,6 +520,25 @@ fn solve_auto(
     }
 }
 
+/// [`Tolerance::Auto`] の確認 ([`nucleolus_with`] の手順 2): 元の大きさの配分 `allocation` が、
+/// Kohlberg 基準を細かい許容誤差 (`max|v(S)|` の `1e-11` 倍。[`MAX_AUTO_RATIONAL_PLAYERS`] 人以下では `1e-12` 倍) で満たすか。
+///
+/// オラクル版の既定 ([`oracle::nucleolus`]) が、全提携の表を作って同じ確認をするために使う。
+/// [`MAX_AUTO_CHECK_PLAYERS`] 人を超えるゲームは呼び出し側で除く。
+pub(crate) fn passes_auto_check(game: &ExplicitGame, allocation: &[f64], domain: Domain) -> bool {
+    let (normalized, divisor) = game.normalized();
+    let scale = positive_scale(normalized.max_abs_value());
+    let reading = scale
+        * if game.players() <= MAX_AUTO_RATIONAL_PLAYERS {
+            AUTO_READING_WITH_RATIONAL
+        } else {
+            AUTO_READING
+        };
+    // 2 のべき乗で割るだけなので、丸めは起きない。
+    let x: Vec<f64> = allocation.iter().map(|v| v / divisor).collect();
+    kohlberg_at(&normalized, &x, domain, reading).is_ok_and(|check| check.satisfied)
+}
+
 /// 有理数の逐次 LP で求め、f64 の結果にする。値は f64 の 2 進数の値どおりの有理数として扱う。
 fn solve_rationally(
     game: &ExplicitGame,
@@ -530,16 +565,25 @@ fn solve_rationally(
 /// 提携構造 `blocks` (N の分割) のもとでの仁 (`Domain::Imputation`) またはプレ仁。
 ///
 /// 各ブロック `B` で `x(B) = v(B)` を課し、その中で超過ベクトルを辞書式に最小化する
-/// (Aumann & Drèze 1974 の提携構造つきの仁)。ブロックが N だけなら、同じ許容誤差で 1 回だけ解いた [`nucleolus_with`] と同じ。
-/// 分割になっているかは呼び出し側 ([`crate::partition::CoalitionStructure`]) で確かめる。
+/// (Aumann & Drèze 1974 の提携構造つきの仁)。分割になっているかは呼び出し側 ([`crate::partition::CoalitionStructure`]) で確かめる。
 ///
-/// 1 回だけ解く。[`Tolerance::Auto`] は既定の許容誤差 ([`default_tolerance`]) で解く
-/// (Kohlberg 基準の確認は、提携構造のない仁だけが行う)。
+/// 許容誤差を指定すれば ([`Tolerance::Absolute`]・[`Tolerance::Relative`])、その値で 1 回だけ解き、保証は [`Guarantee::Exact`]
+/// (指定した許容誤差の範囲で成り立つ)。[`Tolerance::Auto`] では:
+///
+/// - ブロックが N だけなら、提携構造つきの仁は仁そのものなので、[`nucleolus_with`] の既定の手順 (確認と解き直し) で求める。
+/// - 全員が単独なら `x_i = v({i})` に決まる ([`Guarantee::Exact`])。
+/// - それ以外は既定の許容誤差 ([`default_tolerance`]) で 1 回だけ解き、確かめていないので [`Guarantee::Approximate`]
+///   (LP を解かずに決まった配分は [`Guarantee::Exact`])。提携構造つきの仁について Kohlberg 基準に当たる特徴づけを
+///   原典の本文で確認できていないので、確認に使わない。
 pub(crate) fn nucleolus_with_structure(
     game: &ExplicitGame,
     blocks: &[Coalition],
     options: Options,
 ) -> Result<NucleolusResult> {
+    let auto = options.tolerance == Tolerance::Auto;
+    if auto && blocks.len() == 1 {
+        return nucleolus_with(game, options);
+    }
     let (normalized, divisor) = game.normalized();
     let tolerance = options.tolerance.fixed(game)?;
     let settings = Settings::new(options.domain, options.method, tolerance, divisor)?;
@@ -552,8 +596,13 @@ pub(crate) fn nucleolus_with_structure(
             tolerance,
         ));
     }
-    let result = Sequential::with_blocks(&normalized, settings, blocks, lower).run()?;
-    result.scaled_by(divisor)
+    let mut result = Sequential::with_blocks(&normalized, settings, blocks, lower)
+        .run()?
+        .scaled_by(divisor)?;
+    if auto && result.lp_solves > 0 {
+        result.guarantee = Guarantee::Approximate;
+    }
+    Ok(result)
 }
 
 /// 最小コア: 最大超過を最小化する LP を 1 回解く。

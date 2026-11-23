@@ -56,10 +56,16 @@ fn airport_game_matches_explicit_cost_game() {
             1e-9,
             &label,
         );
-        let nucleolus = airport.nucleolus_costs().unwrap();
-        assert_close(&nucleolus, &explicit.nucleolus().unwrap(), 1e-6, &label);
+        let solution = airport.nucleolus_costs().unwrap();
+        let nucleolus = solution.allocation();
+        assert_close(
+            nucleolus,
+            explicit.nucleolus().unwrap().allocation(),
+            1e-6,
+            &label,
+        );
         assert!(
-            in_cost_core(n, |s| airport.cost(s), &nucleolus, 1e-6),
+            in_cost_core(n, |s| airport.cost(s), nucleolus, 1e-6),
             "{label}"
         );
     }
@@ -70,7 +76,7 @@ fn airport_game_scales_beyond_explicit_vectors() {
     let mut rng = SplitMix64::new(13);
     let costs: Vec<f64> = (0..24).map(|_| rng.range(1, 1000) as f64).collect();
     let airport = AirportGame::new(costs.clone()).unwrap();
-    let shares = airport.nucleolus_costs().unwrap();
+    let shares = airport.nucleolus_costs().unwrap().into_allocation();
     let max = costs.iter().cloned().fold(0.0, f64::max);
     assert!((shares.iter().sum::<f64>() - max).abs() < 1e-6 * max);
     // 誰も単独の費用より多くは払わない (仁は節約ゲームの配分集合に属する)。
@@ -104,7 +110,7 @@ fn bird_rule_and_nucleolus_lie_in_core() {
         );
         let nucleolus = game.nucleolus_costs().unwrap();
         assert!(
-            in_cost_core(n, |s| game.cost(s), &nucleolus, 1e-6),
+            in_cost_core(n, |s| game.cost(s), nucleolus.allocation(), 1e-6),
             "case {case} 仁"
         );
     }

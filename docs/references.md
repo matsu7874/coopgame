@@ -154,6 +154,7 @@
 | 最小全域木ゲームの仁の計算は NP 困難 | FKK1998 | 同上 (専用の手法を用意しない理由) | なし |
 | 線形生産ゲームで双対 LP の影の価格による配分はコアに属する。双対問題のどの最適解でもよい | Owe1975 (本文は未確認。PPF2012 の Definition 1・式 (7) の記述と照合) | `src/games/production.rs` | `owen_allocation_lies_in_core` (30 ゲーム) |
 | 提携構造の解 (Aumann–Drèze 値、提携構造つきの仁) | AD1974 (本文は未確認。Aumann–Drèze 値は Abe2026 の §2.1 の記述と照合。提携構造つきの仁 (各ブロックで `x(B_k) = v(B_k)` とした配分の上の辞書式最小化) は、原典の定義を確認できていない) | `src/partition.rs` | 全員 1 つなら Shapley 値・仁、全員単独なら v({i})、ブロックごとの効率性 (`tests/partition.rs`) |
+| 提携構造つきの仁・per capita 仁・比例仁・disruption nucleolus について、超過 (不満) の段の提携族の平衡性による特徴づけ (Kohlberg 基準に当たるもの) が成り立つか | 未確認 (Koh1971・PS2007 の本文で、これらの解への拡張を確認できていない) | `src/nucleolus/mod.rs` (`nucleolus_with_structure`)、`src/nucleolus/variants.rs` (既定では解いた配分を確かめず、保証を `approximate` にする) | なし。全体 1 ブロックの提携構造は仁そのものなので、仁の既定の確認を使う。modiclus には RS-WP320 の Theorem 2.4 の特徴づけ (下の行) があるが、既定の確認にはまだ使っていない (テストの基準として使う) |
 | Owen 値の式 | Owe1977 (本文は未確認。HSZ2025 の式 (4) の記述と照合) | `src/partition.rs` | 自明な連合で Shapley 値に一致、連合の和が商ゲームの Shapley 値に一致 (`owen_value_properties`) |
 | Bland の規則で単体法は循環せずに停止する | Bla1977 | `src/rational/simplex.rs` | 浮動小数点の LP と判定が一致 (`rational_simplex_agrees_with_floating_lp`) |
 | 仁は一意である (誤りの判定の論拠: 厳密に合格した x* と異なる配分は仁ではない) | Sch1969 | `docs/comparison.md` | なし (定理として使う) |

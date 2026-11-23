@@ -14,8 +14,9 @@
 
 use crate::error::{Error, Result};
 use crate::game::{PlayerSet, SetFunction};
-use crate::nucleolus::convex;
+use crate::nucleolus::convex::{self, ConvexOptions};
 use crate::properties::{ConvexGame, Proven, Sealed};
+use crate::solution::Solution;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AirportGame {
@@ -61,13 +62,24 @@ impl AirportGame {
         shares
     }
 
-    /// 仁による費用の分担 (凸ゲームの手法で節約ゲームの仁を求め、費用に直す)。
-    pub fn nucleolus_costs(&self) -> Result<Vec<f64>> {
-        let savings = convex::nucleolus(self)?;
-        Ok(crate::games::cost::shares_from_savings(
-            &self.costs,
-            &savings.allocation,
-        ))
+    /// 仁による費用の分担 (凸ゲームの手法で節約ゲームの仁を求め、費用に直す)。既定の設定 ([`ConvexOptions::default`]) で求める。
+    ///
+    /// 凸ゲームの手法の結果 ([`Solution`]) の配分を費用の分担 `y_i = c_i - x_i` に直して返す。
+    /// 解を探した範囲・保証・手法は凸ゲームの手法の結果のもので、節約ゲームが凸であることは型で分かっているので、
+    /// 保証は [`crate::Guarantee::Proven`] (`Property::Convex`) になる ([`convex::nucleolus`])。
+    /// [`crate::games::spanning_tree::SpanningTreeGame::nucleolus_costs`] と同じく、保証つきの結果を返す
+    /// (逐次 LP ではないので、段や LP の回数は持たない)。
+    pub fn nucleolus_costs(&self) -> Result<Solution> {
+        self.nucleolus_costs_with(ConvexOptions::default())
+    }
+
+    /// 設定 `options` で求める [`AirportGame::nucleolus_costs`] ([`convex::nucleolus_with`])。
+    /// 許容誤差は節約ゲームの値の単位。
+    pub fn nucleolus_costs_with(&self, options: ConvexOptions) -> Result<Solution> {
+        let (mut solution, _) = convex::nucleolus_with(self, options)?;
+        solution.allocation =
+            crate::games::cost::shares_from_savings(&self.costs, &solution.allocation);
+        Ok(solution)
     }
 }
 

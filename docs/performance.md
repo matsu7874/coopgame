@@ -45,10 +45,30 @@ per capita 仁・比例仁・disruption nucleolus・交渉集合の判定の上�
 1 回だけ解いた配分を確かめずに使うなら、許容誤差を指定する (`Tolerance::Relative(1e-7)`、`--rel-tolerance 1e-7`、`rel_tolerance=1e-7`)。
 時間は既定と同じで、保証は `exact` (指定した許容誤差の範囲で成り立つ) になる。
 
-分析のうち、標本や差分のために仁を何度も解くもの (`analysis::uncertainty::solver`、CLI の `uncertainty`・`influence`、Python の同名の関数) は、
-指定しなければ比 `1e-7` の許容誤差で 1 回だけ解く。許容誤差は同じ方法で指定できる (`uncertainty::solver_with`、`--tolerance`・`--rel-tolerance`、`tolerance=`・`rel_tolerance=`)。
-上の既定の手順で解くには、`Tolerance::Auto` (`--tolerance auto`、`tolerance="auto"`) を指定する。有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる
-(1 回の時間は下の「上限と既定値の根拠」)。
+分析のうち、標本や差分のために仁を何度も解くもの (`analysis::uncertainty::solver`、CLI の `uncertainty`・`influence`、Python の同名の関数) も、
+指定しなければ標本・差分ごとに上の既定の手順で解く。解き直しや有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる
+(下の「値の不確かさの分析の時間」)。速さを優先するなら許容誤差を指定し、確かめずに 1 回ずつ解く (`uncertainty::solver_with`、`--tolerance`・`--rel-tolerance`、`tolerance=`・`rel_tolerance=`)。
+
+### 値の不確かさの分析の時間
+
+値の不確かさの分析を、既定の手順で解く場合と比 `1e-7` の許容誤差で 1 回だけ解く場合で比べた
+(`cargo run --release --example bench_uncertainty`、`data/bench/uncertainty.csv`。Apple M4 Pro、release ビルド。3 回実行した最小の秒)。
+`uncertainty` は各値 ±10% の区間から 200 個の標本 (CLI と Python の既定の標本数)、`influence` は仁の超過の大きい上位 2 段の提携と全体提携で、差分の幅は `1e-4 max|v(S)|` (既定) である。
+「整数」は、値が `1e9 |S| + 0..6` (1 人提携は 0) のゲームである。
+
+| 分析 | ゲーム | 人数 | 1 回だけ解く (秒) | 既定 (秒) | 既定で解き直した解 / 有理数で求めた解 |
+|---|---|---|---|---|---|
+| `uncertainty` (±10%) | BNF タイプ 1 | 5・8・10・12 | 0.04・0.41・0.95・2.19 | 0.04・0.41・0.95・2.23 | 0 / 0 |
+| `uncertainty` (±10%) | 整数 | 4・6・8 | 0.02・0.14・0.44 | 0.02・0.14・0.46 | 0 / 0 |
+| `influence` | BNF タイプ 1 | 5・8・10・12 | 0.002・0.033・0.12・0.34 | 0.002・0.033・0.12・0.35 | 0 / 0 |
+| `influence` | 整数 | 4・6 | 0.003・0.095 | 0.09・10.4 | 19 / 14 (31 回中)、90 / 68 (127 回中) |
+| `uncertainty` (±`1e-12` 倍) | 整数 | 4・6 | エラー (区間の幅が許容誤差に埋もれる) | 1.30・37.8 | 200 / 200 (各 200 回中) |
+
+解き直しがない行では、既定の時間は 1 回だけ解く場合の 1.00〜1.10 倍だった (Kohlberg 基準の確認の分)。
+値を少しだけ動かして超過の段の間隔が 1 以下のまま残る整数のゲームでは、既定の手順が解き直しと有理数の逐次 LP に切り替わり、
+`influence` の時間は 30〜109 倍になった。区間を各値 ±`1e-12` 倍に狭めた `uncertainty` は、1 回だけ解くと区間の幅の半分
+(数 `1e-3`) が許容誤差 (比 `1e-7`、数百) に埋もれるのでエラーになり、既定の手順でだけ求められる。
+8 人の整数ゲームの `influence` は、有理数の逐次 LP が 1 回に数秒かかるので測っていない。
 
 ### 既定の手順の効果
 
@@ -133,7 +153,11 @@ per capita 仁・比例仁・disruption nucleolus・交渉集合の判定の上�
 - 逐次 LP は、超過が最大超過と許容誤差以内で等しい提携を確定させうる。そのため超過の差が許容誤差より小さい提携があるゲームでは、
   結果が厳密な仁から許容誤差の程度ずれることがある。全提携の表の仁 (`nucleolus::nucleolus`) は、既定でこのずれを確かめて解き直す
   (上の「仁の許容誤差の決め方」)。anti-nucleolus・anti-prenucleolus は双対ゲームの仁・プレ仁なので、同じ手順で解く。
-  オラクル版・最小コア・per capita 仁・比例仁・disruption nucleolus・modiclus・提携構造つきの仁は、既定の許容誤差で 1 回だけ解く。
+  オラクル版の仁は、既定では 20 人以下で全提携の表を作って同じ確認をし、満たさなければ表から仁の既定の手順で求め直す。
+  提携構造つきの仁は、全体 1 ブロックなら仁の既定の手順で解く。
+  最小コア・per capita 仁・比例仁・disruption nucleolus・modiclus・2 ブロック以上の提携構造つきの仁は、既定の許容誤差で 1 回だけ解く。
+  このうち仁の変種と提携構造つきの仁は、確かめていないので保証を `approximate` にする
+  (許容誤差を指定すれば `exact`。[保証の設計](guarantees.md#既定の経路ごとの保証))。
 - `nucleolus::has_nonempty_core` は、浮動小数点の LP で求めた最小コアの `epsilon` が許容誤差の帯 `[-tol, tol]` の外ならその符号で判定する。
   帯の中では、9 人までは値を f64 の値どおりの有理数として `epsilon` を有理数の LP で求め、入力の丸めの大きさ `4 n ε max|v|` 以下なら空でないとする。
   それより多い人数では、帯の中を空でないとする。
@@ -183,6 +207,9 @@ n = 6 (各 2 ゲーム) で 0.7-447 秒だった (`study_prekernel` の `ker_sec
 
 `cargo run --release --example bench_oracle -- <bankruptcy|bankruptcy-wide|majority|voting> <人数,...> [seed 数]` で計測した。
 時間 (秒)・段の数・追加した行・差は、それぞれ seed の中の最大である。
+計測したのは、既定の許容誤差で 1 回だけ解く時間 (`oracle::nucleolus_with(game, Domain::Imputation, oracle::default_tolerance(game))`) である。
+既定の `oracle::nucleolus` は、20 人以下では全提携の表を作って Kohlberg 基準を確かめる分 (値の評価 `2^n - 1` 回と、超過の並べ替え・平衡性の LP) の時間とメモリが加わり、
+21 人以上では同じ計算で保証を `approximate` にする。
 環境は Apple M4 Pro、macOS、release ビルド、単一スレッドで、他の重い処理を止めて測った。
 
 | ゲーム | n | seed 数 | 時間 | 段の数 | 制約生成で追加した行 | 検証 |
@@ -209,10 +236,12 @@ n = 6 (各 2 ゲーム) で 0.7-447 秒だった (`study_prekernel` の `ker_sec
 1 回の探索で約 `3 * 2^(n-4)` 個を読み、時間とメモリが人数について指数的に増えていた。
 今は、違反する提携の探索 (`Separation::violated_outside_span`) に確定済みの提携を渡し、投票ゲームは
 確定済みの空間に入らない提携だけを、素数を法とする動的計画法で探す (Pashkovich (2022) の分離の方法。
-手順と厳密さの根拠は `src/games/voting.rs` のモジュールの説明)。保証は厳密 (`exact`) のままである。
+手順と厳密さの根拠は `src/games/voting.rs` のモジュールの説明)。探索は厳密で、この変更で結果は変わらない。
+既定の `oracle::nucleolus` の保証は、21 人以上では Kohlberg 基準を確かめないので `approximate` になる (許容誤差を指定して解けば `exact`)。
 
 `cargo build --release --example bench_voting` の `target/release/examples/bench_voting` で、1 件ずつ子プロセスで測った
 (時間は仁の計算、最大メモリは `/usr/bin/time -l` の最大常駐セットサイズ。Apple M4 Pro、macOS、release ビルド)。
+仁は既定の許容誤差で 1 回だけ解いた (上の「オラクル」と同じく、20 人以下の既定の手順が加える確認は含まない)。
 1 件が 120 秒か 6 GB を超えたら止め、同じゲームのそれより大きい人数は測っていない。
 修正前は同じ計測コードを修正前のライブラリ (コミット `a1c3d93`) でビルドした。
 生データは `data/bench/voting-oracle-before.csv` と `data/bench/voting-oracle-after.csv`。

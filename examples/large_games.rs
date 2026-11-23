@@ -99,7 +99,18 @@ fn voting() -> coopgame::Result<()> {
         auto.guarantee()
     );
     assert_eq!(auto.method(), "oracle-constraint-generation");
-    assert_eq!(auto.guarantee(), Guarantee::Exact);
+    // 既定の手順は、全提携の表を作って Kohlberg 基準を確かめられる 20 人までしか結果を確かめない。
+    // 40 人では確かめていないので、保証は approximate になる。
+    assert_eq!(auto.guarantee(), Guarantee::Approximate);
+    // 確かめずに 1 回だけ解いた配分を使うなら、許容誤差を指定する (その許容誤差の範囲で exact)。
+    let fixed =
+        oracle::nucleolus_with(&game, Domain::Imputation, oracle::default_tolerance(&game))?;
+    println!(
+        "許容誤差を指定して 1 回だけ解いた保証: {}",
+        fixed.guarantee()
+    );
+    assert_eq!(fixed.guarantee(), Guarantee::Exact);
+    assert_eq!(fixed.allocation(), auto.allocation());
     println!("大政党 3 つ: {:.4?}", &auto.allocation()[..3]);
     let small = auto.allocation()[3..].iter().copied().fold(0.0, f64::max);
     println!("小政党 37 の取り分の最大: {small:.4}");

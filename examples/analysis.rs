@@ -62,8 +62,8 @@ fn explain_allocations(game: &ExplicitGame) -> coopgame::Result<()> {
 }
 
 fn uncertainty_and_influence(game: &ExplicitGame) -> coopgame::Result<()> {
-    // 標本の仁・感度・基準の仁 x のすべてで使う。
-    let solve = |g: &ExplicitGame| Ok(nucleolus::nucleolus(g)?.into_allocation());
+    // 標本の仁・感度・基準の仁 x のすべてで使う。保証つきの結果を返すと、標本ごとの保証の内訳が残る。
+    let solve = |g: &ExplicitGame| nucleolus::nucleolus(g);
     println!("\n== 値が不確かなときの仁 ==");
     // 各提携の値を ±10% の区間で一様に引き、50 個のゲームの仁をまとめる。seed を固定すると結果も決まる。
     let interval = IntervalGame::around(game, 0.1)?;
@@ -72,40 +72,48 @@ fn uncertainty_and_influence(game: &ExplicitGame) -> coopgame::Result<()> {
     for i in 0..game.players() {
         println!(
             "{i}\t{:.4}\t{:.4}\t{:.4}\t{:.4}",
-            distribution.mean[i],
-            distribution.std[i],
-            distribution.quantiles[0].1[i],
-            distribution.quantiles[2].1[i]
+            distribution.mean()[i],
+            distribution.std()[i],
+            distribution.quantiles()[0].1[i],
+            distribution.quantiles()[2].1[i]
         );
     }
     println!(
-        "解けた標本 {}、解けなかった標本 {}",
-        distribution.samples, distribution.failures
+        "解けた標本 {}、解けなかった標本 {}、保証の内訳 {}",
+        distribution.samples(),
+        distribution.failures(),
+        distribution.guarantees()
     );
-    assert!(close(&distribution.mean, &[2.07, 4.00, 5.90], 0.01));
-    assert_eq!((distribution.samples, distribution.failures), (50, 0));
+    assert!(close(distribution.mean(), &[2.07, 4.00, 5.90], 0.01));
+    assert_eq!((distribution.samples(), distribution.failures()), (50, 0));
+    // 正しいと言えない解 (approximate など) は混ざっていない。
+    assert_eq!(distribution.guarantees().unreliable(), 0);
 
     // 仁の超過の大きい上位 2 段の提携 (仁を決めている提携) と全体提携について、
     // 値を ±delta 動かしたときの dx / dv(S) を求める。
     println!("\n== 仁の感度 ==");
     let x = solve(game)?;
-    let key = uncertainty::key_coalitions(game, &x, 2)?;
+    let key = uncertainty::key_coalitions(game, x.allocation(), 2)?;
     // 中心差分なので、値を動かす向きで解の形が変わる点では左右の変化率の平均になる。
     let rows = uncertainty::influence(game, &key, 1e-4, solve)?;
     println!("提携\tdx/dv (プレイヤー 0, 1, 2 の順)");
     for row in &rows {
-        let values: Vec<String> = row.sensitivity.iter().map(|v| format!("{v:+.4}")).collect();
-        println!("{}\t{}", row.coalition, values.join(" "));
+        let values: Vec<String> = row
+            .sensitivity()
+            .iter()
+            .map(|v| format!("{v:+.4}"))
+            .collect();
+        println!("{}\t{}", row.coalition(), values.join(" "));
         // 仁は x(N) = v(N) を満たすので、全体提携の値を動かすと和が 1、それ以外は和が 0 だけ動く。
-        let total: f64 = row.sensitivity.iter().sum();
-        let expected = if row.coalition == game.grand() {
+        let total: f64 = row.sensitivity().iter().sum();
+        let expected = if row.coalition() == game.grand() {
             1.0
         } else {
             0.0
         };
         assert!((total - expected).abs() < 1e-6);
     }
-    assert!(rows.iter().any(|row| row.coalition == game.grand()));
+    assert!(rows.iter().any(|row| row.coalition() == game.grand()));
     Ok(())
 }
 

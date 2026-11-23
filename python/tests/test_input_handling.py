@@ -52,7 +52,7 @@ def test_membership_checks_reject_invalid_tolerance(bad):
 def test_influence_uses_one_sided_difference_on_single_point_imputation_set():
     # 加法的なゲーム: 配分集合は 1 点 (1, 1, 1)。v(N) を下げる・1 人提携の値を上げると配分集合が空になる。
     additive = coopgame.Game([1, 1, 2, 1, 2, 2, 3])
-    rows = {tuple(c): (s, d) for c, s, d in coopgame.influence(additive)}
+    rows = {tuple(c): (s, d) for c, s, d, _ in coopgame.influence(additive)}
     assert len(rows) == 7
     sensitivity, difference = rows[(0, 1, 2)]
     assert difference == "forward"
@@ -61,7 +61,7 @@ def test_influence_uses_one_sided_difference_on_single_point_imputation_set():
         assert rows[single][1] == "backward"
     assert rows[(0, 1)][1] == "central"
     # 中心差分で解けるゲームは central。
-    assert {d for _, _, d in coopgame.influence(GAME)} == {"central"}
+    assert {d for _, _, d, _ in coopgame.influence(GAME)} == {"central"}
 
 
 # ---------------------------------------------------------------- 図
