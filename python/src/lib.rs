@@ -31,9 +31,9 @@ use coopgame::properties::{Assume, ConvexChecked};
 use coopgame::verify::{self as verify_core, Check, Reference, Verified, VerifyOptions};
 use coopgame::{Coalition, Domain, ExplicitGame, generators, properties};
 use coopgame::{bargaining, communication, compromise, power, values};
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyTuple};
+use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyString, PyTuple};
 
 fn to_py_err(error: coopgame::Error) -> PyErr {
     match error {
@@ -74,6 +74,25 @@ fn rational_of(value: &Bound<'_, PyAny>) -> PyResult<Rational> {
     exact::parse_rational(&text).map_err(to_py_err)
 }
 
+/// 許容誤差などの数の引数。`f64` と同じく int・float を受け付けるが、bool は TypeError にする
+/// (`tolerance=True` を 1.0 として読まない)。
+#[derive(Clone, Copy)]
+struct Number(f64);
+
+impl<'a, 'py> FromPyObject<'a, 'py> for Number {
+    type Error = PyErr;
+
+    fn extract(value: Borrowed<'a, 'py, PyAny>) -> PyResult<Number> {
+        if value.is_instance_of::<PyBool>() {
+            return Err(PyTypeError::new_err(format!(
+                "数を指定する (bool は受け付けない): {}",
+                value.repr()?
+            )));
+        }
+        Ok(Number(value.extract::<f64>()?))
+    }
+}
+
 /// `order` が `"lex"` (辞書式順) なら真、`"binary"` (ビット順) なら偽。
 fn is_lex(order: &str) -> PyResult<bool> {
     match order {
@@ -85,12 +104,35 @@ fn is_lex(order: &str) -> PyResult<bool> {
     }
 }
 
-/// 有理数の値 (int・Fraction・"8/3"・"0.1") の列から、`order` の並びのゲームを作る。
-fn exact_game(values: &Bound<'_, PyAny>, order: &str) -> PyResult<exact::ExactGame> {
-    let values: Vec<Rational> = values
+/// 数の列の引数に文字列 (str・bytes・bytearray) が渡されたら TypeError にする。
+///
+/// 文字列は 1 文字ずつ (bytes は 1 バイトずつの整数) の列として読めてしまうので、`"007"` を `[0, 0, 7]`、
+/// `b"12"` を `[49, 50]` と読まないようにする。
+fn reject_text_sequence(name: &str, values: &Bound<'_, PyAny>) -> PyResult<()> {
+    if values.is_instance_of::<PyString>()
+        || values.is_instance_of::<PyBytes>()
+        || values.is_instance_of::<PyByteArray>()
+    {
+        return Err(PyTypeError::new_err(format!(
+            "{name} は数の列 (list・tuple など)。文字列は数の列として読まない: {}",
+            values.repr()?
+        )));
+    }
+    Ok(())
+}
+
+/// 有理数の値 (int・Fraction・"8/3"・"0.1") の列を読む。列が文字列なら TypeError ([`reject_text_sequence`])。
+fn rational_sequence(name: &str, values: &Bound<'_, PyAny>) -> PyResult<Vec<Rational>> {
+    reject_text_sequence(name, values)?;
+    values
         .try_iter()?
         .map(|value| rational_of(&value?))
-        .collect::<PyResult<_>>()?;
+        .collect()
+}
+
+/// 有理数の値 (int・Fraction・"8/3"・"0.1") の列から、`order` の並びのゲームを作る。
+fn exact_game(values: &Bound<'_, PyAny>, order: &str) -> PyResult<exact::ExactGame> {
+    let values = rational_sequence("values", values)?;
     if is_lex(order)? {
         exact::ExactGame::from_lex(values)
     } else {
@@ -364,7 +406,7 @@ fn nucleolus_dict<'py>(
 /// どちらの指定もなければ `None` (関数ごとの既定を使う)。
 fn parse_tolerance(
     tolerance: Option<&Bound<'_, PyAny>>,
-    rel_tolerance: Option<f64>,
+    rel_tolerance: Option<Number>,
 ) -> PyResult<Option<Tolerance>> {
     // 値は解く前に確かめる (uncertainty は解けなかった標本を数えるだけなので、指定の誤りが紛れないようにする)。
     // `-0.0` は 0 として扱う。
@@ -388,13 +430,13 @@ fn parse_tolerance(
             }
             Err(_) => Some(Tolerance::Absolute(checked(
                 "tolerance",
-                value.extract::<f64>()?,
+                value.extract::<Number>()?.0,
             )?)),
         },
     };
     let relative = match rel_tolerance {
         None => None,
-        Some(ratio) => Some(Tolerance::Relative(checked("rel_tolerance", ratio)?)),
+        Some(Number(ratio)) => Some(Tolerance::Relative(checked("rel_tolerance", ratio)?)),
     };
     match (absolute, relative) {
         (Some(_), Some(_)) => Err(PyValueError::new_err(
@@ -435,7 +477,7 @@ fn nucleolus<'py>(
     domain: &str,
     method: &str,
     tolerance: Option<&Bound<'_, PyAny>>,
-    rel_tolerance: Option<f64>,
+    rel_tolerance: Option<Number>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let mut options = Options::new(parse_domain(domain)?);
     options.tolerance = parse_tolerance(tolerance, rel_tolerance)?.unwrap_or(Tolerance::Auto);
@@ -517,8 +559,16 @@ fn kernel_violation(game: &Game, x: Vec<f64>, domain: &str) -> PyResult<f64> {
 /// `x` がカーネル (プレカーネル) に属するか。`x` の長さがプレイヤー数と異なるか、nan・inf を含めば ValueError。
 #[pyfunction]
 #[pyo3(signature = (game, x, domain = "imputation", tolerance = None))]
-fn is_in_kernel(game: &Game, x: Vec<f64>, domain: &str, tolerance: Option<f64>) -> PyResult<bool> {
-    let tolerance = tolerance.unwrap_or_else(|| coopgame::game::default_tolerance(&game.inner));
+fn is_in_kernel(
+    game: &Game,
+    x: Vec<f64>,
+    domain: &str,
+    tolerance: Option<Number>,
+) -> PyResult<bool> {
+    let tolerance = tolerance.map_or_else(
+        || coopgame::game::default_tolerance(&game.inner),
+        |Number(t)| t,
+    );
     kernel::is_in_kernel(&game.inner, &x, parse_domain(domain)?, tolerance).map_err(to_py_err)
 }
 
@@ -812,7 +862,7 @@ fn linear_production<'py>(
 fn solver_by_name(
     name: &str,
     tolerance: Option<&Bound<'_, PyAny>>,
-    rel_tolerance: Option<f64>,
+    rel_tolerance: Option<Number>,
 ) -> PyResult<uncertainty_core::Solver> {
     let tolerance = match parse_tolerance(tolerance, rel_tolerance)? {
         None => Tolerance::Relative(1e-7),
@@ -852,7 +902,7 @@ fn uncertainty<'py>(
     seed: u64,
     solver: &str,
     tolerance: Option<&Bound<'_, PyAny>>,
-    rel_tolerance: Option<f64>,
+    rel_tolerance: Option<Number>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let interval = match (relative, upper) {
         (Some(relative), None) => uncertainty_core::IntervalGame::around(&game.inner, relative),
@@ -886,7 +936,8 @@ fn uncertainty<'py>(
 type InfluenceRow = (Vec<usize>, Vec<f64>, String);
 
 /// 提携の値を `±delta` 動かしたときの配分の変化率 `dx/dv(S)`。`coalitions` を省くと、
-/// 配分で超過が大きい上位 `levels` 段の提携 (仁ではこれが配分を決める) と全体提携を調べる。
+/// 配分で超過が大きい上位 `levels` 段 (既定は 2) の提携 (仁ではこれが配分を決める) と全体提携を調べる。
+/// `levels` は `coalitions` を省くときだけ指定できる (両方を指定すると ValueError)。
 /// 戻り値は `(提携, 感度のリスト, 差分の取り方)` の列 (感度の大きい順)。
 ///
 /// 差分の取り方は `"central"` (中心差分)、`"forward"`・`"backward"` (片側のゲームが解けないときの片側差分。
@@ -897,17 +948,22 @@ type InfluenceRow = (Vec<usize>, Vec<f64>, String);
 /// 比 `1e-7` の許容誤差で 1 回だけ解く。`tolerance="auto"` は、`nucleolus` の既定の手順で解く
 /// (有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
 #[pyfunction]
-#[pyo3(signature = (game, coalitions = None, solver = "nucleolus", levels = 2, delta = None, tolerance = None, rel_tolerance = None))]
+#[pyo3(signature = (game, coalitions = None, solver = "nucleolus", levels = None, delta = None, tolerance = None, rel_tolerance = None))]
 fn influence(
     game: &Game,
     coalitions: Option<Vec<Vec<usize>>>,
     solver: &str,
-    levels: usize,
+    levels: Option<usize>,
     delta: Option<f64>,
     tolerance: Option<&Bound<'_, PyAny>>,
-    rel_tolerance: Option<f64>,
+    rel_tolerance: Option<Number>,
 ) -> PyResult<Vec<InfluenceRow>> {
     let n = game.inner.players();
+    if coalitions.is_some() && levels.is_some() {
+        return Err(PyValueError::new_err(
+            "levels は調べる提携を選ぶ段の数なので、coalitions を省くときだけ指定できる",
+        ));
+    }
     let mut solve = solver_by_name(solver, tolerance, rel_tolerance)?;
     let coalitions: Vec<Coalition> = match coalitions {
         Some(list) => list
@@ -916,7 +972,8 @@ fn influence(
             .collect::<PyResult<_>>()?,
         None => {
             let x = solve(&game.inner).map_err(to_py_err)?;
-            uncertainty_core::key_coalitions(&game.inner, &x, levels).map_err(to_py_err)?
+            uncertainty_core::key_coalitions(&game.inner, &x, levels.unwrap_or(2))
+                .map_err(to_py_err)?
         }
     };
     let delta = delta.unwrap_or(1e-4 * game.inner.max_abs_value().max(1.0));
@@ -1060,7 +1117,7 @@ fn partial_nucleolus<'py>(
     format: &str,
     domain: &str,
     tolerance: Option<&Bound<'_, PyAny>>,
-    rel_tolerance: Option<f64>,
+    rel_tolerance: Option<Number>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let data = parse_game_data(text, format)?;
     let domain = parse_domain(domain)?;
@@ -1408,10 +1465,12 @@ fn bargaining_set<'py>(
     game: &Game,
     x: Vec<f64>,
     domain: &str,
-    tolerance: Option<f64>,
+    tolerance: Option<Number>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let tolerance =
-        tolerance.unwrap_or_else(|| 10.0 * coopgame::game::default_tolerance(&game.inner));
+    let tolerance = tolerance.map_or_else(
+        || 10.0 * coopgame::game::default_tolerance(&game.inner),
+        |Number(t)| t,
+    );
     let report =
         bargaining::check(&game.inner, &x, parse_domain(domain)?, tolerance).map_err(to_py_err)?;
     let dict = PyDict::new(py);
@@ -1493,20 +1552,28 @@ fn solution_dict<'py>(
 /// - `assume=False`: 凸であることが分かっている場合だけ実行する。`InducedSubgraphGame` は構造的に凸、
 ///   `Game` は全提携で凸性を確かめる (凸でなければ ValueError)。`guarantee` は `"proven(convex)"`。
 /// - `assume=True`: 凸と仮定して実行する (FunctionGame も可)。`guarantee` は `"assumed(convex)"`。
-///   `verify=True` なら事後検証し、`verdict` に `"certified"`・`"refuted"`・`"undecided"`、`reason` に理由を入れる。
+///   `verify` (既定は True) なら事後検証し、`verdict` に `"certified"`・`"refuted"`・`"undecided"`、`reason` に理由を入れる。
 ///   `certified` なら配分は厳密な配分になり、`guarantee` は `"certified"` になる。
 ///   `reference` は事後検証の基準の仁の求め方 (`verify_solution` と同じ `"auto"`・`"exact"`・`"lp"`。
 ///   指定しなければ `"auto"`)。事後検証をしない呼び方 (`assume=False` か `verify=False`) で指定すると ValueError。
+/// - `verify` は `assume=True` のときだけ指定できる (`assume=False` は凸であることが分かっているので事後検証をせず、
+///   指定しても効果がないので ValueError)。
 /// - `evaluations` は凸ゲームの手法で値の関数を呼んだ回数 (事後検証での評価は含まない)。
 #[pyfunction]
-#[pyo3(signature = (game, assume = false, verify = true, reference = None))]
+#[pyo3(signature = (game, assume = false, verify = None, reference = None))]
 fn convex_nucleolus<'py>(
     py: Python<'py>,
     game: &Bound<'py, PyAny>,
     assume: bool,
-    verify: bool,
+    verify: Option<bool>,
     reference: Option<&str>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    if verify.is_some() && !assume {
+        return Err(PyValueError::new_err(
+            "verify は事後検証の設定なので、assume=True のときだけ指定できる (assume=False は事後検証をしない)",
+        ));
+    }
+    let verify = verify.unwrap_or(true);
     if reference.is_some() && !(assume && verify) {
         return Err(PyValueError::new_err(
             "reference は事後検証の設定なので、assume=True・verify=True のときだけ指定できる",
@@ -1645,13 +1712,11 @@ fn apply_rule<'py>(
     exact: bool,
 ) -> PyResult<Bound<'py, PyAny>> {
     if exact {
-        let claims: Vec<Rational> = claims
-            .try_iter()?
-            .map(|claim| rational_of(&claim?))
-            .collect::<PyResult<_>>()?;
+        let claims = rational_sequence("claims", claims)?;
         let shares = exact_rule(rational_of(estate)?, &claims).map_err(to_py_err)?;
         Ok(fractions(py, &shares)?.into_pyobject(py)?.into_any())
     } else {
+        reject_text_sequence("claims", claims)?;
         let claims: Vec<f64> = claims.extract()?;
         let shares = float_rule(estate.extract()?, &claims).map_err(to_py_err)?;
         Ok(shares.into_pyobject(py)?.into_any())
