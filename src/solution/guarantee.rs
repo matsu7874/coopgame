@@ -32,7 +32,7 @@ impl fmt::Display for Property {
 /// | [`Guarantee::Proven`] | ゲームが性質を持つことが分かっており (型の構造、または計算で確認)、その性質のもとで正しい専用手法で求めた |
 /// | [`Guarantee::Assumed`] | 利用者が宣言した性質のもとで専用手法を使った。性質が成り立たなければ誤りうる |
 /// | [`Guarantee::Certified`] | 求めた後に、有理数による厳密な検証に合格した |
-/// | [`Guarantee::Approximate`] | サンプリングなどによる近似、または反復が収束しなかった |
+/// | [`Guarantee::Approximate`] | サンプリングなどによる近似、反復が収束しなかった、または既定の仁で解いた配分を Kohlberg 基準で確かめられなかった (確かめて満たさなかった、または確かめない人数) |
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Guarantee {

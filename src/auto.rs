@@ -1,7 +1,7 @@
 //! ゲームの型が持つ能力と性質から、保証のある手法のうち最も速いものを選んで仁を求める。
 //!
-//! 選ぶのは保証のある手法 ([`Guarantee::Exact`] か [`Guarantee::Proven`]) だけである。
-//! 逐次 LP は既定の設定 ([`crate::nucleolus::Tolerance::Auto`]) で解くので、許容誤差を下げても解いた配分が
+//! 選ぶのは、正しく求まれば保証が [`Guarantee::Exact`] か [`Guarantee::Proven`] になる手法だけである。
+//! ただし逐次 LP は既定の設定 ([`crate::nucleolus::Tolerance::Auto`]) で解くので、許容誤差を下げても解いた配分が
 //! Kohlberg 基準を満たさず、有理数の逐次 LP でも求められなかったとき (有理数に切り替えない 9-20 人のゲームなど) と、
 //! Kohlberg 基準を確かめない [`crate::nucleolus::MAX_AUTO_CHECK_PLAYERS`] 人を超えるゲームでは、
 //! 保証が [`Guarantee::Approximate`] になる。
