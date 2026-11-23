@@ -3,8 +3,11 @@
 //! [`bnf`] は blrzsvrzs/nucleolus (Benedek ら) の `gen_game` と同じ分布でゲームを作る。
 //! 乱数生成器が異なるため、同じ seed でも値は一致しない。
 
+use std::cmp::Ordering;
+
 use crate::error::{Error, Result};
 use crate::game::ExplicitGame;
+use crate::game::exact_sum::sum_sign;
 
 pub use crate::rng::SplitMix64;
 
@@ -85,14 +88,37 @@ pub fn bnf(kind: u8, n: usize, seed: u64) -> Result<ExplicitGame> {
 
 /// 重み付き投票ゲーム: 重みの和が `quota` 以上なら 1、そうでなければ 0。
 ///
+/// 重みの和と基準は、f64 の 2 進数の値どおりの有理数として比べる (浮動小数点数の和の丸めで勝敗が変わらない)。
+/// 10 進数の重み (`0.7`、`0.1` など) は 2 進数では丸められた値になるので、10 進数どおりに比べたいときは
+/// 整数の重みと基準に直して渡す (`[0.7, 0.1, 0.2]` と基準 `0.8` なら `[7, 1, 2]` と `8`)。
+///
 /// 重みと基準は有限の値 (NaN は比較が常に偽になり、勝利提携のないゲームを黙って作るため拒否する)。
 pub fn weighted_voting(weights: &[f64], quota: f64) -> Result<ExplicitGame> {
     if !quota.is_finite() || !weights.iter().all(|w| w.is_finite()) {
         return Err(Error::InvalidArgument("重みと基準は有限の値".into()));
     }
     ExplicitGame::from_fn(weights.len(), |coalition| {
-        let weight: f64 = coalition.members().map(|i| weights[i]).sum();
-        if weight >= quota { 1.0 } else { 0.0 }
+        let mut terms: Vec<f64> = coalition.members().map(|i| weights[i]).collect();
+        terms.push(-quota);
+        if sum_sign(&terms) != Ordering::Less {
+            1.0
+        } else {
+            0.0
+        }
+    })
+}
+
+/// 重みと基準を有理数で与える重み付き投票ゲーム: 重みの和が `quota` 以上なら 1、そうでなければ 0。
+///
+/// 10 進数の重みを [`crate::game::exact::parse_rational`] で値どおりに読んで渡すと、10 進数どおりに勝敗が決まる
+/// (`[7/10, 1/10, 1/5]` と基準 `4/5` では `{0, 1}` が勝つ)。
+pub fn weighted_voting_exact(
+    weights: &[crate::game::exact::Rational],
+    quota: &crate::game::exact::Rational,
+) -> Result<ExplicitGame> {
+    ExplicitGame::from_fn(weights.len(), |coalition| {
+        let weight: crate::game::exact::Rational = coalition.members().map(|i| &weights[i]).sum();
+        if &weight >= quota { 1.0 } else { 0.0 }
     })
 }
 
@@ -111,16 +137,20 @@ pub fn bankruptcy(estate: f64, claims: &[f64]) -> Result<ExplicitGame> {
     })
 }
 
-/// 非負の Harsanyi 配当を持つ凸ゲーム。配当は `[0, 1)` の一様乱数。
+/// 非負の Harsanyi 配当を持つ凸ゲーム。配当は `[0, 1)` の一様乱数を `2^-(53-n)` の格子に切り捨てた値。
+///
+/// 配当を格子にそろえるので、部分集合和 `v(S) = Σ_{T ⊆ S} d_T` (`2^n` 個以下の和で `2^n` 未満) は
+/// 丸めなしに計算でき、値を有理数として読んでも凸である (非負の配当を持つゲームは凸)。
 ///
 /// 凸ゲームではカーネルと仁が一致する (Maschler, Peleg, Shapley 1971、docs/references.md の MPS1971)。
 pub fn random_convex(n: usize, seed: u64) -> Result<ExplicitGame> {
     check_size(n)?;
     let mut rng = SplitMix64::new(seed);
     let size = 1usize << n;
+    let grid = (1u64 << (53 - n)) as f64;
     let mut values = vec![0.0; size];
     for value in values.iter_mut().skip(1) {
-        *value = rng.next_f64();
+        *value = (rng.next_f64() * grid).floor() / grid;
     }
     // 部分集合和 (zeta 変換): v(S) = sum_{T subset S} d_T
     for bit in 0..n {
@@ -133,19 +163,29 @@ pub fn random_convex(n: usize, seed: u64) -> Result<ExplicitGame> {
     ExplicitGame::from_binary(&values[1..])
 }
 
-/// 優加法的なゲーム。提携ごとに `[0, |S|)` の一様乱数を基本値とし、
-/// 分割して稼いだ方が大きければその値に置き換える(優加法的な包)。計算量は `3^n`。
+/// [`random_superadditive`] の基本値の格子 `2^-47`。
 ///
-/// 包は浮動小数点数の和で計算するので、値を有理数として読むと優加法性がわずかに破れることがある
-/// (`v(N) < Σ v({i})` になり、有理数の仁 [`crate::nucleolus::exact::nucleolus`] が配分集合が空のエラーを返すなど)。
-/// 有理数の手法や厳密な検証と組み合わせるときは [`random_superadditive_exact`] を使う。
+/// 基本値は `[0, |S|)` (`|S| <= 30 < 2^5`) なので、格子の上の値は `2^52` 未満の整数倍になる。
+/// 優加法的な包の値は分割した提携の基本値の和で、和も `|S|` 未満なので、和を丸めなしに計算できる。
+const SUPERADDITIVE_GRID: f64 = (1u64 << 47) as f64;
+
+/// 提携 `mask` の基本値: `[0, |S|)` の一様乱数を `2^-47` の格子に切り捨てた値。
+fn superadditive_base(rng: &mut SplitMix64, mask: usize) -> f64 {
+    (rng.next_f64() * mask.count_ones() as f64 * SUPERADDITIVE_GRID).floor() / SUPERADDITIVE_GRID
+}
+
+/// 優加法的なゲーム。提携ごとに `[0, |S|)` の一様乱数を `2^-47` の格子に切り捨てて基本値とし、
+/// 分割して稼いだ方が大きければその値に置き換える (優加法的な包)。計算量は `3^n`。
+///
+/// 基本値を格子にそろえるので、包の和は丸めなしに計算でき、値を有理数として読んでも優加法的である
+/// (有理数で同じ包を計算した [`random_superadditive_exact`] と値が一致する)。
 pub fn random_superadditive(n: usize, seed: u64) -> Result<ExplicitGame> {
     check_size(n)?;
     let mut rng = SplitMix64::new(seed);
     let size = 1usize << n;
     let mut values = vec![0.0; size];
     for (mask, value) in values.iter_mut().enumerate().skip(1) {
-        *value = rng.next_f64() * mask.count_ones() as f64;
+        *value = superadditive_base(&mut rng, mask);
     }
     superadditive_cover(&mut values, |a, b| a + b);
     ExplicitGame::from_binary(&values[1..])
@@ -183,9 +223,7 @@ fn superadditive_cover<T: PartialOrd>(values: &mut [T], add: impl Fn(&T, &T) -> 
 ///
 /// `bnf1`・`bnf2`・`bnf4` ([`bnf`] のタイプ 1, 2, 4)、`superadditive` ([`random_superadditive`])、
 /// `convex` ([`random_convex`])、`voting` ([`random_weighted_voting`])。
-///
-/// `superadditive` は浮動小数点数で作るので、有理数の手法と組み合わせると優加法性が破れて見えることがある
-/// ([`random_superadditive`] の注意)。その場合は [`random_superadditive_exact`] を使う。
+/// `superadditive` と `convex` は、値を有理数として読んでも名前の性質を満たす。
 pub fn by_class(class: &str, n: usize, seed: u64) -> Result<ExplicitGame> {
     match class {
         "bnf1" => bnf(1, n, seed),
@@ -198,13 +236,11 @@ pub fn by_class(class: &str, n: usize, seed: u64) -> Result<ExplicitGame> {
     }
 }
 
-/// [`random_superadditive`] と同じ乱数で、優加法的な被覆を有理数のまま計算したゲーム。
+/// [`random_superadditive`] と同じ乱数で、優加法的な包を有理数のまま計算したゲーム。
 ///
-/// [`random_superadditive`] は `v(S) = max(v(S), v(T) + v(S \ T))` を浮動小数点数の和で計算するので、
-/// 有理数では等しいはずの値の間に丸め誤差が残り、厳密な検証 ([`crate::verify::certify`]) が成り立たないことがある。
-/// こちらは乱数の値を 2 進数の値どおりの有理数にしてから、和と最大値を有理数で計算する。
-/// 浮動小数点の手法には [`crate::game::exact::ExactGame::to_explicit`] で変換して渡し、
-/// 検証には [`crate::verify::certify_exact`] を使う。
+/// 基本値は [`random_superadditive`] と同じ格子の値で、包の和は浮動小数点数でも丸めなしに計算できるので、
+/// 値は [`random_superadditive`] を有理数にしたもの ([`crate::game::exact::ExactGame::from_explicit`]) と一致する。
+/// 有理数の値を直接使う手法 ([`crate::verify::certify_exact`] など) に渡すときに使う。
 pub fn random_superadditive_exact(n: usize, seed: u64) -> Result<crate::game::exact::ExactGame> {
     use crate::game::exact::{Rational, to_rational};
     check_size(n)?;
@@ -212,7 +248,7 @@ pub fn random_superadditive_exact(n: usize, seed: u64) -> Result<crate::game::ex
     let size = 1usize << n;
     let mut values: Vec<Rational> = vec![Rational::from_integer(0.into()); size];
     for (mask, value) in values.iter_mut().enumerate().skip(1) {
-        *value = to_rational(rng.next_f64() * mask.count_ones() as f64)?;
+        *value = to_rational(superadditive_base(&mut rng, mask))?;
     }
     superadditive_cover(&mut values, |a, b| a + b);
     values.remove(0);
@@ -231,6 +267,7 @@ pub fn random_weighted_voting(n: usize, seed: u64) -> Result<ExplicitGame> {
 mod tests {
     use super::*;
     use crate::game::Coalition;
+    use crate::game::exact::Rational;
 
     #[test]
     fn bnf_type5_is_weighted_voting() {
@@ -254,5 +291,73 @@ mod tests {
                 assert!(lhs >= rhs - 1e-12);
             }
         }
+    }
+
+    fn exact(game: &ExplicitGame) -> Vec<Rational> {
+        game.values()
+            .iter()
+            .map(|v| Rational::from_float(*v).unwrap())
+            .collect()
+    }
+
+    /// 有理数で `v(S ∪ T) >= v(S) + v(T)` (互いに素な S, T) を確かめる。
+    fn superadditive_on_rationals(game: &ExplicitGame) -> bool {
+        let v = exact(game);
+        let size = v.len();
+        (1..size).all(|s| (1..size).all(|t| s & t != 0 || v[s | t] >= &v[s] + &v[t]))
+    }
+
+    /// 有理数で `v(S ∪ T) + v(S ∩ T) >= v(S) + v(T)` を確かめる。
+    fn convex_on_rationals(game: &ExplicitGame) -> bool {
+        let v = exact(game);
+        let size = v.len();
+        (1..size).all(|s| (1..size).all(|t| &v[s | t] + &v[s & t] >= &v[s] + &v[t]))
+    }
+
+    #[test]
+    fn generated_games_have_their_properties_on_rationals() {
+        // 浮動小数点数の和で包を作っていたときは、有理数で読むと n = 5 の 300 個中 295 個で優加法性が破れていた。
+        for n in 2..=7 {
+            for seed in 0..20 {
+                let game = random_superadditive(n, seed).unwrap();
+                assert!(
+                    superadditive_on_rationals(&game),
+                    "superadditive n={n} seed={seed}"
+                );
+                let from_class = by_class("superadditive", n, seed).unwrap();
+                assert_eq!(game, from_class);
+                let exact_game = random_superadditive_exact(n, seed).unwrap();
+                assert_eq!(
+                    exact_game.values(),
+                    exact(&game).as_slice(),
+                    "n={n} seed={seed}"
+                );
+                let convex = random_convex(n, seed).unwrap();
+                assert!(convex_on_rationals(&convex), "convex n={n} seed={seed}");
+            }
+        }
+        // 最大の人数でも格子の上の和は丸めなしに計算できる (値は格子の整数倍)。
+        let game = random_convex(20, 1).unwrap();
+        let grid = (1u64 << (53 - 20)) as f64;
+        assert!(game.values().iter().all(|v| (v * grid).fract() == 0.0));
+    }
+
+    #[test]
+    fn weighted_voting_compares_sums_on_rationals() {
+        // 浮動小数点数の逐次和では 1e16 + 1 + 1 が 1e16 のままになり、基準 1e16 + 2 に届かないと判定していた。
+        let game = weighted_voting(&[1e16, 1.0, 1.0], 1e16 + 2.0).unwrap();
+        assert_eq!(game.value(Coalition::from_players(&[0, 1, 2])), 1.0);
+        assert_eq!(game.value(Coalition::from_players(&[0, 1])), 0.0);
+        // f64 の重みは 2 進数の値どおりに比べる: 0.7 + 0.1 (= 0.79999999999999993...) は 0.8 (= 0.80000000000000004...) に届かない。
+        let binary = weighted_voting(&[0.7, 0.1, 0.2], 0.8).unwrap();
+        assert_eq!(binary.value(Coalition::from_players(&[0, 1])), 0.0);
+        assert_eq!(binary.value(Coalition::from_players(&[0, 2])), 1.0);
+        // 10 進数どおりに比べるには有理数で渡す。整数の重み [7, 1, 2] と基準 8 と同じゲームになる。
+        let parse = |text: &str| crate::game::exact::parse_rational(text).unwrap();
+        let decimal =
+            weighted_voting_exact(&[parse("0.7"), parse("0.1"), parse("0.2")], &parse("0.8"))
+                .unwrap();
+        assert_eq!(decimal, weighted_voting(&[7.0, 1.0, 2.0], 8.0).unwrap());
+        assert_eq!(decimal.value(Coalition::from_players(&[0, 1])), 1.0);
     }
 }

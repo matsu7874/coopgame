@@ -306,12 +306,20 @@ fn approximate_results_say_so() {
 
 /// 浮動小数点数の和で作った優加法的なゲーム (n = 4, seed 0) は、値を有理数にすると等しいはずの超過がずれ、
 /// LP の仁が厳密な検証に合格しない。同じ乱数で有理数のまま構築すると合格する。
+/// 生成器 (`random_superadditive`) は基本値を格子にそろえて和を丸めなしにしたので、浮動小数点数のゲームでも合格する。
 #[test]
 fn rational_construction_makes_certification_possible() {
-    let float_game = generators::random_superadditive(4, 0).unwrap();
+    let float_game = common::float_sum_superadditive(4, 0);
     let x = nucleolus::nucleolus(&float_game).unwrap().into_allocation();
     assert!(
         !verify::certify(&float_game, &x, coopgame::Domain::Imputation)
+            .unwrap()
+            .satisfied
+    );
+    let generated = generators::random_superadditive(4, 0).unwrap();
+    let x = nucleolus::nucleolus(&generated).unwrap().into_allocation();
+    assert!(
+        verify::certify(&generated, &x, coopgame::Domain::Imputation)
             .unwrap()
             .satisfied
     );
