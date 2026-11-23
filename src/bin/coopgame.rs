@@ -38,8 +38,8 @@ const USAGE: &str = "\
   coopgame anti-nucleolus <v.txt> [--pre] [--lex] anti-nucleolus (--pre で anti-prenucleolus)。双対ゲームの仁 (プレ仁)
   coopgame convex-nucleolus <v.txt> [--lex] [--assume [--reference auto|exact|lp]]
                       凸ゲームの手法で仁 (--assume は凸と仮定して試し、事後検証する)
-  coopgame shapley    <v.txt> [--lex] [--samples N] [--seed S] [--cost]
-  coopgame banzhaf    <v.txt> [--lex] [--samples N] [--seed S] [--normalize] [--cost]
+  coopgame shapley    <v.txt> [--lex] [--samples N [--seed S]] [--cost]
+  coopgame banzhaf    <v.txt> [--lex] [--samples N [--seed S]] [--normalize] [--cost]
   coopgame solidarity <v.txt> [--lex]   solidarity 値 (Nowak & Radzik 1994)
   coopgame tau        <v.txt> [--lex]   tau 値 (Tijs 1981)。理想の支払いと最小の権利は標準エラーに出す
   coopgame gately     <v.txt> [--lex]   Gately 点 (Gately 1974)
@@ -77,7 +77,7 @@ const USAGE: &str = "\
   --cost   値を費用 c(S) として読み、節約ゲーム s(S) = sum c({i}) - c(S) で解いて費用の分担を出す
            (nucleolus・least-core・kernel・shapley・banzhaf・compare)。compare の不満は y(S) - c(S)。
            JSON・CSV の type が cost (CSV の見出しが coalition,cost) なら --cost なしでも費用として読み、
-           他のコマンドはエラーにする
+           他のコマンドはエラーにする。type が value (CSV の見出しが coalition,value) のファイルに --cost は付けられない
   sol.txt  検証する配分を 1 行 1 値で書いたファイル
   --pre    プレ仁・プレカーネル(個人合理性を課さない)
   --full   仁の LP に全提携の行を最初から入れる(既定は制約生成)
@@ -126,29 +126,39 @@ fn main() -> ExitCode {
 
 /// CLI のエラー (標準エラーに出す文章)。ライブラリのエラーは `?` でそのまま変換する。
 #[derive(Debug)]
-struct CliError(String);
+struct CliError {
+    message: String,
+    /// 配分集合が空 (`sum v({i}) > v(N)`) のエラーか (run が --cost の案内を添える)。
+    empty_imputation_set: bool,
+}
 
 impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 
 impl From<String> for CliError {
     fn from(message: String) -> CliError {
-        CliError(message)
+        CliError {
+            message,
+            empty_imputation_set: false,
+        }
     }
 }
 
 impl From<&str> for CliError {
     fn from(message: &str) -> CliError {
-        CliError(message.to_string())
+        message.to_string().into()
     }
 }
 
 impl From<coopgame::Error> for CliError {
     fn from(error: coopgame::Error) -> CliError {
-        CliError(error.to_string())
+        CliError {
+            message: error.to_string(),
+            empty_imputation_set: matches!(error, coopgame::Error::EmptyImputationSet),
+        }
     }
 }
 
@@ -252,16 +262,36 @@ impl Args {
         }
     }
 
-    /// コマンドが受け付けるオプションだけが指定されているかを確かめる。各コマンドの最初に呼ぶ。
+    /// コマンドが受け付ける位置引数とオプションだけが指定されているかを確かめる。各コマンドの最初に呼ぶ。
     ///
+    /// `positional` はコマンドが受け付ける位置引数の名前 (`<v.txt>` など) で、数はちょうどこれだけ。
+    /// 余分な位置引数は効果がないので、黙って無視せずエラーにする。`-` で始まる位置引数 (`-pre` など) は
+    /// オプションの書き間違いなので、未知のオプションとしてエラーにする。
     /// `known` はコマンドが受け付けるオプション。それ以外は効果がないので、黙って無視せずエラーにする。
     /// ゲームのファイルを読むコマンドは、入力についての `--lex`・`--missing` を並べる。
     /// `--missing` の値 `ignore` (値が分かる提携だけで解く) は浮動小数点数の `nucleolus` だけで使えるので、ここで確かめる。
-    fn check_options(&self, known: &[&str]) -> CliResult<()> {
+    fn check_options(&self, positional: &[&str], known: &[&str]) -> CliResult<()> {
+        for arg in &self.positional {
+            if arg.starts_with('-') && arg.len() > 1 {
+                return Err(format!("未知のオプション {arg}\n\n{USAGE}").into());
+            }
+        }
         for (flag, _) in &self.flags {
             if !known.contains(&flag.as_str()) {
                 return Err(format!("未知のオプション {flag}\n\n{USAGE}").into());
             }
+        }
+        if let Some(extra) = self.positional.get(positional.len()) {
+            let command = &self.command;
+            let accepted = if positional.is_empty() {
+                format!("{command} は位置引数を受け付けない")
+            } else {
+                format!("{command} の位置引数は {}", positional.join(" "))
+            };
+            return Err(format!("余分な引数 {extra:?} ({accepted})\n\n{USAGE}").into());
+        }
+        if let Some(name) = positional.get(self.positional.len()) {
+            return Err(format!("入力ファイル {name} が指定されていない\n\n{USAGE}").into());
         }
         if self.missing == MissingPolicy::Ignore && self.command != "nucleolus" {
             return Err(format!(
@@ -301,18 +331,48 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
         return Err(USAGE.into());
     };
     let args = Args::parse(command, rest)?;
-    match command.as_str() {
+    let read_as_value = !args.has("--cost");
+    let input = args.positional.first().cloned();
+    run_command(command, args).map_err(|mut error| {
+        // 費用のゲームを価値として読むと、多くは sum c({i}) > c(N) で配分集合が空になる。
+        // 値を費用として読んでいない (--cost も type が cost の入力もない) ときは、--cost を案内する。
+        if error.empty_imputation_set && read_as_value && !declares_cost(input.as_deref()) {
+            error.message.push_str(&format!(
+                "\n値が費用 c(S) なら --cost で費用として読む (--cost を扱えるのは {COST_COMMANDS})"
+            ));
+        }
+        error
+    })
+}
+
+/// ゲームのファイル (最初の位置引数) が JSON の type・CSV の見出しで費用と明示しているか。
+fn declares_cost(path: Option<&str>) -> bool {
+    let Some(path) = path.filter(|path| is_table(path)) else {
+        return false;
+    };
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| io::declared_kind_by_extension(path, &text).ok())
+        .flatten()
+        == Some(io::Kind::Cost)
+}
+
+fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
+    match command {
         "nucleolus" => {
-            args.check_options(&[
-                "--pre",
-                "--lex",
-                "--missing",
-                "--full",
-                "--cost",
-                "--exact",
-                "--tolerance",
-                "--rel-tolerance",
-            ])?;
+            args.check_options(
+                &["<v.txt>"],
+                &[
+                    "--pre",
+                    "--lex",
+                    "--missing",
+                    "--full",
+                    "--cost",
+                    "--exact",
+                    "--tolerance",
+                    "--rel-tolerance",
+                ],
+            )?;
             let specified = tolerance(&args)?;
             let tolerance = specified.unwrap_or(Tolerance::Auto);
             if args.has("--exact") {
@@ -337,9 +397,8 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
                 }
                 // 値を有理数として読み、有理数だけの逐次 LP で解く。分数で出す。
                 let input = read_exact_input(&args, 0)?;
-                // --cost (または JSON・CSV の type が cost): 節約ゲームで解いて費用の分担に直す。
-                let is_cost = args.has("--cost") || input.kind == io::Kind::Cost;
-                let (game, standalone) = if is_cost {
+                // 費用 (--cost か、JSON・CSV の type が cost): 節約ゲームで解いて費用の分担に直す。
+                let (game, standalone) = if input.kind == io::Kind::Cost {
                     let (savings, standalone) = exact_savings(&input.game)?;
                     (savings, Some(standalone))
                 } else {
@@ -392,7 +451,7 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print_allocation(&prepared.output(result.allocation()));
         }
         "plot" => {
-            args.check_options(&["--lex", "--missing", "--no-kernel"])?;
+            args.check_options(&["<v.txt>"], &["--lex", "--missing", "--no-kernel"])?;
             let game = read_game(&args, 0)?;
             let mut options = plot::PlotOptions::default();
             options.kernel = !args.has("--no-kernel");
@@ -417,7 +476,7 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "structure" => {
-            args.check_options(&["--blocks", "--lex", "--missing", "--pre"])?;
+            args.check_options(&["<v.txt>"], &["--blocks", "--lex", "--missing", "--pre"])?;
             let game = read_game(&args, 0)?;
             let text = args.value("--blocks")?.ok_or("--blocks が必要")?;
             let blocks: Vec<Vec<usize>> = text
@@ -434,7 +493,7 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "airport" => {
-            args.check_options(&["--costs"])?;
+            args.check_options(&[], &["--costs"])?;
             let costs: Vec<f64> =
                 parse_list(args.value("--costs")?.ok_or("--costs が必要")?, "--costs")?;
             let game = AirportGame::new(costs)?;
@@ -446,14 +505,23 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "shapley" | "banzhaf" => {
-            args.check_options(&[
-                "--lex",
-                "--missing",
-                "--samples",
-                "--seed",
-                "--normalize",
-                "--cost",
-            ])?;
+            args.check_options(
+                &["<v.txt>"],
+                &[
+                    "--lex",
+                    "--missing",
+                    "--samples",
+                    "--seed",
+                    "--normalize",
+                    "--cost",
+                ],
+            )?;
+            if args.has("--seed") && !args.has("--samples") {
+                return Err(
+                    "--seed はサンプリングの乱数の種で、--samples と併用する (--samples を省くと厳密計算で乱数を使わない)"
+                        .into(),
+                );
+            }
             // 費用のゲームは節約ゲームの値を費用の分担に戻す (線形なので費用ゲームの値そのもの)。
             let prepared = read_prepared(&args, 0)?;
             let game = &prepared.game;
@@ -494,14 +562,14 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "least-core" => {
-            args.check_options(&["--pre", "--lex", "--missing", "--cost"])?;
+            args.check_options(&["<v.txt>"], &["--pre", "--lex", "--missing", "--cost"])?;
             let prepared = read_prepared(&args, 0)?;
             let result = nucleolus::least_core(&prepared.game, args.domain())?;
             eprintln!("epsilon={}", result.epsilon());
             print_allocation(&prepared.output(result.allocation()));
         }
         "disruption" => {
-            args.check_options(&["--lex", "--missing"])?;
+            args.check_options(&["<v.txt>"], &["--lex", "--missing"])?;
             let game = read_game(&args, 0)?;
             let result = variants::disruption_nucleolus(&game)?;
             eprintln!(
@@ -512,7 +580,7 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print_allocation(result.allocation());
         }
         "anti-nucleolus" => {
-            args.check_options(&["--pre", "--lex", "--missing"])?;
+            args.check_options(&["<v.txt>"], &["--pre", "--lex", "--missing"])?;
             let game = read_game(&args, 0)?;
             let result = if args.has("--pre") {
                 variants::anti_prenucleolus(&game)?
@@ -522,9 +590,9 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print_allocation(result.allocation());
         }
         "solidarity" | "tau" | "gately" => {
-            args.check_options(&["--lex", "--missing"])?;
+            args.check_options(&["<v.txt>"], &["--lex", "--missing"])?;
             let game = read_game(&args, 0)?;
-            let allocation = match command.as_str() {
+            let allocation = match command {
                 "solidarity" => values::solidarity(&game),
                 "tau" => {
                     eprintln!(
@@ -539,13 +607,21 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print_allocation(&allocation);
         }
         "myerson" => {
-            args.check_options(&["--edges", "--lex", "--missing"])?;
+            args.check_options(&["<v.txt>"], &["--edges", "--lex", "--missing"])?;
             let game = read_game(&args, 0)?;
             let text = args.value("--edges")?.ok_or("--edges が必要")?;
-            let edges: Vec<(usize, usize)> = text
-                .split(',')
-                .filter(|edge| !edge.trim().is_empty())
+            // 辺のない空のグラフは "" で書く。それ以外の空の要素 ("0-1,,1-2" など) は書き間違いなのでエラーにする。
+            let items: Vec<&str> = if text.trim().is_empty() {
+                Vec::new()
+            } else {
+                text.split(',').collect()
+            };
+            let edges: Vec<(usize, usize)> = items
+                .into_iter()
                 .map(|edge| {
+                    if edge.trim().is_empty() {
+                        return Err(format!("--edges に空の要素がある: {text:?}").into());
+                    }
                     let ends = parse_list::<usize>(&edge.replace('-', ","), "--edges")?;
                     match ends[..] {
                         [a, b] => Ok((a, b)),
@@ -556,36 +632,36 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print_allocation(&communication::myerson(&game, &edges)?);
         }
         "power" => {
-            args.check_options(&["--lex", "--missing"])?;
+            args.check_options(&["<v.txt>"], &["--lex", "--missing"])?;
             let game = read_game(&args, 0)?;
             let simple = power::SimpleGame::new(&game)?;
             let n = game.players();
-            let missing = || vec![f64::NAN; n];
-            let columns = [
-                ("shapley_shubik", values::shapley(&game)),
-                ("banzhaf", values::normalize(&values::banzhaf(&game))),
-                ("johnston", simple.johnston().unwrap_or_else(|_| missing())),
-                (
-                    "deegan_packel",
-                    simple.deegan_packel().unwrap_or_else(|_| missing()),
-                ),
-                (
-                    "public_good",
-                    simple.public_good().unwrap_or_else(|_| missing()),
-                ),
-                (
-                    "coleman_prevent",
-                    simple.coleman_prevent().unwrap_or_else(|_| missing()),
-                ),
-                (
-                    "coleman_initiative",
-                    simple.coleman_initiative().unwrap_or_else(|_| missing()),
-                ),
+            // 定義されない指数 (勝利提携がないなど) は値を出さず、空欄にして理由を標準エラーに出す
+            // (Python の power_indices の None と同じ)。
+            let columns: [(&str, coopgame::Result<Vec<f64>>); 7] = [
+                ("shapley_shubik", Ok(values::shapley(&game))),
+                ("banzhaf", Ok(values::normalize(&values::banzhaf(&game)))),
+                ("johnston", simple.johnston()),
+                ("deegan_packel", simple.deegan_packel()),
+                ("public_good", simple.public_good()),
+                ("coleman_prevent", simple.coleman_prevent()),
+                ("coleman_initiative", simple.coleman_initiative()),
             ];
+            for (name, column) in &columns {
+                if let Err(error) = column {
+                    eprintln!("{name} は定義されない: {error}");
+                }
+            }
             let header: Vec<&str> = columns.iter().map(|(name, _)| *name).collect();
             println!("player\t{}\tswings", header.join("\t"));
             for i in 0..n {
-                let row: Vec<String> = columns.iter().map(|(_, v)| v[i].to_string()).collect();
+                let row: Vec<String> = columns
+                    .iter()
+                    .map(|(_, column)| match column {
+                        Ok(v) => v[i].to_string(),
+                        Err(_) => String::new(),
+                    })
+                    .collect();
                 println!("{i}\t{}\t{}", row.join("\t"), simple.swings[i]);
             }
             eprintln!(
@@ -601,10 +677,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             } else {
                 &["--pre", "--lex", "--missing"]
             };
-            args.check_options(known)?;
+            args.check_options(&["<v.txt>"], known)?;
             let game = read_game(&args, 0)?;
             let started = Instant::now();
-            let result = match command.as_str() {
+            let result = match command {
                 "per-capita" => variants::per_capita_nucleolus(&game, args.domain()),
                 "proportional" => variants::proportional_nucleolus(&game, args.domain()),
                 _ => variants::modiclus(&game),
@@ -618,7 +694,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print_allocation(result.allocation());
         }
         "convex-nucleolus" => {
-            args.check_options(&["--lex", "--missing", "--assume", "--reference"])?;
+            args.check_options(
+                &["<v.txt>"],
+                &["--lex", "--missing", "--assume", "--reference"],
+            )?;
             if args.has("--reference") && !args.has("--assume") {
                 return Err(
                     "--reference は --assume と併用する (仮定して求めた結果の検証に使う)".into(),
@@ -671,7 +750,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "kernel" => {
-            args.check_options(&["--pre", "--lex", "--missing", "--max-iter", "--cost"])?;
+            args.check_options(
+                &["<v.txt>"],
+                &["--pre", "--lex", "--missing", "--max-iter", "--cost"],
+            )?;
             let prepared = read_prepared(&args, 0)?;
             let game = &prepared.game;
             let mut options = TransferOptions::for_game(game);
@@ -688,7 +770,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print_allocation(&prepared.output(result.allocation()));
         }
         "kernel-set" => {
-            args.check_options(&["--pre", "--lex", "--missing", "--max-nodes", "--merge"])?;
+            args.check_options(
+                &["<v.txt>"],
+                &["--pre", "--lex", "--missing", "--max-nodes", "--merge"],
+            )?;
             let game = read_game(&args, 0)?;
             let mut options = SetOptions::for_game(&game);
             options.max_nodes = args.number("--max-nodes", options.max_nodes)?;
@@ -717,7 +802,7 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "talmud" => {
-            args.check_options(&["--estate", "--claims", "--exact"])?;
+            args.check_options(&[], &["--estate", "--claims", "--exact"])?;
             let estate = args.value("--estate")?.ok_or("--estate がない")?;
             let claims = args.value("--claims")?.ok_or("--claims がない")?;
             if args.has("--exact") {
@@ -740,7 +825,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "certify" => {
-            args.check_options(&["--pre", "--lex", "--missing", "--rational"])?;
+            args.check_options(
+                &["<v.txt>", "<sol.txt>"],
+                &["--pre", "--lex", "--missing", "--rational"],
+            )?;
             let x = read_values(args.file(1)?)?;
             let started = Instant::now();
             let report = if args.has("--rational") {
@@ -774,7 +862,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "check" => {
-            args.check_options(&["--pre", "--lex", "--missing", "--rational", "--reference"])?;
+            args.check_options(
+                &["<v.txt>", "<sol.txt>"],
+                &["--pre", "--lex", "--missing", "--rational", "--reference"],
+            )?;
             let x = read_values(args.file(1)?)?;
             let options = verify_options(&args)?;
             let started = Instant::now();
@@ -805,7 +896,7 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "verify" => {
-            args.check_options(&["--pre", "--lex", "--missing"])?;
+            args.check_options(&["<v.txt>", "<sol.txt>"], &["--pre", "--lex", "--missing"])?;
             let game = read_game(&args, 0)?;
             let x = read_values(args.file(1)?)?;
             let domain = args.domain();
@@ -826,7 +917,7 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             );
         }
         "bargaining" => {
-            args.check_options(&["--pre", "--lex", "--missing"])?;
+            args.check_options(&["<v.txt>", "<sol.txt>"], &["--pre", "--lex", "--missing"])?;
             let game = read_game(&args, 0)?;
             let x = read_values(args.file(1)?)?;
             let started = Instant::now();
@@ -850,7 +941,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "explain" => {
-            args.check_options(&["--lex", "--missing", "--levels"])?;
+            args.check_options(
+                &["<v.txt>", "<sol.txt>"],
+                &["--lex", "--missing", "--levels"],
+            )?;
             let game = read_game(&args, 0)?;
             let x = read_values(args.file(1)?)?;
             let mut options = explain::ExplainOptions::default();
@@ -859,13 +953,16 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print!("{}", explain::render(&report));
         }
         "compare" => {
-            args.check_options(&[
-                "--lex",
-                "--missing",
-                "--cost",
-                "--tolerance",
-                "--rel-tolerance",
-            ])?;
+            args.check_options(
+                &["<v.txt>"],
+                &[
+                    "--lex",
+                    "--missing",
+                    "--cost",
+                    "--tolerance",
+                    "--rel-tolerance",
+                ],
+            )?;
             // 仁・プレ仁は nucleolus コマンドと同じ手順で求める (指定がなければ既定の手順)。
             let tolerance = tolerance(&args)?.unwrap_or(Tolerance::Auto);
             let solve = |domain: Domain, game: &ExplicitGame| {
@@ -916,16 +1013,19 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "uncertainty" => {
-            args.check_options(&[
-                "--lex",
-                "--missing",
-                "--relative",
-                "--samples",
-                "--seed",
-                "--solver",
-                "--tolerance",
-                "--rel-tolerance",
-            ])?;
+            args.check_options(
+                &["<v.txt>"],
+                &[
+                    "--lex",
+                    "--missing",
+                    "--relative",
+                    "--samples",
+                    "--seed",
+                    "--solver",
+                    "--tolerance",
+                    "--rel-tolerance",
+                ],
+            )?;
             let game = read_game(&args, 0)?;
             let relative: f64 = args.number("--relative", 0.1)?;
             let samples = samples(&args, 200)?;
@@ -947,15 +1047,18 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             eprintln!("samples={} failures={}", d.samples, d.failures);
         }
         "influence" => {
-            args.check_options(&[
-                "--lex",
-                "--missing",
-                "--solver",
-                "--levels",
-                "--delta",
-                "--tolerance",
-                "--rel-tolerance",
-            ])?;
+            args.check_options(
+                &["<v.txt>"],
+                &[
+                    "--lex",
+                    "--missing",
+                    "--solver",
+                    "--levels",
+                    "--delta",
+                    "--tolerance",
+                    "--rel-tolerance",
+                ],
+            )?;
             let game = read_game(&args, 0)?;
             let mut solve = solver(&args)?;
             let x = solve(&game)?;
@@ -979,7 +1082,7 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "generate" => {
-            args.check_options(&["--type", "--n", "--seed"])?;
+            args.check_options(&[], &["--type", "--n", "--seed"])?;
             let kind: u8 = args.number("--type", 0)?;
             let n: usize = args.number("--n", 0)?;
             let seed: u64 = args.number("--seed", 0)?;
@@ -987,7 +1090,7 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print!("{}", game.to_lines());
         }
         "bench" => {
-            args.check_options(&["--types", "--n", "--seeds", "--methods"])?;
+            args.check_options(&[], &["--types", "--n", "--seeds", "--methods"])?;
             bench(&args)?;
         }
         "help" | "--help" | "-h" => println!("{USAGE}"),
@@ -1118,10 +1221,30 @@ fn is_table_input(args: &Args, path: &str) -> CliResult<bool> {
     Ok(true)
 }
 
-/// 読んだゲームと値の種類。v.txt は価値として読む (費用として読むかは --cost で決める)。
+/// 読んだゲームと値の種類。
 struct Input<G> {
     game: G,
+    /// 値の種類。--cost なら費用、なければ JSON・CSV に書いた種類 (v.txt と type を省いた JSON は価値)。
     kind: io::Kind,
+}
+
+/// 値の種類を決める。--cost は値を費用として読む指定なので、JSON の type・CSV の見出しで価値 (value) と
+/// 明示した入力に付けると、どちらの種類で読むかが食い違う。黙ってどちらかを選ばずにエラーにする。
+fn input_kind(args: &Args, path: &str, text: &str, kind: io::Kind) -> CliResult<io::Kind> {
+    if !args.has("--cost") {
+        return Ok(kind);
+    }
+    if is_table(path)
+        && io::declared_kind_by_extension(path, text).map_err(|e| format!("{path}: {e}"))?
+            == Some(io::Kind::Value)
+    {
+        return Err(format!(
+            "{path}: 値の種類が value (価値) と書かれているので、--cost で費用として読めない \
+             (費用なら JSON の type を cost に、CSV の見出しを coalition,cost にする。価値なら --cost を外す)"
+        )
+        .into());
+    }
+    Ok(io::Kind::Cost)
 }
 
 /// ゲームを読む (JSON・CSV は値の種類も読む)。
@@ -1135,7 +1258,7 @@ fn read_input(args: &Args, position: usize) -> CliResult<Input<ExplicitGame>> {
             .map_err(|e| table_error(args, path, data.has_missing(), e))?;
         return Ok(Input {
             game,
-            kind: data.kind,
+            kind: input_kind(args, path, &text, data.kind)?,
         });
     }
     let values = coopgame::game::parse_values(&text).map_err(|e| format!("{path}: {e}"))?;
@@ -1146,7 +1269,7 @@ fn read_input(args: &Args, position: usize) -> CliResult<Input<ExplicitGame>> {
     };
     Ok(Input {
         game: game.map_err(|e| format!("{path}: {e}"))?,
-        kind: io::Kind::Value,
+        kind: input_kind(args, path, &text, io::Kind::Value)?,
     })
 }
 
@@ -1187,12 +1310,12 @@ impl Prepared {
     }
 }
 
-/// 費用のゲームも扱うコマンドでゲームを読む。--cost か、JSON・CSV の type が cost なら費用 c(S) として読み、
+/// 費用のゲームも扱うコマンドでゲームを読む。値の種類が費用 (--cost か、JSON・CSV の type が cost) なら費用 c(S) として読み、
 /// 節約ゲームに直す。節約ゲームの超過 `s(S) - x(S)` は費用の分担での `y(S) - c(S)` に等しいので、
 /// 超過に基づく解 (仁・最小コア・カーネル) と線形な値 (Shapley 値・Banzhaf 値) はそのまま費用の分担に戻せる。
 fn read_prepared(args: &Args, position: usize) -> CliResult<Prepared> {
     let input = read_input(args, position)?;
-    if args.has("--cost") || input.kind == io::Kind::Cost {
+    if input.kind == io::Kind::Cost {
         let cost = cost::CostGame::new(input.game);
         Ok(Prepared {
             game: cost.savings_game()?,
@@ -1217,7 +1340,7 @@ fn read_exact_input(args: &Args, position: usize) -> CliResult<Input<exact::Exac
             .map_err(|e| table_error(args, path, data.has_missing(), e))?;
         return Ok(Input {
             game,
-            kind: data.kind,
+            kind: input_kind(args, path, &text, data.kind)?,
         });
     }
     let values = exact::parse_rational_values(&text).map_err(|e| format!("{path}: {e}"))?;
@@ -1228,7 +1351,7 @@ fn read_exact_input(args: &Args, position: usize) -> CliResult<Input<exact::Exac
     };
     Ok(Input {
         game: game.map_err(|e| format!("{path}: {e}"))?,
-        kind: io::Kind::Value,
+        kind: input_kind(args, path, &text, io::Kind::Value)?,
     })
 }
 
@@ -1253,8 +1376,8 @@ fn nucleolus_known_only(args: &Args, tolerance: Tolerance) -> CliResult<bool> {
     if !is_table_input(args, path)? {
         return Ok(false);
     }
-    let mut data =
-        io::parse_by_extension(path, &read_text(path)?).map_err(|e| format!("{path}: {e}"))?;
+    let text = read_text(path)?;
+    let mut data = io::parse_by_extension(path, &text).map_err(|e| format!("{path}: {e}"))?;
     if !data.has_missing() {
         return Ok(false);
     }
@@ -1264,9 +1387,7 @@ fn nucleolus_known_only(args: &Args, tolerance: Tolerance) -> CliResult<bool> {
                 .into(),
         );
     }
-    if args.has("--cost") {
-        data.kind = io::Kind::Cost;
-    }
+    data.kind = input_kind(args, path, &text, data.kind)?;
     // 費用なら節約ゲームで解き、費用の分担で出す (io::GameData::partial_nucleolus)。
     let result = data
         .partial_nucleolus_with(args.domain(), tolerance)
@@ -1358,26 +1479,61 @@ fn parse_range(text: &str) -> CliResult<Vec<usize>> {
     }
 }
 
+/// bench の手法。
+const BENCH_METHODS: [&str; 6] = [
+    "nucleolus",
+    "nucleolus-full",
+    "prenucleolus",
+    "prenucleolus-full",
+    "kernel",
+    "prekernel",
+];
+
 /// ゲームタイプ・人数・seed ごとに各手法を実行し、CSV を標準出力に出す。
+///
+/// 未知のタイプ・手法、2 人未満の人数、0 個の seed は、計測する組がないか効果がないのでエラーにする。
+/// タイプと人数の組で作れないゲーム (タイプ 5 の n < 7 など) は、その組の各手法の行の error 列に理由を書く
+/// (既定の --types 1..5 --n 4..10 にも作れない組が含まれるので、全体をエラーにしない)。
 fn bench(args: &Args) -> CliResult<()> {
     let types: Vec<u8> = parse_list(args.value("--types")?.unwrap_or("1,2,3,4,5"), "--types")?;
+    if let Some(kind) = types.iter().find(|&&kind| !(1..=5).contains(&kind)) {
+        return Err(format!("--types の要素 {kind} は未知のタイプ (1 から 5)").into());
+    }
     let sizes = parse_range(args.value("--n")?.unwrap_or("4..10"))?;
+    if let Some(n) = sizes.iter().find(|&&n| n < 2) {
+        return Err(format!("--n の人数 {n} ではゲームを作れない (2 以上)").into());
+    }
     let seeds: u64 = args.number("--seeds", 3)?;
+    if seeds == 0 {
+        return Err("--seeds は 1 以上 (0 では計測する組がない)".into());
+    }
     let methods: Vec<String> = parse_list(
         args.value("--methods")?
             .unwrap_or("nucleolus,prenucleolus,kernel,prekernel"),
         "--methods",
     )?;
+    if let Some(method) = methods
+        .iter()
+        .find(|method| !BENCH_METHODS.contains(&method.as_str()))
+    {
+        return Err(format!("未知の手法 {method:?} ({})", BENCH_METHODS.join(", ")).into());
+    }
     println!("type,n,seed,method,seconds,lp_solves,rows_added,iterations,verified,violation,error");
     for &kind in &types {
         for &n in &sizes {
             for seed in 0..seeds {
-                let game = match generators::bnf(kind, n, seed) {
-                    Ok(game) => game,
-                    Err(_) => continue,
-                };
-                for method in &methods {
-                    println!("{kind},{n},{seed},{method},{}", bench_one(&game, method)?);
+                match generators::bnf(kind, n, seed) {
+                    Ok(game) => {
+                        for method in &methods {
+                            println!("{kind},{n},{seed},{method},{}", bench_one(&game, method)?);
+                        }
+                    }
+                    Err(error) => {
+                        let reason = format!("ゲームを作れない: {error}").replace(',', ";");
+                        for method in &methods {
+                            println!("{kind},{n},{seed},{method},,,,,,,{reason}");
+                        }
+                    }
                 }
             }
         }
