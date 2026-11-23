@@ -144,9 +144,17 @@ impl Game {
     }
 
     /// 重み付き投票ゲーム: 重みの和が `quota` 以上の提携の値が 1、他は 0。
+    ///
+    /// 重みと基準は int・float・`Fraction`・`"0.7"` のような文字列で、10 進数の表記どおりの有理数として和を比べる
+    /// (float は `str()` の表記で読むので、`[0.7, 0.1, 0.2]` と基準 `0.8` では `0.7 + 0.1` が基準に届く)。
     #[staticmethod]
-    fn weighted_voting(weights: Vec<f64>, quota: f64) -> PyResult<Game> {
-        let inner = generators::weighted_voting(&weights, quota).map_err(to_py_err)?;
+    fn weighted_voting(weights: &Bound<'_, PyAny>, quota: &Bound<'_, PyAny>) -> PyResult<Game> {
+        let weights: Vec<Rational> = weights
+            .try_iter()?
+            .map(|w| rational_of(&w?))
+            .collect::<PyResult<_>>()?;
+        let quota = rational_of(quota)?;
+        let inner = generators::weighted_voting_exact(&weights, &quota).map_err(to_py_err)?;
         Ok(Game { inner })
     }
 
@@ -180,24 +188,50 @@ impl Game {
         self.inner.values()[1..].to_vec()
     }
 
-    fn is_superadditive(&self) -> bool {
-        properties::is_superadditive(&self.inner)
+    /// 優加法的か。`tolerance` を省略すると値どおりの有理数で厳密に判定し、
+    /// 指定すると `v(S ∪ T) >= v(S) + v(T) - tolerance` で判定する。
+    #[pyo3(signature = (tolerance = None))]
+    fn is_superadditive(&self, tolerance: Option<f64>) -> PyResult<bool> {
+        match tolerance {
+            None => Ok(properties::is_superadditive(&self.inner)),
+            Some(t) => properties::is_superadditive_within(&self.inner, t).map_err(to_py_err),
+        }
     }
 
-    fn is_convex(&self) -> bool {
-        properties::is_convex(&self.inner)
+    /// 凸 (優モジュラ) か。`tolerance` を省略すると値どおりの有理数で厳密に判定する。
+    #[pyo3(signature = (tolerance = None))]
+    fn is_convex(&self, tolerance: Option<f64>) -> PyResult<bool> {
+        match tolerance {
+            None => Ok(properties::is_convex(&self.inner)),
+            Some(t) => properties::is_convex_within(&self.inner, t).map_err(to_py_err),
+        }
     }
 
-    fn is_zero_monotonic(&self) -> bool {
-        properties::is_zero_monotonic(&self.inner)
+    /// 0-単調か。`tolerance` を省略すると値どおりの有理数で厳密に判定する。
+    #[pyo3(signature = (tolerance = None))]
+    fn is_zero_monotonic(&self, tolerance: Option<f64>) -> PyResult<bool> {
+        match tolerance {
+            None => Ok(properties::is_zero_monotonic(&self.inner)),
+            Some(t) => properties::is_zero_monotonic_within(&self.inner, t).map_err(to_py_err),
+        }
     }
 
-    fn has_nonempty_core(&self) -> PyResult<bool> {
-        nucleolus_core::has_nonempty_core(&self.inner).map_err(to_py_err)
+    /// コアが空でないか。`tolerance` を省略すると厳密に判定する (決められない規模では ValueError)。
+    /// 指定すると、最小コアの epsilon (浮動小数点の LP) が `tolerance` 以下かで判定する。
+    #[pyo3(signature = (tolerance = None))]
+    fn has_nonempty_core(&self, tolerance: Option<f64>) -> PyResult<bool> {
+        match tolerance {
+            None => nucleolus_core::has_nonempty_core(&self.inner),
+            Some(t) => nucleolus_core::has_nonempty_core_within(&self.inner, t),
+        }
+        .map_err(to_py_err)
     }
 
     /// 配分 `x` がコアに属するか。長さがプレイヤー数と異なれば ValueError。
-    #[pyo3(signature = (x, tolerance = 1e-9))]
+    ///
+    /// 値どおりの有理数で比べる。`tolerance` の既定 0 は厳密な判定で (`explain`・`compare` の既定と同じ)、
+    /// 浮動小数点数で丸めた配分の丸めの分を許すときは指定する。
+    #[pyo3(signature = (x, tolerance = 0.0))]
     fn is_in_core(&self, x: Vec<f64>, tolerance: f64) -> PyResult<bool> {
         check_length(self, &x)?;
         properties::is_in_core(&self.inner, &x, tolerance).map_err(to_py_err)
@@ -522,7 +556,9 @@ fn kernel_violation(game: &Game, x: Vec<f64>, domain: &str) -> PyResult<f64> {
 #[pyfunction]
 #[pyo3(signature = (game, x, domain = "imputation", tolerance = None))]
 fn is_in_kernel(game: &Game, x: Vec<f64>, domain: &str, tolerance: Option<f64>) -> PyResult<bool> {
-    let tolerance = tolerance.unwrap_or_else(|| coopgame::game::default_tolerance(&game.inner));
+    // 既定は検証の許容誤差 (verify・bargaining_set・CLI の verify と同じ)。
+    let tolerance =
+        tolerance.unwrap_or_else(|| coopgame::game::verification_tolerance(&game.inner));
     kernel::is_in_kernel(&game.inner, &x, parse_domain(domain)?, tolerance).map_err(to_py_err)
 }
 
@@ -597,18 +633,27 @@ fn check_length(game: &Game, x: &[f64]) -> PyResult<()> {
 }
 
 /// Kohlberg 基準で `x` が仁 (プレ仁) かを浮動小数点数で判定する。
+///
+/// `tolerance` の既定は検証の許容誤差 (`max|v(S)|` の 1e-11 倍)。使った値を `tolerance` に返す。
+/// 合格しても仁であることの証明ではない (厳密な判定は `certify`)。
 #[pyfunction]
-#[pyo3(signature = (game, x, domain = "imputation"))]
+#[pyo3(signature = (game, x, domain = "imputation", tolerance = None))]
 fn verify<'py>(
     py: Python<'py>,
     game: &Game,
     x: Vec<f64>,
     domain: &str,
+    tolerance: Option<f64>,
 ) -> PyResult<Bound<'py, PyDict>> {
     check_length(game, &x)?;
-    let report =
-        verify_core::kohlberg(&game.inner, &x, parse_domain(domain)?).map_err(to_py_err)?;
+    let domain = parse_domain(domain)?;
+    let report = match tolerance {
+        None => verify_core::kohlberg(&game.inner, &x, domain),
+        Some(t) => verify_core::kohlberg_within(&game.inner, &x, domain, t),
+    }
+    .map_err(to_py_err)?;
     let dict = PyDict::new(py);
+    dict.set_item("tolerance", report.tolerance)?;
     dict.set_item("satisfied", report.satisfied)?;
     dict.set_item("reason", report.reason)?;
     dict.set_item("levels_checked", report.levels_checked)?;
@@ -665,16 +710,20 @@ fn certify_rational<'py>(
 /// 配分 `x` を説明する: 不満 (超過) の大きい提携の段、コアに属するか、最小コアの値、
 /// プレイヤーごとの最も不満な提携。`text` に日本語の説明文が入る (プレイヤーは 0 始まりの番号)。
 /// `x` の長さがプレイヤー数と異なるか、nan・inf を含めば ValueError。
+///
+/// `in_core` は値どおりの有理数による判定で、`core_tolerance` (既定 0、厳密) まで和の差と超過を許す。
 #[pyfunction]
-#[pyo3(signature = (game, x, levels = 3))]
+#[pyo3(signature = (game, x, levels = 3, core_tolerance = 0.0))]
 fn explain<'py>(
     py: Python<'py>,
     game: &Game,
     x: Vec<f64>,
     levels: usize,
+    core_tolerance: f64,
 ) -> PyResult<Bound<'py, PyDict>> {
     let mut options = explain_core::ExplainOptions::default();
     options.levels = levels;
+    options.core_tolerance = core_tolerance;
     let report = explain_core::report(&game.inner, &x, options).map_err(to_py_err)?;
     let members = |c: Coalition| c.members().collect::<Vec<_>>();
     let dict = PyDict::new(py);
@@ -682,6 +731,9 @@ fn explain<'py>(
     dict.set_item("max_excess", report.max_excess)?;
     dict.set_item("least_core_epsilon", report.least_core_epsilon)?;
     dict.set_item("in_core", report.in_core)?;
+    dict.set_item("efficient", report.efficient)?;
+    dict.set_item("blocking_coalitions", report.blocking_coalitions)?;
+    dict.set_item("core_tolerance", report.core_tolerance)?;
     dict.set_item("efficiency_gap", report.efficiency_gap)?;
     let levels = report
         .levels
@@ -725,14 +777,19 @@ fn explain<'py>(
 /// 複数の配分 (配分のリスト) を安定性の指標で比べる。`text` に表が入る。
 /// `rows` は `candidates` と同じ順 (表の行も 0 始まりの番号で示す)。
 /// 長さがプレイヤー数と異なるか、nan・inf を含む配分があれば ValueError (何番目の配分かを示す)。
+/// `in_core` は値どおりの有理数による判定で、`core_tolerance` (既定 0、厳密) まで和の差と超過を許す。
 #[pyfunction]
+#[pyo3(signature = (game, candidates, core_tolerance = 0.0))]
 fn compare<'py>(
     py: Python<'py>,
     game: &Game,
     candidates: Vec<Vec<f64>>,
+    core_tolerance: f64,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let rows = explain_core::compare(&game.inner, &candidates).map_err(to_py_err)?;
+    let rows = explain_core::compare_within(&game.inner, &candidates, core_tolerance)
+        .map_err(to_py_err)?;
     let dict = PyDict::new(py);
+    dict.set_item("core_tolerance", core_tolerance)?;
     dict.set_item("text", explain_core::render_comparison(&rows))?;
     let table = rows
         .iter()
@@ -1422,11 +1479,13 @@ fn bargaining_set<'py>(
     domain: &str,
     tolerance: Option<f64>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    // 既定は検証の許容誤差 (verify・is_in_kernel と同じ)。
     let tolerance =
-        tolerance.unwrap_or_else(|| 10.0 * coopgame::game::default_tolerance(&game.inner));
+        tolerance.unwrap_or_else(|| coopgame::game::verification_tolerance(&game.inner));
     let report =
         bargaining::check(&game.inner, &x, parse_domain(domain)?, tolerance).map_err(to_py_err)?;
     let dict = PyDict::new(py);
+    dict.set_item("tolerance", tolerance)?;
     dict.set_item("member", report.is_member())?;
     dict.set_item("lp_solves", report.lp_solves)?;
     match report.objection {

@@ -534,11 +534,16 @@ def test_certify_rational_reads_decimals_exactly():
 def test_explain_and_compare():
     game = coopgame.Game([0, 0, 0, 0, 5, 5, 8, 9, 10, 8, 13, 15, 16, 17, 21], order="lex")
     x = coopgame.nucleolus(game)["allocation"]
-    report = coopgame.explain(game, x)
+    # LP の仁は 3.5 を 3.4999999999999996 に丸めている。既定のコアの判定は値どおりの厳密な判定なので、
+    # 和が v(N) にちょうど一致しない配分は属さない。丸めの分を許すときは core_tolerance を指定する。
+    strict = coopgame.explain(game, x)
+    assert strict["core_tolerance"] == 0.0 and not strict["efficient"] and not strict["in_core"]
+    report = coopgame.explain(game, x, core_tolerance=1e-12)
     assert report["in_core"] and math.isclose(report["max_excess"], -0.5, abs_tol=1e-9)
     assert sorted(map(tuple, report["levels"][0]["coalitions"])) == [(0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3)]
     assert "{0, 1, 2}" in report["text"] and "プレイヤー 3" in report["text"]
-    table = coopgame.compare(game, [x, coopgame.shapley(game)])
+    table = coopgame.compare(game, [x, coopgame.shapley(game)], core_tolerance=1e-12)
+    assert table["core_tolerance"] == 1e-12
     assert [r["in_core"] for r in table["rows"]] == [True, False]
     assert close(table["rows"][0]["allocation"], x)
     assert table["rows"][1]["blocking_coalitions"] == 1
@@ -728,3 +733,44 @@ def test_disruption_and_anti_nucleolus():
     assert close(coopgame.anti_prenucleolus(w)["allocation"], [30, 40, 80])
     assert close(coopgame.anti_nucleolus(w)["allocation"], [30, 40, 80])
     assert close(coopgame.prenucleolus(coopgame.dual(w))["allocation"], [30, 40, 80])
+
+
+# ---------------------------------------------------------------- 厳密な判定と許容誤差の明示
+
+
+def test_predicates_are_exact_by_default():
+    # 違反量 6 (1e7 倍の値で許容誤差 1e-7 max|v| = 10 より小さい) の凸でないゲーム。
+    game = coopgame.Game([0, 0, 0, 1e8, 0, 0, 1e8 - 6], order="lex")
+    assert not game.is_convex() and not game.is_superadditive() and not game.is_zero_monotonic()
+    assert game.is_convex(tolerance=6) and not game.is_convex(tolerance=5)
+    assert game.is_superadditive(tolerance=6) and game.is_zero_monotonic(tolerance=6)
+    # 値の小さいゲーム: 以前は絶対値 1e-9 の既定で True だった。
+    small = coopgame.Game([0, 0, 6e-12, 0, 6e-12, 6e-12, 9e-12])
+    assert not small.is_in_core([9e-12, 0, 0])
+    assert small.is_in_core([9e-12, 0, 0], tolerance=6e-12)
+    # コアが空でないかも値どおり: 0.1 + 0.2 > 0.3。
+    decimal = coopgame.Game([0.1, 0.2, 0.3])
+    assert not decimal.has_nonempty_core()
+    assert decimal.has_nonempty_core(tolerance=1e-15)
+
+
+def test_verification_tolerance_is_shared_and_reported():
+    game = coopgame.Game([0, 0, 0, 1e8, 0, 0, 1e8 - 6], order="lex")
+    report = coopgame.verify(game, [49999998.5, 49999998.5, -3])
+    assert not report["satisfied"] and report["tolerance"] == 1e-11 * 1e8
+    assert coopgame.verify(game, [49999998.5, 49999998.5, -3], tolerance=100)["satisfied"]
+    assert coopgame.verify(game, [49999997, 49999997, 0])["satisfied"]
+    shifted = [49999997 + 7, 49999997 - 7, 0]
+    assert not coopgame.verify(game, shifted)["satisfied"]
+    assert not coopgame.is_in_kernel(game, shifted)
+    result = coopgame.bargaining_set(game, [49999997, 49999997, 0])
+    assert result["member"] and result["tolerance"] == 1e-11 * 1e8
+
+
+def test_weighted_voting_compares_decimal_sums_exactly():
+    # 10 進数の表記どおりに比べるので 0.7 + 0.1 は基準 0.8 に届き、整数の重み (7, 1, 2) と基準 8 と同じゲーム。
+    decimal = coopgame.Game.weighted_voting([0.7, 0.1, 0.2], 0.8)
+    integer = coopgame.Game.weighted_voting([7, 1, 2], 8)
+    assert decimal.values() == integer.values()
+    assert close(coopgame.shapley(decimal), [2 / 3, 1 / 6, 1 / 6])
+    assert coopgame.Game.weighted_voting(["7/10", Fraction(1, 10), 0.2], "4/5").values() == integer.values()

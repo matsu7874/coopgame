@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use coopgame::analysis::{explain, plot, uncertainty};
 use coopgame::game::exact::{self, format_rational};
-use coopgame::game::{Coalition, default_tolerance};
+use coopgame::game::{Coalition, verification_tolerance};
 use coopgame::games::airport::AirportGame;
 use coopgame::games::{bankruptcy, cost};
 use coopgame::kernel::{self, SetOptions, TransferOptions};
@@ -48,13 +48,15 @@ const USAGE: &str = "\
                       (Shapley-Shubik・正規化 Banzhaf・Johnston・Deegan-Packel・Public Good・Coleman の阻止力と発議力)
   coopgame kernel     <v.txt> [--pre] [--lex] [--max-iter N] [--cost]
   coopgame kernel-set <v.txt> [--pre] [--lex] [--max-nodes N] [--merge]
-  coopgame verify     <v.txt> <sol.txt> [--pre] [--lex]
+  coopgame verify     <v.txt> <sol.txt> [--pre] [--lex] [--check-tolerance T]
+                      Kohlberg 基準とカーネル条件を浮動小数点数で判定する (厳密な判定は certify・check)
   coopgame certify    <v.txt> <sol.txt> [--pre] [--lex] [--rational]
   coopgame check      <v.txt> <sol.txt> [--pre] [--lex] [--rational] [--reference auto|exact|lp]
                       配分が仁 (プレ仁) かを検証し、結論 (certified・refuted・undecided) を出す
-  coopgame bargaining <v.txt> <sol.txt> [--pre] [--lex]   交渉集合 (プレ交渉集合) に属するか
-  coopgame explain    <v.txt> <sol.txt> [--lex] [--levels K]   配分の説明 (不満の大きい提携、安定性)
-  coopgame compare    <v.txt> [--lex] [--cost] [--tolerance T|auto | --rel-tolerance R]
+  coopgame bargaining <v.txt> <sol.txt> [--pre] [--lex] [--check-tolerance T]   交渉集合 (プレ交渉集合) に属するか
+  coopgame explain    <v.txt> <sol.txt> [--lex] [--levels K] [--core-tolerance T]
+                      配分の説明 (不満の大きい提携、安定性)
+  coopgame compare    <v.txt> [--lex] [--cost] [--tolerance T|auto | --rel-tolerance R] [--core-tolerance T]
                       仁・プレ仁・Shapley 値などを安定性で比べる
   coopgame uncertainty <v.txt> [--lex] [--relative 0.1] [--samples 200] [--seed S]
                       [--solver nucleolus|prenucleolus|shapley]
@@ -92,6 +94,10 @@ const USAGE: &str = "\
            uncertainty と influence は何度も解くので、指定しなければ比 1e-7 で 1 回だけ解く。
            --tolerance auto は、この既定の手順を明示して選ぶ (uncertainty と influence でも既定の手順で解く。
            有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)
+  --check-tolerance T  verify・bargaining の判定の許容誤差 (値の単位)。既定は max|v(S)| の 1e-11 倍
+           (仁の既定の手順が確かめる幅以上)。使った値を tolerance= で出す
+  --core-tolerance T   explain・compare のコアの判定で、和の差と超過を 0 とみなす幅 (値の単位)。
+           既定 0 は、値と配分を 2 進数の値どおりに読んだ厳密な判定
   --samples N  Shapley 値・Banzhaf 値をサンプリングで推定する (順列数・提携数、1 以上)。省略すると厳密計算
   --merge  カーネル全体で、同じ直線上でつながる線分を 1 本にまとめる
   --rational  certify・check で v.txt の値を 10 進数・分数 (8/3) の値どおりの有理数として読む (JSON・CSV の数も字面どおり)
@@ -193,6 +199,8 @@ impl Args {
             "--reference",
             "--tolerance",
             "--rel-tolerance",
+            "--check-tolerance",
+            "--core-tolerance",
         ];
         let mut positional = Vec::new();
         let mut flags = Vec::new();
@@ -805,13 +813,15 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "verify" => {
-            args.check_options(&["--pre", "--lex", "--missing"])?;
+            args.check_options(&["--pre", "--lex", "--missing", "--check-tolerance"])?;
             let game = read_game(&args, 0)?;
             let x = read_values(args.file(1)?)?;
             let domain = args.domain();
-            let report = verify::kohlberg(&game, &x, domain)?;
-            let tolerance = 10.0 * default_tolerance(&game);
+            // Kohlberg 基準とカーネル条件を同じ許容誤差で判定する (既定は検証の許容誤差)。
+            let tolerance = args.number("--check-tolerance", verification_tolerance(&game))?;
+            let report = verify::kohlberg_within(&game, &x, domain, tolerance)?;
             let in_kernel = kernel::is_in_kernel(&game, &x, domain, tolerance)?;
+            println!("tolerance={tolerance:e}");
             println!(
                 "kohlberg={} ({} levels, {} LPs){}",
                 report.satisfied,
@@ -826,17 +836,18 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             );
         }
         "bargaining" => {
-            args.check_options(&["--pre", "--lex", "--missing"])?;
+            args.check_options(&["--pre", "--lex", "--missing", "--check-tolerance"])?;
             let game = read_game(&args, 0)?;
             let x = read_values(args.file(1)?)?;
+            let tolerance = args.number("--check-tolerance", verification_tolerance(&game))?;
             let started = Instant::now();
-            let report =
-                bargaining::check(&game, &x, args.domain(), 10.0 * default_tolerance(&game))?;
+            let report = bargaining::check(&game, &x, args.domain(), tolerance)?;
             eprintln!(
                 "time={:.6}s lp_solves={}",
                 started.elapsed().as_secs_f64(),
                 report.lp_solves
             );
+            println!("tolerance={tolerance:e}");
             match report.objection {
                 None => println!("bargaining=true"),
                 Some(objection) => println!(
@@ -850,11 +861,12 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "explain" => {
-            args.check_options(&["--lex", "--missing", "--levels"])?;
+            args.check_options(&["--lex", "--missing", "--levels", "--core-tolerance"])?;
             let game = read_game(&args, 0)?;
             let x = read_values(args.file(1)?)?;
             let mut options = explain::ExplainOptions::default();
             options.levels = args.number("--levels", 3)?;
+            options.core_tolerance = args.number("--core-tolerance", 0.0)?;
             let report = explain::report(&game, &x, options)?;
             print!("{}", explain::render(&report));
         }
@@ -865,7 +877,9 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
                 "--cost",
                 "--tolerance",
                 "--rel-tolerance",
+                "--core-tolerance",
             ])?;
+            let core_tolerance = args.number("--core-tolerance", 0.0)?;
             // 仁・プレ仁は nucleolus コマンドと同じ手順で求める (指定がなければ既定の手順)。
             let tolerance = tolerance(&args)?.unwrap_or(Tolerance::Auto);
             let solve = |domain: Domain, game: &ExplicitGame| {
@@ -905,11 +919,14 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             );
             let (labels, allocations): (Vec<String>, Vec<Vec<f64>>) =
                 candidates.into_iter().unzip();
-            let mut rows = explain::compare(game, &allocations)?;
+            let mut rows = explain::compare_within(game, &allocations, core_tolerance)?;
             for row in &mut rows {
                 row.allocation = prepared.output(&row.allocation);
             }
             print!("{}", explain::render_comparison(&rows));
+            println!(
+                "\nコアの判定の許容誤差: {core_tolerance:e} (0 は値どおりの厳密な判定。--core-tolerance で指定)"
+            );
             println!("\n解の番号:");
             for (k, label) in labels.iter().enumerate() {
                 println!("{k}\t{label}");
