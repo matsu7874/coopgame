@@ -96,7 +96,7 @@ with tempfile.TemporaryDirectory() as work:
     print(f"一致したものの最大の相対差 {worst:.1e}")
     if csv_path:
         with open(csv_path, "w", newline="") as f:
-            writer = csv.writer(f)
+            writer = csv.writer(f, lineterminator="\n")
             writer.writerow(["game", "solution", "status", "relative_difference"])
             writer.writerows(records)
     sys.exit(1 if any(t["mismatch"] for t in tally.values()) else 0)

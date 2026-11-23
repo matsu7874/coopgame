@@ -30,7 +30,11 @@ import tempfile
 failures = []
 
 
+check_count = [0]
+
+
 def check(doc, claim, actual, expected):
+    check_count[0] += 1
     ok = actual == expected
     mark = "ok  " if ok else "FAIL"
     print(f"[{mark}] {doc}: {claim}: {actual!r}" + ("" if ok else f" (期待値 {expected!r})"))
@@ -54,20 +58,51 @@ def doc_text(path):
     return _texts[path]
 
 
-def doc_table(path, header):
-    """見出しの行が header で始まる Markdown の表の、本文の行 (セルのリスト) を返す。"""
+def fail(doc, claim, detail):
+    print(f"[FAIL] {doc}: {claim}: {detail}")
+    failures.append((doc, claim))
+
+
+def split_row(line):
+    return [c.strip() for c in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
+
+
+def doc_table(path, header, keys, columns, key_columns=1):
+    """見出しの行が header で始まる Markdown の表の、本文の行 (セルのリスト) を返す。
+
+    columns は期待する列の数 (見出しと全ての行がこの列数であること)。
+    keys は、行の先頭 key_columns 列 (1 列なら文字列、2 列以上ならタプル) の期待する並び。
+    行が消えた・足された・入れ替わった、表の途中に空行がある、行の列数が見出しと異なる、
+    のどれかなら失敗を記録して空のリストを返す (呼び出し側は照合を行わず、失敗だけが残る)。
+    """
     lines = doc_text(path).splitlines()
-    for i, line in enumerate(lines):
-        if line.startswith(header):
-            rows = []
-            for body in lines[i + 2:]:
-                if not body.startswith("|"):
-                    break
-                rows.append([c.strip() for c in re.split(r"(?<!\\)\|", body.strip())[1:-1]])
-            return rows
-    failures.append((path, f"見出し {header!r} の表"))
-    print(f"[FAIL] {path}: 見出しが {header!r} の表が見つからない")
-    return []
+    starts = [i for i, line in enumerate(lines) if line.startswith(header)]
+    if len(starts) != 1:
+        fail(path, f"表 {header!r}", f"見出しの行が {len(starts)} 個ある (1 個であるべき)")
+        return []
+    i = starts[0]
+    width = len(split_row(lines[i]))
+    rows = []
+    end = i + 2
+    for end in range(i + 2, len(lines) + 1):
+        if end == len(lines) or not lines[end].startswith("|"):
+            break
+        rows.append(split_row(lines[end]))
+    following = next((line for line in lines[end:] if line.strip()), "")
+    ok = True
+    if following.startswith("|"):
+        fail(path, f"表 {header!r}", "表の途中に空行か表でない行がある")
+        ok = False
+    widths = sorted({len(r) for r in rows} | {width})
+    if widths != [columns]:
+        fail(path, f"表 {header!r}", f"見出しと行の列数 {widths} が期待する {columns} 列と異なる")
+        ok = False
+    actual = [r[0] if key_columns == 1 else tuple(r[:key_columns]) for r in rows]
+    if actual != list(keys):
+        fail(path, f"表 {header!r}", f"行のキー {actual} が期待 {list(keys)} と異なる")
+        ok = False
+    check_count[0] += 1
+    return rows if ok else []
 
 
 def doc_match(path, pattern):
@@ -100,6 +135,7 @@ def agrees(text, value, bound=False, unit=1.0):
 
 
 def check_number(doc, claim, text, value, bound=False, unit=1.0):
+    check_count[0] += 1
     ok = agrees(text, value, bound, unit)
     mark = "ok  " if ok else "FAIL"
     kind = "切り上げ" if bound else "四捨五入"
@@ -287,134 +323,187 @@ def verify_oracle_bench():
 
 
 def verify_voting_bench():
-    """拒否権のある重み付き投票ゲームの、修正前後の時間と最大メモリ、列挙の上限の根拠。"""
-    doc = "docs/performance.md (拒否権のある重み付き投票ゲーム)"
+    """拒否権のある重み付き投票ゲームの、修正前後の時間と最大メモリ、列挙の上限の根拠 (本文から読む)。"""
+    doc = "docs/performance.md"
     before = {(r["kind"], int(r["n"])): r for r in read("data/bench/voting-oracle-before.csv")}
     after = {(r["kind"], int(r["n"])): r for r in read("data/bench/voting-oracle-after.csv")}
-
-    def cell(rows, kind, n):
-        r = rows[(kind, n)]
-        if r["status"] != "ok":
-            return r["status"]
-        return (round(float(r["seconds"]), 2), int(r["max_rss_mb"]))
-
     check(doc, "修正後は全ての計測が完了した", {r["status"] for r in after.values()}, {"ok"})
-    check(doc, "修正前は 26 人で 6 GB を超えて止まった (拒否権 3 人, 2 人)",
-          (cell(before, "veto3", 26), cell(before, "veto2", 26)), ("rss_limit", "rss_limit"))
-    table = {
-        ("veto3", 20): ((1.44, 668), (0.07, 10)),
-        ("veto3", 24): ((26.67, 3718), (0.10, 13)),
-        ("veto3", 26): ("rss_limit", (0.12, 14)),
-        ("veto3", 40): ("skipped", (0.43, 25)),
-        ("veto3", 60): ("skipped", (1.41, 36)),
-        ("veto2", 24): ((20.68, 3824), (0.07, 11)),
-        ("veto2", 50): ("skipped", (0.58, 23)),
-        ("majority", 31): ((0.23, 9), (0.23, 10)),
-        ("random100", 30): ((2.49, 91), (2.50, 92)),
-        ("random100q90", 15): ((0.16, 13), (0.13, 12)),
-    }
-    for (kind, n), value in table.items():
-        check(doc, f"{kind} の {n} 人 (修正前, 修正後)", (cell(before, kind, n), cell(after, kind, n)), value)
-    veto = [r for (kind, _), r in after.items() if kind.startswith("veto")]
-    check(doc, "拒否権のあるゲームの仁との差が全て 5.6e-17 以下",
-          max(float(r["max_error"]) for r in veto) <= 5.6e-17, True)
+
+    kinds = {"拒否権 3 人 (重み 1000 × 3、1 × (n-3))": "veto3", "拒否権 2 人 (重み 1000 × 2、1 × (n-2))": "veto2",
+             "多数決 (重み 1)": "majority", "重み 1-100、基準は過半数": "random100", "重み 1-100、基準は 9/10": "random100q90"}
+    labels = list(kinds)
+    keys = [(labels[0], "20"), ("同上", "24"), ("同上", "26"), ("同上", "40"), ("同上", "60"),
+            (labels[1], "24"), ("同上", "50"), (labels[2], "31"), (labels[3], "30"), (labels[4], "15")]
+    statuses = {"6 GB を超えて停止": "rss_limit", "計測せず": "skipped"}
+    kind = None
+    for cells in doc_table(doc, "| ゲーム | n | 修正前 (秒 / MB)", keys, 4, key_columns=2):
+        kind = kind if cells[0] == "同上" else kinds[cells[0]]
+        n = int(cells[1])
+        for label, rows, cell in (("修正前", before, cells[2]), ("修正後", after, cells[3])):
+            r = rows.get((kind, n))
+            claim = f"拒否権の表 {kind} の {n} 人 ({label})"
+            if r is None:
+                fail(doc, claim, "データにない")
+            elif cell in statuses:
+                check(doc, f"{claim} の状態", r["status"], statuses[cell])
+            else:
+                seconds, memory = numbers(cell)
+                check(doc, f"{claim} の状態", r["status"], "ok")
+                check_number(doc, f"{claim} の秒", seconds, float(r["seconds"]))
+                check_number(doc, f"{claim} の MB", memory, float(r["max_rss_mb"]))
+
+    veto = [r for (k, _), r in after.items() if k.startswith("veto")]
+    m = doc_match(doc, r"拒否権のあるゲームの仁は、どの人数でも[^。]*との差が ([\d.e-]+) 以下")
+    if m:
+        check_number(doc, "拒否権のあるゲームの仁との差の上界", m.group(1), max(float(r["max_error"]) for r in veto), bound=True)
     others = [key for key in before if not key[0].startswith("veto")]
-    check(doc, "拒否権のあるゲーム以外の組の数", len(others), 30)
+    m = doc_match(doc, r"拒否権のあるゲーム以外の (\d+) 組 \([^)]*、(\d+)-(\d+) 人\)")
+    if m:
+        check(doc, "拒否権のあるゲーム以外の組の数と人数の範囲", tuple(int(g) for g in m.groups()),
+              (len(others), min(n for _, n in others), max(n for _, n in others)))
     check(doc, "拒否権のあるゲーム以外で、LP を解いた回数と追加した行が同じ",
           all((before[k]["lp_solves"], before[k]["rows_added"]) == (after[k]["lp_solves"], after[k]["rows_added"])
               for k in others), True)
-    check(doc, "拒否権のあるゲーム以外で、時間の差が修正前の 2% と 0.04 秒の大きい方以内、最大メモリの増加が 5 MB 以下",
-          (all(abs(float(after[k]["seconds"]) - float(before[k]["seconds"]))
-               <= max(0.02 * float(before[k]["seconds"]), 0.04) for k in others),
-           max(int(after[k]["max_rss_mb"]) - int(before[k]["max_rss_mb"]) for k in others) <= 5), (True, True))
+    m = doc_match(doc, r"時間の差は修正前の (\d+)% と ([\d.]+) 秒の大きい方以内、最大メモリの増加は (\d+) MB 以下")
+    if m:
+        share, floor = float(m.group(1)) / 100, float(m.group(2))
+        check(doc, "拒否権のあるゲーム以外で、時間の差が本文の基準以内",
+              all(abs(float(after[k]["seconds"]) - float(before[k]["seconds"])) <= max(share * float(before[k]["seconds"]), floor)
+                  for k in others), True)
+        check_number(doc, "拒否権のあるゲーム以外の最大メモリの増加の上界", m.group(3),
+                     max(int(after[k]["max_rss_mb"]) - int(before[k]["max_rss_mb"]) for k in others), bound=True)
 
     budget = read("data/bench/voting-budget.csv")
     with open("src/games/voting.rs", encoding="utf-8") as f:
         constant = int(re.search(r"const ENUMERATION_BUDGET: usize = (\d+);", f.read()).group(1))
-    check(doc, "列挙の上限 ENUMERATION_BUDGET", constant, 256)
+    m = doc_match(doc, r"超過の順に (\d+) 個 \(`ENUMERATION_BUDGET`\) まで読み")
+    if m:
+        check(doc, "列挙の上限 ENUMERATION_BUDGET", int(m.group(1)), constant)
 
     def row(b, kind, n):
         return next(r for r in budget if (int(r["budget"]), r["kind"], int(r["n"])) == (b, kind, n))
 
     one_stage = ("majority", "apex", "random10", "random100", "random100q23")
-    check(doc, "仁が 1 段で決まるゲームでは、確定済みの提携のある探索で読んだ提携が全て 0 個",
-          {r["max_read"] for r in budget if r["kind"] in one_stage}, {"0"})
-    check(doc, "重み 1-100・基準 9/10 の 10 人は最大 73 個を読み、上限 64 では上限まで読む",
-          (row(256, "random100q90", 10)["max_read"], int(row(64, "random100q90", 10)["searches_over_budget"]) > 0),
-          ("73", True))
-    check(doc, "拒否権 3 人の 40 人 (上限 256, 4096 の秒と MB)",
-          [(round(float(row(b, "veto3", 40)["seconds"]), 2), int(row(b, "veto3", 40)["max_rss_mb"])) for b in (256, 4096)],
-          [(0.42, 24), (2.37, 377)])
-    with open("src/games/voting.rs", encoding="utf-8") as f:
-        source = f.read()
-    check(doc, "定数の説明の数値 (上限 256 で 0.42 秒・24 MB、1024 で 0.85 秒・69 MB、4096 で 2.4 秒・377 MB)",
-          "上限 256 で 0.42 秒・24 MB、1024 で 0.85 秒・69 MB、" in source and "4096 で 2.4 秒・377 MB" in source
-          and (round(float(row(1024, "veto3", 40)["seconds"]), 2), int(row(1024, "veto3", 40)["max_rss_mb"])) == (0.85, 69),
-          True)
+    if doc_match(doc, r"仁が 1 段で決まるゲームでは、確定済みの提携のある探索で読んだ提携は全て 0 個だった"):
+        check(doc, "仁が 1 段で決まるゲームでは、確定済みの提携のある探索で読んだ提携が全て 0 個",
+              {r["max_read"] for r in budget if r["kind"] in one_stage}, {"0"})
+    m = doc_match(doc, r"基準 9/10 の 10 人のゲームは最大 (\d+) 個を読み、上限 (\d+) では素数の探索に進む")
+    if m:
+        check(doc, "重み 1-100・基準 9/10 の 10 人 (最大の読んだ数, 小さい上限で上限まで読む)",
+              (m.group(1), int(row(int(m.group(2)), "random100q90", 10)["searches_over_budget"]) > 0),
+              (row(constant, "random100q90", 10)["max_read"], True))
+    m = doc_match(doc, r"上限 (\d+) で ([\d.]+) 秒・(\d+) MB、(\d+) で ([\d.]+) 秒・(\d+) MB だった")
+    if m:
+        for b, seconds, memory in ((m.group(1), m.group(2), m.group(3)), (m.group(4), m.group(5), m.group(6))):
+            r = row(int(b), "veto3", 40)
+            check_number(doc, f"拒否権 3 人の 40 人、上限 {b} の秒", seconds, float(r["seconds"]))
+            check_number(doc, f"拒否権 3 人の 40 人、上限 {b} の MB", memory, float(r["max_rss_mb"]))
+    source = "src/games/voting.rs"
+    m = doc_match(source, r"上限 256 で ([\d.]+) 秒・(\d+) MB、1024 で ([\d.]+) 秒・(\d+) MB、(?:\s|/)*4096 で ([\d.]+) 秒・(\d+) MB")
+    if m:
+        for b, seconds, memory in ((256, m.group(1), m.group(2)), (1024, m.group(3), m.group(4)), (4096, m.group(5), m.group(6))):
+            r = row(b, "veto3", 40)
+            check_number(source, f"定数の説明の上限 {b} の秒", seconds, float(r["seconds"]))
+            check_number(source, f"定数の説明の上限 {b} の MB", memory, float(r["max_rss_mb"]))
+    doc = "docs/large-games.md"
+    m = doc_match(doc, r"拒否権のある 60 人のゲームを ([\d.]+) 秒で解く \(修正前は 24 人で (\d+) 秒・([\d.]+) GB")
+    if m:
+        check_number(doc, "拒否権 3 人の 60 人の秒", m.group(1), float(after[("veto3", 60)]["seconds"]))
+        check_number(doc, "修正前の拒否権 3 人の 24 人の秒", m.group(2), float(before[("veto3", 24)]["seconds"]))
+        check_number(doc, "修正前の拒否権 3 人の 24 人の GB (1000 MB 単位)", m.group(3),
+                     float(before[("veto3", 24)]["max_rss_mb"]) / 1000)
 
 
 def verify_oracle_tolerance():
-    doc = "docs/performance.md (上限と既定値の根拠)"
+    doc = "docs/performance.md"
     rows = read("data/bench/oracle-tolerance.csv")
-    check(doc, "40 人の投票ゲームを解いた比", [r["ratio"] for r in rows], ["1e-7", "1e-8", "1e-9"])
-    check(doc, "40 人の投票ゲーム (全て解けた, 最大の秒, 追加した行, 仁との差の最大)",
-          (all(not r["max_error"].startswith("error") for r in rows),
-           round(max(float(r["seconds"]) for r in rows), 1),
-           {int(r["rows_added"]) for r in rows},
-           float(f"{max(float(r['max_error']) for r in rows):.1e}")),
-          (True, 0.2, {160}, 1.9e-15))
+    m = doc_match(doc, r"比 `([\de.-]+)`・`([\de.-]+)`・`([\de.-]+)`\n\(`oracle::nucleolus_with")
+    if m:
+        check(doc, "40 人の投票ゲームを解いた比", [r["ratio"] for r in rows], list(m.groups()))
+    check(doc, "40 人の投票ゲームを全ての比で解けた", all(not r["max_error"].startswith("error") for r in rows), True)
+    m = doc_match(doc, r"どれも ([\d.]+) 秒で解け、\n追加した行は (\d+)、仁 \([^)]*\) との差は ([\d.e-]+) だった")
+    if m:
+        check_number(doc, "40 人の投票ゲームの最大の秒", m.group(1), max(float(r["seconds"]) for r in rows))
+        check(doc, "40 人の投票ゲームの追加した行", {int(r["rows_added"]) for r in rows}, {int(m.group(2))})
+        check_number(doc, "40 人の投票ゲームの仁との差の最大", m.group(3), max(float(r["max_error"]) for r in rows))
 
 
 def verify_guarantees():
     doc = "docs/guarantees.md"
     rows = read("data/analysis/assumption-study.csv")
-    check(doc, "ゲーム数", len(rows), 420)
+    m = doc_match(doc, r"各クラス・各 n で seed 0-9 \(計 (\d+) ゲーム\)")
+    if m:
+        check(doc, "ゲーム数", len(rows), int(m.group(1)))
     check(doc, "未決は 0 個", sum(r["outcome"] == "undecided" for r in rows), 0)
-    check(doc, "凸ゲームは全て合格", {r["outcome"] for r in rows if r["convex"] == "true"}, {"certified"})
+    convex = [r for r in rows if r["convex"] == "true"]
+    m = doc_match(doc, r"凸ゲーム (\d+) 個 \(convex (\d+)、superadditive のうち凸の (\d+)\) は全て合格した")
+    if m:
+        check(doc, "凸ゲームの数 (全体, convex, superadditive) と全て合格",
+              (tuple(int(g) for g in m.groups()), {r["outcome"] for r in convex}),
+              ((len(convex), sum(r["class"] == "convex" for r in convex), sum(r["class"] == "superadditive" for r in convex)),
+               {"certified"}))
     nonconvex = [r for r in rows if r["convex"] == "false"]
-    check(doc, "凸でないゲームの内訳 (数, 失敗, 合格, 否定)",
-          (len(nonconvex), sum(r["outcome"] == "error" for r in nonconvex),
-           sum(r["outcome"] == "certified" for r in nonconvex), sum(r["outcome"] == "refuted" for r in nonconvex)),
-          (347, 307, 29, 11))
-    check(doc, "失敗の内訳 (numerical, limit)",
-          tuple(sum(r["detail"] == d for r in rows if r["outcome"] == "error") for d in ("numerical", "limit")),
-          (198, 109))
-    check(doc, "凸でないのに合格した n = 4 のゲーム", sum(r["n"] == "4" for r in nonconvex if r["outcome"] == "certified"), 16)
-    refuted = collections.Counter((r["detail"], r["in_prekernel"]) for r in rows if r["outcome"] == "refuted")
-    check(doc, "否定の内訳 (配分集合の外, プレカーネルだが仁でない, プレカーネルでもない)",
-          (refuted[("not_imputation", "true")], refuted[("not_nucleolus", "true")], refuted[("not_nucleolus", "false")]),
-          (3, 1, 7))
+    errors = [r for r in nonconvex if r["outcome"] == "error"]
+    m = doc_match(doc, r"凸でないゲーム (\d+) 個では、(\d+) 個 \((\d+)%\) で手法が止まらないか")
+    if m:
+        check(doc, "凸でないゲームの数と失敗の数", (int(m.group(1)), int(m.group(2))), (len(nonconvex), len(errors)))
+        check_number(doc, "凸でないゲームのうち失敗の割合 (%)", m.group(3), 100 * len(errors) / len(nonconvex))
+    m = doc_match(doc, r"\(numerical\) が (\d+) 個、周回・反復の上限 \(limit\) が (\d+) 個")
+    if m:
+        check(doc, "失敗の内訳 (numerical, limit)", (int(m.group(1)), int(m.group(2))),
+              tuple(sum(r["detail"] == d for r in errors) for d in ("numerical", "limit")))
+    certified = [r for r in nonconvex if r["outcome"] == "certified"]
+    m = doc_match(doc, r"凸でないのに仁を返したのは (\d+) 個で、大半は小さい n \(n = 4 が (\d+) 個\)")
+    if m:
+        check(doc, "凸でないのに合格した数と n = 4 の数", (int(m.group(1)), int(m.group(2))),
+              (len(certified), sum(r["n"] == "4" for r in certified)))
+    refuted = [r for r in rows if r["outcome"] == "refuted"]
+    tally = collections.Counter((r["detail"], r["in_prekernel"]) for r in refuted)
+    m = doc_match(doc, r"誤った配分を返した (\d+) 個は[\s\S]*?- (\d+) 個はプレ仁[\s\S]*?- (\d+) 個はプレカーネルの点だが[\s\S]*?- (\d+) 個はプレカーネル条件も")
+    if m:
+        check(doc, "否定の数と内訳 (配分集合の外, プレカーネルだが仁でない, プレカーネルでもない)",
+              tuple(int(g) for g in m.groups()),
+              (len(refuted), tally[("not_imputation", "true")], tally[("not_nucleolus", "true")], tally[("not_nucleolus", "false")]))
 
     def worst(rows, n, column):
         return max(float(r[column]) for r in rows if r["n"] == str(n))
 
     threshold = read("data/bench/auto-threshold.csv")
-    lp = {n: worst(threshold, n, "lp_seconds") for n in (16, 18)}
-    cv = {n: worst(threshold, n, "convex_seconds") for n in (16, 18)}
-    check(doc, "境目: 16 人は LP が速く、18 人は凸ゲームの手法が速い", (lp[16] < cv[16], cv[18] < lp[18]), (True, True))
-    check(doc, "閾値の表の差の最大 (n = 20) <= 8e-10", worst(threshold, 20, "relative_difference") <= 8e-10, True)
+    m = doc_match(doc, r"`ConvexChecked` \| (\d+) 人以下は逐次 LP")
+    if m:
+        limit = int(m.group(1))
+        above = min(int(r["n"]) for r in threshold if int(r["n"]) > limit)
+        check(doc, f"境目: {limit} 人は LP が速く、{above} 人は凸ゲームの手法が速い",
+              (worst(threshold, limit, "lp_seconds") < worst(threshold, limit, "convex_seconds"),
+               worst(threshold, above, "convex_seconds") < worst(threshold, above, "lp_seconds")), (True, True))
 
 
 def verify_exact_solver():
-    doc = "docs/performance.md (有理数による厳密な計算)"
+    doc = "docs/performance.md"
     rows = read("data/bench/exact-scaling.csv")
-    check(doc, "計測したゲーム数と全て一致", (len(rows), all(r["matches_certified"] == "true" for r in rows)), (24, True))
 
     def worst(n):
         return max(float(r["seconds"]) for r in rows if r["n"] == str(n))
 
-    check(doc, "最大時間 (n = 8, 10)", (round(worst(8), 1), round(worst(10))), (2.5, 153))
+    m = doc_match(doc, r"最大で n = 8 は ([\d.]+) 秒、n = 10 は ([\d.]+) 秒だった。\n(\d+) ゲーム全てで")
+    if m:
+        check_number(doc, "有理数の仁の n = 8 の最大の秒", m.group(1), worst(8))
+        check_number(doc, "有理数の仁の n = 10 の最大の秒", m.group(2), worst(10))
+        check(doc, "計測したゲーム数と全て一致", (len(rows), all(r["matches_certified"] == "true" for r in rows)),
+              (int(m.group(3)), True))
 
 
 def verify_sampled():
-    doc = "docs/performance.md (サンプリングした仁の誤差)"
+    doc = "docs/performance.md"
     rows = read("data/analysis/sampled-convergence.csv")
     check(doc, "収束の行数 (3 タイプ x 2 サイズ x 5 seed x 7 段階)", len(rows), 210)
-    group = [r for r in rows if (r["n"], r["pairs"]) == ("10", "1600")]
-    share = max(int(r["evaluations"]) for r in group) / (2 ** 10 - 2)
-    check(doc, "n = 10、pairs = 1600 で評価した真部分提携の割合 (95% 以上)", share >= 0.95, True)
-    worst = max(group, key=lambda r: float(r["relative_error"]))
-    check(doc, "その最大の相対誤差 (タイプ 4 の 0.055)", (worst["type"], round(float(worst["relative_error"]), 3)), ("4", 0.055))
+    group = [r for r in rows if (r["type"], r["n"], r["pairs"]) == ("4", "10", "1600")]
+    shares = [100 * int(r["evaluations"]) / (2 ** 10 - 2) for r in group]
+    m = doc_match(doc, r"BNF タイプ 4 の n = 10 では、真部分提携の (\d+)-(\d+)% を評価しても相対誤差が最大 ([\d.]+)% 残った")
+    if m:
+        check_number(doc, "タイプ 4・n = 10・pairs = 1600 で評価した真部分提携の割合の最小 (%)", m.group(1), min(shares))
+        check_number(doc, "同、割合の最大 (%)", m.group(2), max(shares))
+        check_number(doc, "同、相対誤差の最大 (%)", m.group(3), 100 * max(float(r["relative_error"]) for r in group))
 
 
 def verify_variant_limits():
@@ -435,126 +524,160 @@ def verify_variant_limits():
         # 1 回が 1 分以内、最大メモリが 1 GB 以内
         return all(float(r["seconds"]) <= 60 and float(r["max_rss_mb"]) <= 1024 for r in group(method, n))
 
-    def worst(method, n):
-        g = group(method, n)
-        return (round(max(float(r["seconds"]) for r in g), 1), max(int(r["max_rss_mb"]) for r in g))
-
     limits = [("per-capita", "MAX_PER_CAPITA_PLAYERS"), ("proportional", "MAX_PROPORTIONAL_PLAYERS"),
               ("disruption", "MAX_DISRUPTION_PLAYERS"), ("bargaining", "MAX_BARGAINING_SET_PLAYERS")]
     for method, name in limits:
         largest = max(int(r["n"]) for r in rows if r["method"] == method and within(method, int(r["n"])))
         check(doc, f"{method}: 条件を満たす最大の人数が {name}", largest, constants[name])
         check(doc, f"{method}: 1 人多い人数を測り、条件を超えた", (bool(group(method, largest + 1)), within(method, largest + 1)), (True, False))
-    expected = {
-        ("per-capita", 17): (19.3, 924), ("per-capita", 18): (52.4, 1383),
-        ("proportional", 17): (39.2, 937), ("proportional", 18): (57.0, 1681),
-        ("disruption", 16): (7.9, 847), ("disruption", 17): (19.7, 1487),
-        ("modiclus", 7): (0.4, 51),
-        ("bargaining", 11): (21.8, 7), ("bargaining", 12): (80.6, 10),
-    }
-    for (method, n), value in expected.items():
-        check(doc, f"{method} の {n} 人での最大 (秒, MB)", worst(method, n), value)
     check(doc, "modiclus の上限 7 人で条件を満たす", (constants["MAX_MODICLUS_PLAYERS"], within("modiclus", 7)), (7, True))
     check(doc, "基準 2 の投票ゲームの 11 人の交渉集合の LP の数", [int(r["lp_solves"]) for r in group("bargaining", 11) if r["game"] == "quota2"], [56210])
 
 
+TOLERANCE_KEYS = [
+    ("整数 (scale = 1・1e5)", "3-6"), ("整数 (scale = 1e6)", "3-6"), ("整数 (scale = 1e7)", "3-6"),
+    ("整数 (scale = 1e8)", "3-6"), ("整数 (scale = 1e9)", "3-6"), ("整数 (scale = 1e12)", "3-6"),
+    ("整数 (下限、scale = 1e7)", "3-6"), ("整数 (下限、scale = 1e9)", "3-6"), ("整数 (下限、scale = 1e10)", "3-6"),
+    ("整数 (scale = 1e7)", "7-8"), ("整数 (scale = 1e9)", "7-8"), ("整数 (scale = 1e7)", "9-10"), ("整数 (scale = 1e9)", "9-10"),
+    ("整数 (scale = 1e6)", "11-14"), ("整数 (scale = 1e7)", "11-14"), ("整数 (scale = 1e8)", "11-14"), ("整数 (scale = 1e9)", "11-14"),
+    ("BNF タイプ 1・2・4", "3-6、11-14、16-20"), ("凸", "11-14、16-20"),
+]
+
+
+def tolerance_families(label):
+    """許容誤差の表のゲームの列を、tolerance-study.csv の family の並びにする。"""
+    if label == "BNF タイプ 1・2・4":
+        return ["bnf1", "bnf2", "bnf4"]
+    if label == "凸":
+        return ["convex"]
+    m = re.fullmatch(r"整数 \((下限、)?scale = ([\de・]+)\)", label)
+    prefix = "lower" if m.group(1) else "integer"
+    return [f"{prefix}-{'1e0' if s == '1' else s}" for s in m.group(2).split("・")]
+
+
 def verify_tolerance_study():
-    doc = "docs/performance.md (仁の許容誤差の決め方)"
+    doc = "docs/performance.md"
     rows = {(r["family"], r["players"]): r for r in read("data/analysis/tolerance-study.csv")}
+    columns = ("games", "fixed_correct", "auto_correct", "refined", "rational", "approximate")
+    for cells in doc_table(doc, "| ゲーム | 人数 | ゲーム数 | 1 回だけ解く", TOLERANCE_KEYS, 8, key_columns=2):
+        players = cells[1].split("、")
+        games = re.sub(r"^各 ", "", cells[2]).split("、")
+        if len(games) != len(players):
+            fail(doc, f"許容誤差の表 {cells[0]}", "人数とゲーム数の数が異なる")
+            continue
+        for family in tolerance_families(cells[0]):
+            for group, count in zip(players, games):
+                r = rows.get((family, group))
+                claim = f"許容誤差の表 {family} の {group} 人"
+                if r is None:
+                    fail(doc, claim, "データにない")
+                    continue
+                expected = [count] + [r["games"] if c == "全て" else c for c in cells[3:]]
+                check(doc, f"{claim} ({', '.join(columns)})", [r[c] for c in columns], expected)
 
-    def counts(family, players):
-        r = rows[(family, players)]
-        return tuple(int(r[k]) for k in ("games", "fixed_correct", "auto_correct", "refined", "rational", "approximate"))
-
-    # (ゲーム数, 1 回だけ解く: 正しい数, 既定: 正しい数, 解き直した数, 有理数に切り替えた数, approximate の数)
-    check(doc, "整数 3-6 人の表", [counts(f"integer-{s}", "3-6") for s in ("1e0", "1e5", "1e6", "1e7", "1e8", "1e9", "1e12")],
-          [(200, 200, 200, 0, 0, 0), (200, 200, 200, 0, 0, 0), (200, 166, 200, 34, 0, 0), (200, 84, 200, 116, 0, 0),
-           (200, 91, 200, 109, 1, 0), (200, 79, 200, 121, 50, 0), (200, 50, 120, 70, 70, 0)])
-    check(doc, "整数 (下限) 3-6 人の表", [counts(f"lower-{s}", "3-6") for s in ("1e7", "1e9", "1e10")],
-          [(200, 116, 200, 84, 0, 0), (200, 112, 200, 83, 33, 0), (200, 15, 200, 185, 181, 0)])
-    check(doc, "整数 7-8 人の表", [counts(f"integer-{s}", "7-8") for s in ("1e7", "1e9")],
-          [(20, 10, 20, 10, 0, 0), (10, 2, 10, 8, 7, 0)])
-    check(doc, "整数 9-10 人の表", [counts(f"integer-{s}", "9-10") for s in ("1e7", "1e9")],
-          [(20, 3, 20, 17, 0, 0), (10, 0, 0, 10, 0, 10)])
-    check(doc, "整数 11-14 人の表", [counts(f"integer-{s}", "11-14") for s in ("1e6", "1e7", "1e8", "1e9")],
-          [(40, 22, 40, 18, 0, 0), (40, 13, 38, 27, 0, 2), (40, 11, 15, 29, 0, 27), (40, 4, 4, 36, 0, 36)])
-    consistent = [r for (family, _), r in rows.items() if family.startswith("bnf") or family == "convex"]
-    check(doc, "BNF・凸は 1 回だけ解いても既定でも全て正しく、解き直さない",
-          all(r["fixed_correct"] == r["games"] == r["auto_correct"]
-              and (r["refined"], r["rational"], r["approximate"]) == ("0", "0", "0") for r in consistent), True)
-    integers = {key: r for key, r in rows.items() if key[0].startswith(("integer", "lower"))}
-    check(doc, "9 人以上の整数ゲームで、正しくないのに保証が exact のままの配分の数",
-          sum(int(r["incorrect_exact"]) for (_, players), r in integers.items() if players in ("9-10", "11-14")), 0)
-    r = rows[("integer-1e8", "11-14")]
-    check(doc, "scale = 1e8 の 11-14 人の (正しくない数, approximate の数)",
-          (int(r["auto_solved"]) - int(r["auto_correct"]), int(r["approximate"])), (25, 27))
-    check(doc, "8 人以下の整数ゲームで、正しくないのに保証が exact のままの配分がある行と数",
-          {key: int(r["incorrect_exact"]) for key, r in integers.items()
-           if key[1] in ("3-6", "7-8") and r["incorrect_exact"] != "0"}, {("integer-1e12", "3-6"): 80})
     large = [r for (_, players), r in rows.items() if players == "16-20"]
-    overhead = [100 * (float(r["auto_seconds"]) / float(r["fixed_seconds"]) - 1) for r in large]
-    check(doc, "16-20 人の確認による時間の増加 (%) の範囲", (round(min(overhead)), round(max(overhead))), (6, 14))
-    r = rows[("integer-1e9", "7-8")]
-    check(doc, "scale = 1e9 の 7-8 人の合計の秒 (1 回だけ解く, 既定)",
-          (float(r["fixed_seconds"]), round(float(r["auto_seconds"]))), (0.02, 44))
-    r = rows[("superadditive-float", "11-14")]
-    check(doc, "浮動小数点数の和の優加法的なゲーム (ゲーム数, 1 回だけ解く: 合格, 既定: 合格, 解き直した数)",
-          tuple(int(r[k]) for k in ("games", "fixed_correct", "auto_correct", "refined")), (40, 28, 28, 0))
+    m = doc_match(doc, r"16-20 人の (\d+) ゲームの合計で (\d+)-(\d+)%")
+    if m:
+        overhead = [100 * (float(r["auto_seconds"]) / float(r["fixed_seconds"]) - 1) for r in large]
+        check(doc, "16-20 人のゲーム数", {r["games"] for r in large}, {m.group(1)})
+        check_number(doc, "16-20 人の確認による時間の増加の最小 (%)", m.group(2), min(overhead))
+        check_number(doc, "16-20 人の確認による時間の増加の最大 (%)", m.group(3), max(overhead))
+    integers = {key: r for key, r in rows.items() if key[0].startswith(("integer", "lower"))}
+    m = doc_match(doc, r"9 人以上の整数ゲームで正しくなかった配分は、全て保証が `approximate` になった \(保証が `exact` のまま正しくなかったものは (\d+) 個\)")
+    if m:
+        check(doc, "9 人以上の整数ゲームで、正しくないのに保証が exact のままの配分の数",
+              sum(int(r["incorrect_exact"]) for (_, players), r in integers.items() if players in ("9-10", "11-14")),
+              int(m.group(1)))
+    m = doc_match(doc, r"scale = 1e8 の 11-14 人では、正しくない (\d+) 個に対して `approximate` は (\d+) 個")
+    if m:
+        r = rows[("integer-1e8", "11-14")]
+        check(doc, "scale = 1e8 の 11-14 人の (正しくない数, approximate の数)", (int(m.group(1)), int(m.group(2))),
+              (int(r["auto_solved"]) - int(r["auto_correct"]), int(r["approximate"])))
+    m = doc_match(doc, r"値が `1e12` 程度の整数ゲームでは[\s\S]*?(\d+) 個のうち (\d+) 個のずれを見分けられなかった")
+    if m:
+        r = rows[("integer-1e12", "3-6")]
+        check(doc, "scale = 1e12 の (ゲーム数, 正しくないのに exact)", (int(m.group(1)), int(m.group(2))),
+              (int(r["games"]), int(r["incorrect_exact"])))
+        check(doc, "8 人以下の整数ゲームで、正しくないのに exact のままの配分は scale = 1e12 の行だけ",
+              [key for key, r in integers.items() if key[1] in ("3-6", "7-8") and r["incorrect_exact"] != "0"],
+              [("integer-1e12", "3-6")])
+    m = doc_match(doc, r"scale = 1e9 の 7-8 人では、(\d+) ゲームの合計が ([\d.]+) 秒から ([\d.]+) 秒になった")
+    if m:
+        r = rows[("integer-1e9", "7-8")]
+        check(doc, "scale = 1e9 の 7-8 人のゲーム数", r["games"], m.group(1))
+        check_number(doc, "scale = 1e9 の 7-8 人の合計の秒 (1 回だけ解く)", m.group(2), float(r["fixed_seconds"]))
+        check_number(doc, "scale = 1e9 の 7-8 人の合計の秒 (既定)", m.group(3), float(r["auto_seconds"]))
+    m = doc_match(doc, r"浮動小数点数の和で作った優加法的なゲーム \((\d+-\d+) 人、(\d+) 個\) は、どちらの解き方でも (\d+) 個が厳密な検証に合格し、(\d+) 個が合格しなかった。\n\s*既定の手順は (\d+) 個とも解き直していない")
+    if m:
+        r = rows[("superadditive-float", m.group(1))]
+        check(doc, "浮動小数点数の和の優加法的なゲーム (数, 合格, 不合格, 解き直さなかった数)",
+              tuple(int(g) for g in m.groups()[1:]),
+              (int(r["games"]), int(r["fixed_correct"]) if r["fixed_correct"] == r["auto_correct"] else -1,
+               int(r["games"]) - int(r["auto_correct"]), int(r["games"]) - int(r["refined"])))
 
 
 def verify_refinement_rows():
-    doc = "docs/performance.md (上限と既定値の根拠)"
+    doc = "docs/performance.md"
     rows = read("data/analysis/refinement-rows.csv")
-    check(doc, "解き直しの行数を調べた人数", sorted({int(r["players"]) for r in rows}), [11, 14, 16])
+    m = doc_match(doc, r"(\d+)・(\d+)・(\d+) 人の整数ゲームを、比 `1e-7`・`1e-9`・`1e-11` の許容誤差で 1 回ずつ解いた")
+    if m:
+        check(doc, "解き直しの行数を調べた人数", sorted({int(r["players"]) for r in rows}), [int(g) for g in m.groups()])
+    check(doc, "解き直しの行数を調べた比", sorted({r["ratio"] for r in rows}), ["1e-11", "1e-7", "1e-9"])
     first = {(r["family"], r["players"], r["seed"]): int(r["rows_added"]) for r in rows if r["ratio"] == "1e-7"}
     growth = [int(r["rows_added"]) / first[(r["family"], r["players"], r["seed"])]
               for r in rows if r["ratio"] != "1e-7" and r["certified"] == "true"]
-    check(doc, "比を下げて合格した解の、追加した行の比 1e-7 に対する倍率の最大", round(max(growth), 1), 5.3)
+    m = doc_match(doc, r"追加した行は比 `1e-7` のときの ([\d.]+) 倍以下だった")
+    if m:
+        check_number(doc, "比を下げて合格した解の、追加した行の比 1e-7 に対する倍率の上界", m.group(1), max(growth), bound=True)
+    source = "src/nucleolus/mod.rs"
+    m = doc_match(source, r"追加した行は最初の ([\d.]+) 倍以下だった")
+    if m:
+        check_number(source, "REFINEMENT_ROW_FACTOR の説明の倍率の上界", m.group(1), max(growth), bound=True)
     hard = [r for r in rows if (r["family"], r["players"]) == ("integer-1e10", "14")]
     failed = [r for r in hard if r["ratio"] == "1e-9"]
-    check(doc, "値 1e10・14 人の比 1e-9 (状態, 秒の範囲)",
-          ({r["status"] for r in failed}, round(min(float(r["seconds"]) for r in failed)),
-           round(max(float(r["seconds"]) for r in failed))), ({"error"}, 9, 12))
     finest = [r for r in hard if r["ratio"] == "1e-11"]
-    proper = 2 ** 14 - 2
-    check(doc, "値 1e10・14 人の比 1e-11 (真部分提携に対する行の割合 %, 秒, 合格)",
-          [(round(100 * int(r["rows_added"]) / proper), round(float(r["seconds"])), r["certified"]) for r in finest],
-          [(92, 18, "false"), (92, 19, "false")])
-    check(doc, "値 1e10 の 16 人は計測に含めていない",
-          any((r["family"], r["players"]) == ("integer-1e10", "16") for r in rows), False)
-    check(doc, "値 1e10・14 人の比 1e-11 の行数 (100 行単位)",
-          [round(int(r["rows_added"]), -2) for r in finest], [15100, 15100])
-    with open("src/nucleolus/mod.rs") as f:
-        source = f.read()
-    check("src/nucleolus/mod.rs (REFINEMENT_ROW_FACTOR の説明)", "同じ倍率を書いている",
-          f"最初の {round(max(growth), 1)} 倍以下" in source, True)
+    m = doc_match(doc, r"値が `1e10` 程度の 14 人の (\d+) ゲームは、比 `1e-9` では (\d+)-(\d+) 秒かけて失敗し、比 `1e-11` では真部分提携の (\d+)% \(約 ([\d,]+) 行\) を追加して\n\s*(\d+)-(\d+) 秒かかり、どちらも合格しなかった")
+    if m:
+        proper = 2 ** 14 - 2
+        check(doc, "値 1e10・14 人のゲーム数", (len(failed), len(finest)), (int(m.group(1)), int(m.group(1))))
+        check(doc, "値 1e10・14 人の比 1e-9 は全て失敗", {r["status"] for r in failed}, {"error"})
+        check_number(doc, "値 1e10・14 人の比 1e-9 の秒の最小", m.group(2), min(float(r["seconds"]) for r in failed))
+        check_number(doc, "値 1e10・14 人の比 1e-9 の秒の最大", m.group(3), max(float(r["seconds"]) for r in failed))
+        for r in finest:
+            check_number(doc, "値 1e10・14 人の比 1e-11 の真部分提携に対する行の割合 (%)", m.group(4),
+                         100 * int(r["rows_added"]) / proper)
+            check(doc, "値 1e10・14 人の比 1e-11 の行数 (100 行単位)", round(int(r["rows_added"]), -2), int(m.group(5).replace(",", "")))
+        check_number(doc, "値 1e10・14 人の比 1e-11 の秒の最小", m.group(6), min(float(r["seconds"]) for r in finest))
+        check_number(doc, "値 1e10・14 人の比 1e-11 の秒の最大", m.group(7), max(float(r["seconds"]) for r in finest))
+        check(doc, "値 1e10・14 人の比 1e-11 は合格しなかった", {r["certified"] for r in finest}, {"false"})
+    if doc_match(doc, r"値が `1e10` 程度の 16 人のゲームは[^。]*計測に含めていない"):
+        check(doc, "値 1e10 の 16 人は計測に含めていない",
+              any((r["family"], r["players"]) == ("integer-1e10", "16") for r in rows), False)
 
 
 def verify_exact_integer():
-    doc = "docs/performance.md (上限と既定値の根拠)"
+    doc = "docs/performance.md"
     rows = read("data/bench/exact-scaling-integer.csv")
 
     def seconds(n):
-        values = [float(r["seconds"]) for r in rows if r["n"] == str(n)]
-        return (min(values), max(values), len(values))
+        return [float(r["seconds"]) for r in rows if r["n"] == str(n)]
 
-    check(doc, "整数ゲームの有理数の逐次 LP の秒 (最小, 最大, ゲーム数) n = 7, 8",
-          [seconds(7), seconds(8)], [(0.9, 2.2, 4), (2.4, 9.8, 4)])
-    check(doc, "同 n = 9, 10 (秒は四捨五入)",
-          [tuple(round(v) for v in seconds(n)) for n in (9, 10)], [(47, 133, 4), (61, 288, 2)])
-
-    def span(n):
-        low, high, _ = seconds(n)
-        return f"{round(low)}-{round(high)} 秒"
-
-    with open("src/nucleolus/mod.rs") as f:
-        source = f.read()
-    with open("docs/guarantees.md") as f:
-        guarantees = f.read()
-    check("src/nucleolus/mod.rs (MAX_AUTO_RATIONAL_PLAYERS の説明)", "8・9 人の時間の範囲が同じ",
-          f"8 人で {span(8)}、9 人で {span(9)}" in source, True)
-    check("docs/guarantees.md (検証の範囲)", "8・9 人の時間の範囲が同じ",
-          f"8 人は {span(8)}、9 人は {span(9)}" in guarantees, True)
+    for cells in doc_table(doc, "| 人数 | 整数ゲーム (scale = 1・1e9)", ["7", "8", "9", "10"], 2):
+        n = int(cells[0])
+        low, high = numbers(cells[1])[:2]
+        check_number(doc, f"整数ゲームの有理数の逐次 LP {n} 人の秒の最小", low, min(seconds(n)))
+        check_number(doc, f"整数ゲームの有理数の逐次 LP {n} 人の秒の最大", high, max(seconds(n)))
+        per_scale = collections.Counter(r["type"] for r in rows if r["n"] == str(n))
+        expected = 1 if "各 scale で 1 ゲーム" in cells[1] else 2
+        check(doc, f"整数ゲームの有理数の逐次 LP {n} 人の scale ごとのゲーム数", dict(per_scale),
+              {"integer-1e0": expected, "integer-1e9": expected})
+    for path, pattern in (("src/nucleolus/mod.rs", r"8 人で (\d+)-(\d+) 秒、9 人で (\d+)-(\d+) 秒"),
+                          ("docs/guarantees.md", r"8 人は (\d+)-(\d+) 秒、9 人は (\d+)-(\d+) 秒")):
+        m = doc_match(path, pattern)
+        if m:
+            for n, low, high in ((8, m.group(1), m.group(2)), (9, m.group(3), m.group(4))):
+                check_number(path, f"{n} 人の有理数の逐次 LP の秒の最小", low, min(seconds(n)))
+                check_number(path, f"{n} 人の有理数の逐次 LP の秒の最大", high, max(seconds(n)))
 
 
 def verify_auto_constants():
@@ -597,8 +720,7 @@ def verify_comparison_text():
         return max(float(r["seconds"]) for r in ok_rows if (r["impl"], r["method"], r["n"]) == (impl, method, str(n)))
 
     impls = ("coopgame-rs", "coopgame-rs-full", "CoopGame", "TUGLab")
-    rows = doc_table(doc, "| n | coopgame-rs 制約生成")
-    check(doc, "実行時間の表の n", [r[0] for r in rows], ["8", "10", "12", "14", "16", "18"])
+    rows = doc_table(doc, "| n | coopgame-rs 制約生成", ["8", "10", "12", "14", "16", "18"], 5)
     for cells in rows:
         for impl, cell in zip(impls, cells[1:]):
             check_number(doc, f"実行時間の表 n = {cells[0]} の {impl} (仁の最大の秒)", numbers(cell)[0],
@@ -614,8 +736,13 @@ def verify_comparison_text():
         return [float(r["distance_to_certified"]) for r in certified
                 if r["impl"] in impls and (r["certified"] == "true") == passed]
 
-    table = {r[0]: r for r in doc_table(doc, "| 実装 | 合格 | 不合格 | 厳密な仁")}
+    table = {r[0]: r for r in doc_table(doc, "| 実装 | 合格 | 不合格 | 厳密な仁", ["coopgame-rs (2 方式)", "CoopGame", "TUGLab"], 4)}
     ours = ("coopgame-rs", "coopgame-rs-full")
+    if table:
+        verify_certified_table(doc, table, certified, distances, ours)
+
+
+def verify_certified_table(doc, table, certified, distances, ours):
     row = table.get("coopgame-rs (2 方式)", ["", "", "", ""])
     check(doc, "厳密な検証の表 coopgame-rs の (合格, 不合格)", (row[1], row[2]),
           (str(len(distances(ours, True))), str(len(distances(ours, False)))))
@@ -642,6 +769,10 @@ def verify_comparison_text():
         check(doc, "不合格の配分は x* から本文の値以上離れている",
               min(distances(("CoopGame", "TUGLab"), False)) >= float(m.group(1)), True)
 
+
+
+def verify_variants_text():
+    doc = "docs/comparison.md"
     variants = read("data/compare/variants.csv")
     m = doc_match(doc, r"seed 0-3 \((\d+) 個\) と、CoopGame のヘルプの例など (\d+) 個")
     games = sorted({r["game"] for r in variants})
@@ -756,7 +887,7 @@ def verify_performance_text():
 
     columns = [("nucleolus", "seconds"), ("nucleolus", "rows_added"), ("nucleolus-full", "seconds"),
                ("kernel", "seconds"), ("kernel", "iterations")]
-    for cells in doc_table(doc, "| n | 仁 (制約生成) | 追加した行"):
+    for cells in doc_table(doc, "| n | 仁 (制約生成) | 追加した行", ["8", "12", "16", "20", "22"], 6):
         for (method, column), cell in zip(columns, cells[1:]):
             if cell == "-":
                 check(doc, f"明示ベクトルの表 n = {cells[0]} の {method} は計測していない",
@@ -772,7 +903,10 @@ def verify_performance_text():
     oracle = read("data/bench/oracle-scaling.csv")
     kinds = {"破産ゲーム (請求 1-100)": "bankruptcy", "破産ゲーム (請求 1-1000)": "bankruptcy-wide",
              "多数決ゲーム (重み 1)": "majority", "重み付き投票ゲーム (重み 1-10)": "voting"}
-    for cells in doc_table(doc, "| ゲーム | n | seed 数 | 時間 | 段の数"):
+    oracle_keys = [("破産ゲーム (請求 1-100)", n) for n in ("40", "70", "100")] + \
+        [("破産ゲーム (請求 1-1000)", n) for n in ("40", "70", "100")] + \
+        [("多数決ゲーム (重み 1)", "21"), ("重み付き投票ゲーム (重み 1-10)", "25")]
+    for cells in doc_table(doc, "| ゲーム | n | seed 数 | 時間 | 段の数", oracle_keys, 7, key_columns=2):
         kind, n = kinds.get(cells[0]), cells[1]
         group = [r for r in oracle if (r["kind"], r["n"]) == (kind, n)]
         label = f"オラクルの表 {kind} n = {n}"
@@ -789,7 +923,7 @@ def verify_performance_text():
     limits = read("data/bench/variant-limits.csv")
     names = {"per capita 仁": "per-capita", "比例仁": "proportional", "disruption nucleolus": "disruption",
              "modiclus": "modiclus", "交渉集合の判定": "bargaining"}
-    for cells in doc_table(doc, "| 対象 | 上限 | 上限の人数での最大"):
+    for cells in doc_table(doc, "| 対象 | 上限 | 上限の人数での最大", list(names), 4):
         method = names.get(cells[0])
         limit = int(numbers(cells[1])[0])
         for n, cell in ((limit, cells[2]), (limit + 1, cells[3])):
@@ -817,14 +951,15 @@ def verify_guarantees_text():
     doc = "docs/guarantees.md"
     threshold = read("data/bench/auto-threshold.csv")
     columns = ("lp_seconds", "convex_seconds", "relative_difference")
-    for cells in doc_table(doc, "| n | 逐次 LP (秒)"):
+    for cells in doc_table(doc, "| n | 逐次 LP (秒)", ["12", "16", "18", "20"], 4):
         group = [r for r in threshold if r["n"] == cells[0]]
         for column, cell in zip(columns, cells[1:]):
             check_number(doc, f"境目の表 n = {cells[0]} の {column} (最大)", cell,
                          max(float(r[column]) for r in group) if group else -1)
 
     convex = {"誘導部分グラフ": read("data/bench/convex-graph.csv"), "破産": read("data/bench/convex-bankruptcy.csv")}
-    for cells in doc_table(doc, "| ゲーム | n | 時間 (秒) | 周回"):
+    convex_keys = [("誘導部分グラフ", n) for n in ("16", "24", "32", "48", "64")] + [("破産", "20"), ("破産", "40")]
+    for cells in doc_table(doc, "| ゲーム | n | 時間 (秒) | 周回", convex_keys, 6, key_columns=2):
         group = [r for r in convex.get(cells[0], []) if r["n"] == cells[1]]
         label = f"凸ゲームの手法の表 {cells[0]} n = {cells[1]}"
         if not group:
@@ -844,16 +979,18 @@ def verify_guarantees_text():
     if m:
         # 表の評価回数 (各 n の最大) の行で、足す回数 2n + 2 + minimizations が占める割合
         share = []
-        for cells in doc_table(doc, "| ゲーム | n | 時間 (秒) | 周回"):
+        for cells in doc_table(doc, "| ゲーム | n | 時間 (秒) | 周回", convex_keys, 6, key_columns=2):
             group = [r for r in convex.get(cells[0], []) if r["n"] == cells[1]]
             if group:
                 r = max(group, key=lambda r: int(r["evaluations"]))
                 share.append(100 * (2 * int(r["n"]) + 2 + int(r["minimizations"])) / int(r["evaluations"]))
+        if not share:
+            return
         check_number(doc, "評価回数の差の割合の最小 (%)", m.group(1), min(share))
         check_number(doc, "評価回数の差の割合の最大 (%)", m.group(2), max(share))
 
     study = read("data/analysis/assumption-study.csv")
-    for cells in doc_table(doc, "| クラス | ゲーム数 | 実際に凸"):
+    for cells in doc_table(doc, "| クラス | ゲーム数 | 実際に凸", ["convex", "bnf1", "bnf2", "bnf4", "superadditive", "voting"], 6):
         group = [r for r in study if r["class"] == cells[0]]
         tally = collections.Counter(r["outcome"] for r in group)
         check(doc, f"仮定の実験の表 {cells[0]} (数, 凸, 合格, 否定, 失敗)", tuple(cells[1:6]),
@@ -865,34 +1002,104 @@ def verify_guarantees_text():
                      max(float(r["distance_nucleolus"]) for r in study if r["outcome"] == "certified"), bound=True)
 
 
+# 照合した項目の数の下限。照合の関数が表や記述を見失って何も照合しなくなったときに気づくため。
+# 照合を足したり外したりしたら、出力の最後に表示する数に合わせて更新する。
+MIN_CHECKS = 419
+
+
+def run_all():
+    for verify in (verify_comparison, verify_phase2_bench, verify_oracle_bench, verify_oracle_tolerance,
+                   verify_voting_bench, verify_certified, verify_sampled, verify_guarantees, verify_exact_solver,
+                   verify_variant_limits, verify_tolerance_study, verify_refinement_rows, verify_exact_integer,
+                   verify_auto_constants, verify_comparison_text, verify_variants_text, verify_values_text,
+                   verify_variants_record, verify_hadamard_primes, verify_prekernel_study, verify_performance_text,
+                   verify_guarantees_text):
+        verify()
+
+
+def mutate_table(text, header, how):
+    """header の表を壊す: 本文の 2 行目を消す (drop_row)、本文の 2 行目の前に空行を入れる (blank_line)、最後の列を消す (drop_column)。"""
+    lines = text.split("\n")
+    start = next(i for i, line in enumerate(lines) if line.startswith(header))
+    end = next(i for i in range(start, len(lines) + 1) if i == len(lines) or not lines[i].startswith("|"))
+    if how == "drop_row":
+        del lines[start + 3]
+    elif how == "blank_line":
+        lines.insert(start + 3, "")
+    elif how == "drop_column":
+        for i in range(start, end):
+            lines[i] = re.sub(r"(?<!\\)\|[^|]*\|$", "|", lines[i])
+    return "\n".join(lines)
+
+
+SELF_TEST_TABLES = [
+    ("docs/comparison.md", "| n | coopgame-rs 制約生成"),
+    ("docs/comparison.md", "| 実装 | 合格 | 不合格 | 厳密な仁"),
+    ("docs/performance.md", "| ゲーム | 人数 | ゲーム数 | 1 回だけ解く"),
+    ("docs/performance.md", "| 人数 | 整数ゲーム (scale = 1・1e9)"),
+    ("docs/performance.md", "| ゲーム | n | 修正前 (秒 / MB)"),
+    ("docs/performance.md", "| n | 仁 (制約生成) | 追加した行"),
+    ("docs/performance.md", "| ゲーム | n | seed 数 | 時間 | 段の数"),
+    ("docs/performance.md", "| 対象 | 上限 | 上限の人数での最大"),
+    ("docs/guarantees.md", "| n | 逐次 LP (秒)"),
+    ("docs/guarantees.md", "| ゲーム | n | 時間 (秒) | 周回"),
+    ("docs/guarantees.md", "| クラス | ゲーム数 | 実際に凸"),
+]
+
+
+def self_test():
+    """文書の表を壊したときに照合が失敗することを確かめる (文書のファイルは書き換えない)。"""
+    import contextlib
+    import io
+
+    def attempt(path=None, text=None):
+        failures.clear()
+        check_count[0] = 0
+        _texts.clear()
+        if path:
+            _texts[path] = text
+        with contextlib.redirect_stdout(io.StringIO()):
+            try:
+                run_all()
+            except Exception as error:  # 壊した表で照合が例外になるのも、検出できたとみなす
+                return f"例外 {type(error).__name__}"
+        if failures:
+            return f"失敗 {len(failures)} 件"
+        if check_count[0] < MIN_CHECKS:
+            return f"照合数 {check_count[0]} が下限 {MIN_CHECKS} 未満"
+        return None
+
+    problems = []
+    baseline = attempt()
+    print(f"壊していない文書: {baseline or '全て一致'}")
+    if baseline:
+        problems.append("壊していない文書で照合が失敗した")
+    for path, header in SELF_TEST_TABLES:
+        with open(path, encoding="utf-8") as f:
+            original = f.read()
+        for how in ("drop_row", "blank_line", "drop_column"):
+            detected = attempt(path, mutate_table(original, header, how))
+            print(f"{path} {header!r} {how}: {detected or '検出できなかった'}")
+            if not detected:
+                problems.append((path, header, how))
+    print(f"\n{'自己テストの不合格 ' + str(len(problems)) + ' 件' if problems else '自己テストに合格した'}")
+    sys.exit(1 if problems else 0)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--instances", help="make_instances.sh で作ったディレクトリ")
+    parser.add_argument("--self-test", action="store_true", help="文書の表を壊すと照合が失敗することを確かめる")
     args = parser.parse_args()
-    verify_comparison()
-    verify_phase2_bench()
-    verify_oracle_bench()
-    verify_oracle_tolerance()
-    verify_voting_bench()
-    verify_certified()
-    verify_sampled()
-    verify_guarantees()
-    verify_exact_solver()
-    verify_variant_limits()
-    verify_tolerance_study()
-    verify_refinement_rows()
-    verify_exact_integer()
-    verify_auto_constants()
-    verify_comparison_text()
-    verify_values_text()
-    verify_variants_record()
-    verify_hadamard_primes()
-    verify_prekernel_study()
-    verify_performance_text()
-    verify_guarantees_text()
+    if args.self_test:
+        self_test()
+    run_all()
     if args.instances:
         verify_allocations(args.instances)
-    print(f"\n{'食い違い ' + str(len(failures)) + ' 件' if failures else '全ての主張がデータと一致した'}")
+    if check_count[0] < MIN_CHECKS:
+        fail("scripts/verify_claims.py", "照合した項目の数", f"{check_count[0]} が下限 {MIN_CHECKS} 未満")
+    print(f"\n照合した項目 {check_count[0]} 件 (下限 {MIN_CHECKS})")
+    print(f"{'食い違い ' + str(len(failures)) + ' 件' if failures else '全ての主張がデータと一致した'}")
     sys.exit(1 if failures else 0)
 
 

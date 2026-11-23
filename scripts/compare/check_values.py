@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory() as work:
         records.append((name[:-len(".txt")], command, f"{diff:.3e}"))
 if csv_path:
     with open(csv_path, "w", newline="") as f:
-        writer = csv.writer(f)
+        writer = csv.writer(f, lineterminator="\n")
         writer.writerow(["game", "value", "relative_difference"])
         writer.writerows(records)
 print(f"{cases} 件を比べ、最大の相対差は {worst:.3e}")

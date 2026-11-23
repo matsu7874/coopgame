@@ -118,7 +118,7 @@
 文献の 3 つの定理を組み合わせた。
 
 - 凸ゲームのカーネルは仁の 1 点である (Maschler, Peleg & Shapley 1971)。
-- 凸ゲームは 0-単調なので、カーネルとプレカーネルは一致する (Maschler, Peleg & Shapley 1979)。
+- 凸ゲームは優加法的で、優加法的なゲームは 0-単調なので、カーネルとプレカーネルは一致する (Maschler, Peleg & Shapley 1979 の §2.3 の脚注と Theorem 3.3)。
 - transfer scheme はプレカーネルの点に収束する (Stearns 1968)。
 
 手順:
