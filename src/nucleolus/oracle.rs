@@ -2,8 +2,10 @@
 //!
 //! 手順は [`crate::nucleolus`] と同じだが、全提携を列挙しない。
 //!
-//! - 違反する提携は分離オラクル [`Separation::violated`] で探す。超過順に列挙できるゲーム
-//!   ([`crate::game::oracle::OracleGame`]) は、超過の大きい順に探すことになる。
+//! - 違反する提携は分離オラクル [`Separation::violated_outside_span`] で探す。確定済みの提携を渡すので、
+//!   確定済みの空間を使って探せるゲーム (重み付き投票ゲーム) は、確定した提携を読まずに済む。
+//!   既定の実装 ([`Separation::violated`] に委ねる) と超過順に列挙できるゲーム
+//!   ([`crate::game::oracle::OracleGame`]) は、超過の大きい順に探して確定した提携を読み飛ばす。
 //! - 超過が確定した提携 (確定済みの提携の特性ベクトルが張る空間に入る提携) は、その場で判定して除く。
 //! - 段ごとに確定させる提携は、LP に入っている行の中から探す。行を制限した LP の最適面は
 //!   真の最適面を含み、制限した LP にも最適面全体で等号が成り立つ行がある (LP の双対性)。
@@ -320,9 +322,11 @@ impl<'a, G: Separation + ?Sized> Sequential<'a, G> {
             };
             let skip =
                 |coalition: &PlayerSet| in_lp.contains(coalition) || self.is_determined(coalition);
+            // 確定済みの提携 (特性ベクトルが確定済みの空間の基底) を渡し、空間に入る提携を探索の段階で除けるようにする。
+            let fixed: Vec<PlayerSet> = self.fixed.iter().map(|(s, _)| s.clone()).collect();
             let violated: Vec<PlayerSet> = self
                 .game
-                .violated(&values, bound + slack, &skip, batch)
+                .violated_outside_span(&values, bound + slack, &fixed, &skip, batch)
                 .into_iter()
                 .map(|(coalition, _)| coalition)
                 .collect();
