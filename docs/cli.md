@@ -42,6 +42,8 @@ $ coopgame explain v.txt sol.txt
 
 安定性:
   最大の不満 (超過) は -1.000000。どの提携も離脱して得をしないので、コアに属する。
+  (コアの判定は、ゲームの値と配分を 2 進数の値どおりに読んだ厳密な判定。
+  許容誤差を指定すると、その幅まで許して判定する。)
   最小コアの値は -1.000000。最大の不満をこれより下げられる配分はない (この配分は最大の不満を最小にしている)。
 
 不満の大きい提携 (超過の大きい順の段):
@@ -149,12 +151,25 @@ player	cost	shapley	nucleolus
 ## 結果を検証する
 
 ```bash
-coopgame verify v.txt sol.txt               # Kohlberg 基準とカーネル条件
+coopgame verify v.txt sol.txt               # Kohlberg 基準とカーネル条件 (浮動小数点数の判定)
 coopgame certify v.txt sol.txt              # 有理数による厳密な検証 (厳密な仁を分数で出す)
 coopgame certify v.txt sol.txt --rational   # v.txt の値を 10 進数・分数の値どおりの有理数として検証する
 coopgame check v.txt sol.txt                # 配分が仁かを検証し、結論 (certified・refuted・undecided) を出す
 coopgame check v.txt sol.txt --reference lp # 基準の仁の求め方を選ぶ (auto・exact・lp)
 coopgame bargaining v.txt sol.txt           # 交渉集合に属するか (属さなければ反論のない異議を出す)
+```
+
+`verify` と `bargaining` は浮動小数点数で判定し、使った許容誤差を `tolerance=` の行に出す。
+既定の許容誤差は `max|v(S)|` の `1e-11` 倍で、`verify` の Kohlberg 基準とカーネル条件、`bargaining`、
+Python の `verify`・`is_in_kernel`・`bargaining_set` で同じである (仁の既定の手順が確かめる幅以上なので、`nucleolus` の出力は合格する)。
+`--check-tolerance T` で値の単位の許容誤差を指定できる。
+合格しても仁であることの証明ではない。厳密に確かめるには `certify`・`check` を使う。
+
+```console
+$ coopgame verify v.txt sol.txt
+tolerance=6e-11
+kohlberg=true (1 levels, 1 LPs)
+kernel=true (violation=0e0)
 ```
 
 `certify` は、`sol.txt` の配分自身から厳密な配分を復元できたときだけ合格にする。
@@ -197,8 +212,10 @@ $ coopgame compare v.txt
 0	3.000000	2.000000	1.000000	-1.000000	属する	0
 1	3.000000	2.000000	1.000000	-1.000000	属する	0
 2	2.500000	2.000000	1.500000	-0.500000	属する	0
-3	3.000000	2.000000	1.000000	-1.000000	属する	0
+3	3.000000	2.000000	1.000000	-1.000000	属さない (和が v(N) と異なる)	0
 4	2.000000	2.000000	2.000000	0.000000	属する	0
+
+コアの判定の許容誤差: 0e0 (0 は値どおりの厳密な判定。--core-tolerance で指定)
 
 解の番号:
 0	仁
@@ -215,6 +232,10 @@ coalition	max|dx/dv|	dx/dv (プレイヤー順)	difference
 {2}	0.2500	-0.1250 -0.1250 0.2500	central
 {1}	0.0000	0.0000 0.0000 -0.0000	central
 ```
+
+`explain` と `compare` のコアの判定は、ゲームの値と配分を 2 進数の値どおりの有理数として読んだ厳密な判定である。
+上の per capita 仁は LP の解で和が `v(N) = 6` にちょうど一致しない (3 などを丸めた値) ので、厳密な判定では属さない。
+浮動小数点数の丸めの分を許すときは、`--core-tolerance T` で和の差と超過を 0 とみなす幅を指定する。
 
 `compare` は、計算できない解を省き、省いた解と理由を標準エラーに出す。
 省くのは、配分集合が空のゲームの仁と per capita 仁、18 人以上の per capita 仁、8 人以上の modiclus である

@@ -371,6 +371,11 @@ def verify_guarantees():
     cv = {n: worst(threshold, n, "convex_seconds") for n in (16, 18)}
     check(doc, "境目: 16 人は LP が速く、18 人は凸ゲームの手法が速い", (lp[16] < cv[16], cv[18] < lp[18]), (True, True))
     check(doc, "閾値の表の差の最大 (n = 20) <= 8e-10", worst(threshold, 20, "relative_difference") <= 8e-10, True)
+    check(doc, "閾値の表 (n, 逐次 LP の秒, 凸ゲームの手法の秒, 差)",
+          [(n, worst(threshold, n, "lp_seconds"), worst(threshold, n, "convex_seconds"),
+            float(f"{worst(threshold, n, 'relative_difference'):.1e}")) for n in (12, 16, 18, 20)],
+          [(12, 0.0027, 0.0162, 5.6e-17), (16, 0.0234, 0.0431, 1.7e-16),
+           (18, 0.0973, 0.06, 6.6e-12), (20, 0.4053, 0.0921, 7.8e-10)])
 
 
 def verify_exact_solver():
@@ -426,8 +431,8 @@ def verify_variant_limits():
     expected = {
         ("per-capita", 17): (19.3, 924), ("per-capita", 18): (52.4, 1383),
         ("proportional", 17): (39.2, 937), ("proportional", 18): (57.0, 1681),
-        ("disruption", 16): (7.9, 847), ("disruption", 17): (19.7, 1487),
-        ("modiclus", 7): (0.4, 51),
+        ("disruption", 16): (8.6, 875), ("disruption", 17): (20.9, 1493),
+        ("modiclus", 7): (0.3, 51),
         ("bargaining", 11): (21.8, 7), ("bargaining", 12): (80.6, 10),
     }
     for (method, n), value in expected.items():
@@ -475,9 +480,10 @@ def verify_tolerance_study():
     r = rows[("integer-1e9", "7-8")]
     check(doc, "scale = 1e9 の 7-8 人の合計の秒 (1 回だけ解く, 既定)",
           (float(r["fixed_seconds"]), round(float(r["auto_seconds"]))), (0.02, 44))
-    r = rows[("superadditive-float", "11-14")]
-    check(doc, "浮動小数点数の和の優加法的なゲーム (ゲーム数, 1 回だけ解く: 合格, 既定: 合格, 解き直した数)",
-          tuple(int(r[k]) for k in ("games", "fixed_correct", "auto_correct", "refined")), (40, 28, 28, 0))
+    check(doc, "優加法的なゲーム (人数, ゲーム数, 1 回だけ解く: 正しい数, 既定: 正しい数, 解き直した数)",
+          [(players,) + tuple(int(rows[("superadditive", players)][k]) for k in ("games", "fixed_correct", "auto_correct", "refined"))
+           for players in ("3-6", "11-14")],
+          [("3-6", 200, 200, 200, 0), ("11-14", 40, 40, 40, 0)])
 
 
 def verify_refinement_rows():

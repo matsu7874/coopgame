@@ -9,8 +9,8 @@
 //! - `family`: ゲームの種類。`integer-<scale>` は、値が `scale * |S| + 0..6` (1 人提携は 0) の整数ゲームで、
 //!   超過の段の間隔が 1 以下になる。`lower-<scale>` は、1 人提携の値も `scale + 0..6` で、全体提携の値が
 //!   1 人提携の値の和より `1..6` だけ大きい整数ゲーム (仁で多くのプレイヤーが下限 `x_i = v({i})` の近くにいる)。
-//!   `bnf<k>` は `generators::bnf`、`superadditive-rational` は有理数で構築した優加法的なゲーム、
-//!   `superadditive-float` は浮動小数点数の和で作った優加法的なゲーム、`convex` は凸ゲーム
+//!   `bnf<k>` は `generators::bnf`、`superadditive` は `generators::random_superadditive` の優加法的なゲーム
+//!   (値を有理数として読んでも優加法的)、`convex` は `generators::random_convex` の凸ゲーム
 //! - `players`: 人数の範囲
 //! - `games`: 比べたゲームの数 (`criterion` が `rational` の行では、有理数の仁を求められたゲームだけを数える)
 //! - `criterion`: 正しさの判定。`rational` は有理数の逐次 LP の仁との差が丸めの大きさ `4 n ε max|v|` 以下、
@@ -298,23 +298,14 @@ fn main() {
             .collect();
         row(&family, "16-20", &large, Criterion::Certify);
     }
-    let rational: Vec<ExplicitGame> = (0..200u64)
-        .filter_map(|seed| {
-            generators::random_superadditive_exact(3 + (seed % 4) as usize, seed)
-                .ok()
-                .and_then(|game| game.to_explicit().ok())
-        })
+    let small: Vec<ExplicitGame> = (0..200u64)
+        .filter_map(|seed| generators::random_superadditive(3 + (seed % 4) as usize, seed).ok())
         .collect();
-    row(
-        "superadditive-rational",
-        "3-6",
-        &rational,
-        Criterion::Rational,
-    );
-    let float: Vec<ExplicitGame> = (0..40u64)
+    row("superadditive", "3-6", &small, Criterion::Rational);
+    let medium: Vec<ExplicitGame> = (0..40u64)
         .filter_map(|seed| generators::random_superadditive(11 + (seed % 4) as usize, seed).ok())
         .collect();
-    row("superadditive-float", "11-14", &float, Criterion::Certify);
+    row("superadditive", "11-14", &medium, Criterion::Certify);
     let convex: Vec<ExplicitGame> = (0..40u64)
         .filter_map(|seed| generators::random_convex(11 + (seed % 4) as usize, seed).ok())
         .collect();

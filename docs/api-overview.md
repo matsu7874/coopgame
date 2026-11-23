@@ -51,11 +51,12 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 
 | 対象 | 関数 | 手法 |
 |---|---|---|
-| 仁・プレ仁の検証 | `verify::kohlberg` | Kohlberg 基準 |
+| 仁・プレ仁の検証 | `verify::{kohlberg, kohlberg_within}` | Kohlberg 基準を浮動小数点数で判定する。既定の許容誤差は `game::verification_tolerance` (`max\|v(S)\|` の `1e-11` 倍)。合格しても仁の証明ではない (厳密な判定は下の `certify`) |
 | 仁・プレ仁の厳密な検証 | `verify::{certify, certify_exact, kohlberg_exact, recover_allocation}` | 超過の段から厳密な配分を有理数で復元し、有理数の単体法 (Bland の規則) で Kohlberg 基準を判定。`game::exact::ExactGame` で値を有理数のまま構築できる |
-| カーネル・プレカーネルの検証 | `kernel::is_in_kernel`, `kernel::kernel_violation` | 最大余剰の釣り合い条件 |
-| 交渉集合・プレ交渉集合への所属 | `bargaining::{check, is_in_bargaining_set}` | 組 `(i, j)` と提携 `S` ごとに、反論のない異議があるかを LP で判定。異議があればその支払いを返す。11 人まで |
-| ゲームの性質 | `properties::{is_superadditive, is_convex, is_zero_monotonic, is_in_core}`、`nucleolus::has_nonempty_core` | 定義どおりの判定、コアが空でないかは最小コアの LP。最小コアの `epsilon` が許容誤差以内で 0 に近いときは、9 人までは有理数の LP で `epsilon` を厳密に求め、入力の丸めの大きさと比べる |
+| カーネル・プレカーネルの検証 | `kernel::is_in_kernel`, `kernel::kernel_violation` | 最大余剰の釣り合い条件 (許容誤差は引数。CLI の `verify` と Python の `is_in_kernel` の既定は `verify::kohlberg` と同じ) |
+| 交渉集合・プレ交渉集合への所属 | `bargaining::{check, is_in_bargaining_set}` | 組 `(i, j)` と提携 `S` ごとに、反論のない異議があるかを LP で判定。異議があればその支払いを返す。`is_in_bargaining_set` の許容誤差は `verify::kohlberg` と同じ既定。LP が実行不可能・非有界と答えたら `Error::Numerical`。11 人まで |
+| ゲームの性質 | `properties::{is_superadditive, is_convex, is_zero_monotonic, is_in_core}`、`nucleolus::has_nonempty_core` | 値を f64 の 2 進数の値どおりの有理数として読んだ厳密な判定 (`is_in_core` は引数の許容誤差まで許し、0 で厳密)。コアが空でないかは最小コアの LP で、`epsilon` が許容誤差の帯の中なら、LP の配分 (と粗い 2 進の格子に丸めた配分) がちょうどコアに属するか、9 人までは有理数の LP で `epsilon` の符号を決める。決められない規模では `Error::LimitExceeded` |
+| 許容誤差つきの性質の判定 | `properties::{is_superadditive_within, is_convex_within, is_zero_monotonic_within}`、`nucleolus::has_nonempty_core_within` | 許容誤差を明示した判定。`true` でも性質を持つとは限らないので、保証 (`ConvexChecked` など) には使わない |
 | 結果の事後検証 | `verify::{check, check_exact}`、`Unverified::verify` | 配分 `&[f64]` と `Domain` (仁は `Imputation`、プレ仁は `Preimputation`) を受け取る。20 人以下は有理数の厳密な検証 (基準の仁の求め方は `VerifyOptions::reference`)、26 人以下は組ごとのカーネル条件で否定。保証を `certified` に上げるのは `Unverified::verify`・`verify_exact` だけ |
 | 保証のある手法の自動選択 | `auto::AutoNucleolus` | ゲームの型から、保証のある手法のうち最も速いものを選ぶ |
 

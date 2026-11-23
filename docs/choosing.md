@@ -82,9 +82,10 @@ flowchart TD
 
 | 知りたいこと | 関数 | CLI |
 |---|---|---|
-| 誰も抜けたくならないか (コアに入るか) | `properties::is_in_core` | `coopgame explain` |
+| 誰も抜けたくならないか (コアに入るか、値どおりの厳密な判定) | `properties::is_in_core` | `coopgame explain` |
 | どの提携がどれだけ不満か | `analysis::explain::{report, compare}` | `coopgame explain`、`coopgame compare` |
-| 求めた配分が本当に仁か (証明つき) | `verify::kohlberg`、`verify::certify` | `coopgame verify`、`coopgame certify` |
+| 求めた配分が仁か (浮動小数点数の判定、許容誤差つき) | `verify::kohlberg` | `coopgame verify` |
+| 求めた配分が本当に仁か (証明つき) | `verify::certify` | `coopgame certify` |
 | 配分が仁か、仁でないか、決められないか | `verify::check` | `coopgame check` |
 | 交渉集合に入るか (異議に反論できるか、11 人まで) | `bargaining::check` | `coopgame bargaining` |
 | 値が不確かなとき配分がどれだけ揺れるか | `analysis::uncertainty::{monte_carlo, influence}` | `coopgame uncertainty`、`coopgame influence` |
