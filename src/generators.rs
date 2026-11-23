@@ -88,6 +88,7 @@ pub fn bnf(kind: u8, n: usize, seed: u64) -> Result<ExplicitGame> {
 /// 重みと基準は有限の値 (NaN は比較が常に偽になり、勝利提携のないゲームを黙って作るため拒否する)。
 /// 重みは 1 つ以上で非負、基準は 0 より大きく重みの和以下
 /// ([`crate::games::voting::WeightedVotingGame::new`] と同じ検査)。
+/// 基準の範囲は、単純ゲームの定義の「空提携は負ける (`v(∅) = 0`)」と「全体提携は勝つ (`v(N) = 1`)」から導いた検査である。
 /// 基準が 0 以下だと空提携も勝利提携になり、重みの和を超えると全ての提携の値が 0 になる。
 pub fn weighted_voting(weights: &[f64], quota: f64) -> Result<ExplicitGame> {
     if !quota.is_finite() || !weights.iter().all(|w| w.is_finite()) {
