@@ -9,9 +9,10 @@
 //!
 //! この型の [`SetFunction`] の値は節約ゲーム `s(S) = sum_{i in S} c({i}) - c(S)` の値である。
 
+use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::{ExplicitGame, PlayerSet, SetFunction};
-use crate::nucleolus;
+use crate::nucleolus::{self, NucleolusResult, Options};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpanningTreeGame {
@@ -80,13 +81,21 @@ impl SpanningTreeGame {
         self.prim(&members).0
     }
 
-    /// 仁による費用の分担 (全提携の表を作って逐次 LP で求める)。
-    pub fn nucleolus_costs(&self) -> Result<Vec<f64>> {
-        let savings = nucleolus::nucleolus(&ExplicitGame::tabulate(self)?)?.allocation;
-        Ok(crate::games::cost::shares_from_savings(
-            &self.costs[0][1..],
-            &savings,
-        ))
+    /// 仁による費用の分担 (全提携の表を作って逐次 LP で求める)。許容誤差を指定しない既定の設定 ([`Options::new`]) で求める。
+    ///
+    /// 節約ゲームの仁を求め、配分 ([`NucleolusResult::allocation`]) を費用の分担に直して返す。段・許容誤差・保証は
+    /// 節約ゲームの仁のもの ([`crate::games::cost::CostGame::nucleolus`] と同じ)。保証の規則は既定の仁
+    /// ([`nucleolus::nucleolus`]) と同じで、Kohlberg 基準を確かめない 21 人以上では [`crate::Guarantee::Approximate`]。
+    pub fn nucleolus_costs(&self) -> Result<NucleolusResult> {
+        self.nucleolus_costs_with(Options::new(Domain::Imputation))
+    }
+
+    /// 設定 `options` で求める [`SpanningTreeGame::nucleolus_costs`] ([`nucleolus::nucleolus_with`])。
+    /// 許容誤差は節約ゲームの値の単位。
+    pub fn nucleolus_costs_with(&self, options: Options) -> Result<NucleolusResult> {
+        let solved = nucleolus::nucleolus_with(&ExplicitGame::tabulate(self)?, options)?;
+        Ok(solved
+            .map_allocation(|x| crate::games::cost::shares_from_savings(&self.costs[0][1..], x)))
     }
 }
 

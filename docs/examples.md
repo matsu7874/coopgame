@@ -603,7 +603,9 @@ fn main() -> coopgame::Result<()> {
     ])?;
     let total = game.cost(&PlayerSet::grand(3));
     let bird = game.bird_rule();
-    let nucleolus = game.nucleolus_costs()?;
+    // 仁は保証つきの結果で、配分 (allocation) が費用の分担。
+    let result = game.nucleolus_costs()?;
+    let nucleolus = result.allocation();
     println!("{total:.4}"); // 9.0000
     println!("{bird:.4?}"); // [4.0000, 2.0000, 3.0000]
     println!("{nucleolus:.4?}"); // [2.5000, 1.5000, 5.0000]
@@ -611,7 +613,7 @@ fn main() -> coopgame::Result<()> {
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
     assert!((total - 9.0).abs() < 1e-9);
     assert!(close(&bird, &[4.0, 2.0, 3.0]));
-    assert!(close(&nucleolus, &[2.5, 1.5, 5.0]));
+    assert!(close(nucleolus, &[2.5, 1.5, 5.0]));
     Ok(())
 }
 ```
@@ -628,7 +630,7 @@ costs = [
 result = coopgame.spanning_tree(costs)
 print(round(result["total_cost"], 4))  # => 9.0
 print([round(v, 4) for v in result["bird"]])  # => [4.0, 2.0, 3.0]
-print([round(v, 4) for v in result["nucleolus"]])  # => [2.5, 1.5, 5.0]
+print([round(v, 4) for v in result["nucleolus"]["allocation"]])  # => [2.5, 1.5, 5.0]
 ```
 
 最小全域木は辺 0-1 (4)、1-2 (2)、2-3 (3) で、Bird 規則は各人がこの木で自分につながる辺の費用を払う。
@@ -687,13 +689,15 @@ use coopgame::games::cost::CostGame;
 
 fn main() -> coopgame::Result<()> {
     let game = CostGame::new(ExplicitGame::from_lex(&[6.0, 6.0, 8.0, 9.0, 11.0, 12.0, 15.0])?);
-    let nucleolus = game.nucleolus()?;
+    // 仁は保証つきの結果で、配分 (allocation) が費用の分担。
+    let result = game.nucleolus()?;
+    let nucleolus = result.allocation();
     let shapley = game.shapley();
     println!("{nucleolus:.4?}"); // [3.6667, 4.6667, 6.6667]
     println!("{shapley:.4?}"); // [4.0000, 4.5000, 6.5000]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
-    assert!(close(&nucleolus, &[11.0 / 3.0, 14.0 / 3.0, 20.0 / 3.0]));
+    assert!(close(nucleolus, &[11.0 / 3.0, 14.0 / 3.0, 20.0 / 3.0]));
     assert!(close(&shapley, &[4.0, 4.5, 6.5]));
     Ok(())
 }
@@ -703,7 +707,7 @@ fn main() -> coopgame::Result<()> {
 import coopgame
 
 costs = coopgame.Game([6, 6, 8, 9, 11, 12, 15], order="lex")
-print([round(v, 4) for v in coopgame.cost_nucleolus(costs)])  # => [3.6667, 4.6667, 6.6667]
+print([round(v, 4) for v in coopgame.cost_nucleolus(costs)["allocation"]])  # => [3.6667, 4.6667, 6.6667]
 print([round(v, 4) for v in coopgame.shapley(costs)])  # => [4.0, 4.5, 6.5]
 ```
 

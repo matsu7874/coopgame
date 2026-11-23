@@ -760,13 +760,27 @@ fn compare<'py>(
     Ok(dict)
 }
 
-/// `game` を費用ゲーム `c(S)` として読み、仁による費用の分担を返す (節約ゲームの仁を費用に直す)。
-/// Shapley 値は線形なので、費用ゲームにそのまま `shapley(game)` を使えば費用の分担になる。
+/// `game` を費用ゲーム `c(S)` として読み、仁 (`domain="imputation"`) またはプレ仁による費用の分担を求める
+/// (節約ゲームの仁を費用に直す)。Shapley 値は線形なので、費用ゲームにそのまま `shapley(game)` を使えば費用の分担になる。
+///
+/// 戻り値は `nucleolus` と同じ形の辞書で、`allocation` が費用の分担。`levels`・`tolerance`・`guarantee` は
+/// 節約ゲームの仁のもの (費用の分担での不満 `y(S) - c(S)` は節約ゲームの超過に等しい)。
+/// `tolerance`・`rel_tolerance` と保証の規則は `nucleolus` と同じ (値は節約ゲームの値で測る)。
 #[pyfunction]
-fn cost_nucleolus(game: &Game) -> PyResult<Vec<f64>> {
-    CostGame::new(game.inner.clone())
-        .nucleolus()
-        .map_err(to_py_err)
+#[pyo3(signature = (game, domain = "imputation", tolerance = None, rel_tolerance = None))]
+fn cost_nucleolus<'py>(
+    py: Python<'py>,
+    game: &Game,
+    domain: &str,
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<f64>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let mut options = Options::new(parse_domain(domain)?);
+    options.tolerance = parse_tolerance(tolerance, rel_tolerance)?.unwrap_or(Tolerance::Auto);
+    let result = CostGame::new(game.inner.clone())
+        .nucleolus_with(options)
+        .map_err(to_py_err)?;
+    nucleolus_dict(py, result, options.domain)
 }
 
 /// 空港ゲーム (提携の費用 = 提携内の最大の費用) の費用分担。`shapley` は Littlechild & Owen (1973) の式、
@@ -781,7 +795,9 @@ fn airport<'py>(py: Python<'py>, costs: Vec<f64>) -> PyResult<Bound<'py, PyDict>
 }
 
 /// 最小全域木ゲーム (Bird 1976)。`costs` は供給元を頂点 0 とする `(n + 1) x (n + 1)` の対称な費用行列。
-/// `bird` は Bird 規則 (コアに属する)、`nucleolus` は全提携の表の逐次 LP による仁 (30 人まで)。
+/// `bird` は Bird 規則 (コアに属する)、`nucleolus` は全提携の表の逐次 LP による仁 (30 人まで) で、
+/// `cost_nucleolus` と同じ形の辞書 (`allocation` が費用の分担。保証の規則は `nucleolus` の既定と同じで、21 人以上は
+/// `"approximate"`)。
 #[pyfunction]
 #[pyo3(signature = (costs, nucleolus = true))]
 fn spanning_tree<'py>(
@@ -797,7 +813,8 @@ fn spanning_tree<'py>(
         game.cost(&PlayerSet::grand(SetFunction::players(&game))),
     )?;
     if nucleolus {
-        dict.set_item("nucleolus", game.nucleolus_costs().map_err(to_py_err)?)?;
+        let result = game.nucleolus_costs().map_err(to_py_err)?;
+        dict.set_item("nucleolus", nucleolus_dict(py, result, Domain::Imputation)?)?;
     }
     Ok(dict)
 }

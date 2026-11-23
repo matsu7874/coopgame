@@ -57,7 +57,12 @@ fn airport_game_matches_explicit_cost_game() {
             &label,
         );
         let nucleolus = airport.nucleolus_costs().unwrap();
-        assert_close(&nucleolus, &explicit.nucleolus().unwrap(), 1e-6, &label);
+        assert_close(
+            &nucleolus,
+            explicit.nucleolus().unwrap().allocation(),
+            1e-6,
+            &label,
+        );
         assert!(
             in_cost_core(n, |s| airport.cost(s), &nucleolus, 1e-6),
             "{label}"
@@ -104,7 +109,7 @@ fn bird_rule_and_nucleolus_lie_in_core() {
         );
         let nucleolus = game.nucleolus_costs().unwrap();
         assert!(
-            in_cost_core(n, |s| game.cost(s), &nucleolus, 1e-6),
+            in_cost_core(n, |s| game.cost(s), nucleolus.allocation(), 1e-6),
             "case {case} 仁"
         );
     }

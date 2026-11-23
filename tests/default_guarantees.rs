@@ -1,4 +1,4 @@
-//! 許容誤差を指定しない既定の経路 (提携構造つきの仁・オラクル版の仁・仁の変種) の保証を確かめる。
+//! 許容誤差を指定しない既定の経路 (提携構造つきの仁・オラクル版の仁・仁の変種・費用分担の仁) の保証を確かめる。
 //!
 //! 規則は既定の仁 (`nucleolus::nucleolus`、`Tolerance::Auto`) と同じ:
 //!
@@ -13,6 +13,8 @@ mod common;
 use common::max_abs_difference;
 use coopgame::auto::AutoNucleolus;
 use coopgame::game::exact::ExactGame;
+use coopgame::games::cost::CostGame;
+use coopgame::games::spanning_tree::SpanningTreeGame;
 use coopgame::games::voting::WeightedVotingGame;
 use coopgame::nucleolus::{self, Options, Tolerance, exact, oracle, variants};
 use coopgame::num_traits::ToPrimitive;
@@ -286,4 +288,63 @@ fn variants_auto_matches_default_and_single_point_is_exact() {
     assert_eq!(result.lp_solves(), 0);
     assert_eq!(result.guarantee(), Guarantee::Exact);
     assert_eq!(result.allocation(), [1.0, 2.0, 3.0]);
+}
+
+/// 費用分担の仁は保証つきの結果を返す。配分は費用の分担で、保証・許容誤差・段は節約ゲームの既定の仁と同じ
+/// (費用ゲームの超過 `y(S) - c(S)` は節約ゲームの超過 `s(S) - x(S)` に等しい)。
+#[test]
+fn cost_nucleolus_keeps_the_guarantee() {
+    let costs = ExplicitGame::from_lex(&[6.0, 6.0, 8.0, 9.0, 11.0, 12.0, 15.0]).unwrap();
+    let game = CostGame::new(costs);
+    let result = game.nucleolus().unwrap();
+    let savings = nucleolus::nucleolus(&game.savings_game().unwrap()).unwrap();
+    assert_eq!(result.guarantee(), savings.guarantee());
+    assert_eq!(result.tolerance(), savings.tolerance());
+    assert_eq!(result.levels(), savings.levels());
+    assert_eq!(result.allocation(), game.to_costs(savings.allocation()));
+    assert_eq!(result.guarantee(), Guarantee::Exact);
+
+    let mut options = Options::new(Domain::Imputation);
+    options.tolerance = Tolerance::Absolute(1e-6);
+    let fixed = game.nucleolus_with(options).unwrap();
+    assert_eq!(fixed.tolerance(), 1e-6);
+    assert_eq!(fixed.guarantee(), Guarantee::Exact);
+}
+
+/// 最小全域木ゲームの仁も保証つき。21 人では確かめないので `approximate`。
+#[test]
+fn spanning_tree_nucleolus_keeps_the_guarantee() {
+    let tree = SpanningTreeGame::new(vec![
+        vec![0.0, 10.0, 10.0, 10.0],
+        vec![10.0, 0.0, 3.0, 8.0],
+        vec![10.0, 3.0, 0.0, 4.0],
+        vec![10.0, 8.0, 4.0, 0.0],
+    ])
+    .unwrap();
+    let result = tree.nucleolus_costs().unwrap();
+    assert_eq!(result.guarantee(), Guarantee::Exact);
+    let total: f64 = result.allocation().iter().sum();
+    assert!((total - 17.0).abs() < 1e-9, "{result:?}");
+
+    // 21 人: 供給元から 10、隣どうし 1 の費用 (頂点 1..=21 を直線に並べる)。
+    let n = nucleolus::MAX_AUTO_CHECK_PLAYERS + 1;
+    let costs: Vec<Vec<f64>> = (0..=n)
+        .map(|a| {
+            (0..=n)
+                .map(|b| match (a, b) {
+                    _ if a == b => 0.0,
+                    (0, _) | (_, 0) => 10.0,
+                    _ => (a as f64 - b as f64).abs(),
+                })
+                .collect()
+        })
+        .collect();
+    let large = SpanningTreeGame::new(costs).unwrap();
+    let mut options = Options::new(Domain::Imputation);
+    options.tolerance = Tolerance::Relative(1e-7);
+    let fixed = large.nucleolus_costs_with(options).unwrap();
+    assert_eq!(fixed.guarantee(), Guarantee::Exact);
+    let default = large.nucleolus_costs().unwrap();
+    assert_eq!(default.guarantee(), Guarantee::Approximate);
+    assert_eq!(default.allocation(), fixed.allocation());
 }

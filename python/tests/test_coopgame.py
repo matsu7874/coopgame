@@ -565,12 +565,18 @@ def test_explain_and_compare():
 def test_cost_games():
     costs = coopgame.Game([15, 20, 55, 35, 61, 65, 78], order="lex")
     shares = coopgame.cost_nucleolus(costs)
-    assert close(shares, [14, 18.5, 45.5], 1e-6)
+    assert close(shares["allocation"], [14, 18.5, 45.5], 1e-6)
+    assert shares["domain"] == "imputation" and shares["guarantee"] == "exact"
+    assert shares["tolerance"] > 0
+    fixed = coopgame.cost_nucleolus(costs, tolerance=1e-6)
+    assert fixed["tolerance"] == 1e-6 and fixed["guarantee"] == "exact"
     airport = coopgame.airport([1, 2, 3, 6])
     assert close(airport["shapley"], [0.25, 0.25 + 1 / 3, 0.25 + 1 / 3 + 0.5, 0.25 + 1 / 3 + 0.5 + 3])
     assert math.isclose(sum(airport["nucleolus"]), 6, abs_tol=1e-6)
     tree = coopgame.spanning_tree([[0, 10, 10, 10], [10, 0, 3, 8], [10, 3, 0, 4], [10, 8, 4, 0]])
     assert tree["bird"] == [10, 3, 4] and tree["total_cost"] == 17
+    assert math.isclose(sum(tree["nucleolus"]["allocation"]), 17, abs_tol=1e-9)
+    assert tree["nucleolus"]["guarantee"] == "exact" and tree["nucleolus"]["domain"] == "imputation"
     production = coopgame.linear_production([[1, 2], [3, 1]], [4, 5], [[2, 3], [4, 1], [0, 5]])
     assert math.isclose(sum(production["owen"]), production["value"], rel_tol=1e-9)
 

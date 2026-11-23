@@ -268,6 +268,16 @@ impl NucleolusResult {
         Ok(self)
     }
 
+    /// 配分だけを `convert` で置き換えた結果 (費用ゲームで、節約ゲームの配分を費用の分担に直すなど)。
+    /// 段・許容誤差・保証などはそのまま引き継ぐ。
+    pub(crate) fn map_allocation(
+        mut self,
+        convert: impl FnOnce(&[f64]) -> Vec<f64>,
+    ) -> NucleolusResult {
+        self.allocation = convert(&self.allocation);
+        self
+    }
+
     /// 手法によらない共通の結果にする (保証はこの結果のものを引き継ぐ)。
     pub(crate) fn into_solution(
         self,

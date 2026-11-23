@@ -70,15 +70,16 @@ fn spanning_tree() -> coopgame::Result<()> {
     let total = game.cost(&PlayerSet::grand(3));
     // Bird 規則: 最小全域木で、各人が自分から供給元側への辺の費用を払う。コアに属する。
     let bird = game.bird_rule();
-    // 仁は全提携の表で逐次 LP を解いて求める。
-    let nucleolus = game.nucleolus_costs()?;
+    // 仁は全提携の表で逐次 LP を解いて求める。結果は保証つきで、配分は費用の分担。
+    let result = game.nucleolus_costs()?;
+    let nucleolus = result.allocation();
     println!("  全員をつなぐ費用: {total:.4}");
     println!("  Bird 規則: {bird:.4?}");
-    println!("  仁:        {nucleolus:.4?}");
+    println!("  仁:        {nucleolus:.4?} (保証 {})", result.guarantee());
 
     assert!((total - 9.0).abs() < 1e-9);
     assert!(close(&bird, &[4.0, 2.0, 3.0], 1e-6));
-    assert!(close(&nucleolus, &[2.5, 1.5, 5.0], 1e-6));
+    assert!(close(nucleolus, &[2.5, 1.5, 5.0], 1e-6));
     Ok(())
 }
 
@@ -115,20 +116,25 @@ fn cost() -> coopgame::Result<()> {
     ])?);
     let standalone = game.standalone();
     // 仁は、節約ゲーム (単独の費用の合計 - 提携の費用) の仁を求めて費用に戻す。
-    let nucleolus = game.nucleolus()?;
+    // 結果は保証つきで、配分は費用の分担。
+    let result = game.nucleolus()?;
+    let nucleolus = result.allocation();
     let shapley = game.shapley();
     println!("  単独の費用: {standalone:.4?}");
-    println!("  仁:         {nucleolus:.4?}");
+    println!(
+        "  仁:         {nucleolus:.4?} (保証 {})",
+        result.guarantee()
+    );
     println!("  Shapley 値: {shapley:.4?}");
 
     assert!(close(
-        &nucleolus,
+        nucleolus,
         &[11.0 / 3.0, 14.0 / 3.0, 20.0 / 3.0],
         1e-6
     ));
     assert!(close(&shapley, &[4.0, 4.5, 6.5], 1e-6));
     // どちらも合計は全員の費用 15 で、各人は単独の費用より少なく払う。
-    for x in [&nucleolus, &shapley] {
+    for x in [nucleolus, &shapley] {
         assert!((sum(x) - 15.0).abs() < 1e-6);
         assert!(
             x.iter()
