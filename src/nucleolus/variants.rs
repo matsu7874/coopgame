@@ -1252,13 +1252,12 @@ mod tests {
         // v({i, j}) = 1、v(N) = 1.5 - eps。コアは eps = 0 で 1 点 (1/2, 1/2, 1/2)、eps > 0 で空になり、
         // 最小コアは eps 2/3 だけ緩めた 1 点 (1/2 - eps/3, ...) になる。
         // has_nonempty_core が真を返すゲームでは解を返し、偽を返すゲームでは InvalidArgument を返す。
-        // eps = f64::EPSILON (v(N) が 1.5 の 1 つ下の f64) は入力の丸めの大きさに収まるので空でないと判定され、
-        // 浮動小数点の最小コアの値がわずかに正でも LP が実行可能でなければならない。
+        // has_nonempty_core は値どおりに判定するので、eps = f64::EPSILON (v(N) が 1.5 の 1 つ下の f64) でもコアは空。
         let mut solved = 0;
         for eps in [0.0, f64::EPSILON, 1e-12, 1e-9, 5e-8, 1e-7, 1e-6, 1e-3] {
             let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.5 - eps]).unwrap();
             let nonempty = crate::nucleolus::has_nonempty_core(&game).unwrap();
-            assert_eq!(nonempty, eps <= f64::EPSILON, "eps {eps}");
+            assert_eq!(nonempty, eps == 0.0, "eps {eps}");
             let result = disruption_nucleolus(&game);
             if !nonempty {
                 assert!(
@@ -1273,7 +1272,7 @@ mod tests {
             assert_close(&x, &[0.5 - eps / 3.0; 3], 1e-7);
             solved += 1;
         }
-        assert_eq!(solved, 2);
+        assert_eq!(solved, 1);
     }
 
     #[test]
