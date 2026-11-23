@@ -20,6 +20,7 @@ pub struct SpanningTreeGame {
 }
 
 impl SpanningTreeGame {
+    /// 費用行列は非負の有限値で対称、対角成分 (頂点から自分への費用) は 0。
     pub fn new(costs: Vec<Vec<f64>>) -> Result<SpanningTreeGame> {
         let size = costs.len();
         if size < 2 || costs.iter().any(|row| row.len() != size) {
@@ -32,6 +33,11 @@ impl SpanningTreeGame {
                 if !(c.is_finite() && c >= 0.0) || (c - costs[v][u]).abs() > 1e-12 {
                     return Err(Error::InvalidArgument(format!(
                         "費用 ({u}, {v}) が非負の有限値でないか、対称でない"
+                    )));
+                }
+                if u == v && c != 0.0 {
+                    return Err(Error::InvalidArgument(format!(
+                        "費用行列の対角成分 ({u}, {u}) が 0 でない: {c}"
                     )));
                 }
             }

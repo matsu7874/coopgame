@@ -200,9 +200,14 @@ impl ExactGame {
         &self.values[coalition.index()]
     }
 
-    /// 長さ `2^n` (空提携を含む) の値。
+    /// 長さ `2^n` (空提携を含む) の値。[`ExactGame::from_binary`] に渡す形は [`ExactGame::binary_values`]。
     pub fn values(&self) -> &[Rational] {
         &self.values
+    }
+
+    /// 空提携を除くビット順の値 (長さ `2^n - 1`)。[`ExactGame::from_binary`] と往復できる。
+    pub fn binary_values(&self) -> &[Rational] {
+        &self.values[1..]
     }
 
     /// 各値を最も近い浮動小数点数にした明示ゲーム (LP などの浮動小数点の手法に渡す)。

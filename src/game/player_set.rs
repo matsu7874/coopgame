@@ -3,7 +3,7 @@
 use std::fmt;
 
 use crate::error::{Error, Result};
-use crate::game::coalition::write_members;
+use crate::game::coalition::{duplicate_member, write_members};
 use crate::game::{Coalition, ExplicitGame};
 
 /// 任意の人数のプレイヤーの集合。プレイヤー `i` は `words[i / 64]` のビット `i % 64` に対応する。
@@ -47,6 +47,24 @@ impl PlayerSet {
             set.insert(i);
         }
         set
+    }
+
+    /// [`PlayerSet::from_players`] の、番号が人数未満で重複がないかを確かめる版
+    /// ([`Coalition::try_from_players`] と同じ扱い)。
+    pub fn try_from_players(players: usize, members: &[usize]) -> Result<PlayerSet> {
+        let mut set = PlayerSet::empty(players);
+        for &i in members {
+            if i >= players {
+                return Err(Error::InvalidArgument(format!(
+                    "プレイヤー番号 {i} が人数 {players} 以上"
+                )));
+            }
+            if set.contains(i) {
+                return Err(duplicate_member(i));
+            }
+            set.insert(i);
+        }
+        Ok(set)
     }
 
     /// `players` 人のうちの、`coalition` と同じメンバーの集合。

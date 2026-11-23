@@ -4,7 +4,7 @@ use microlp::Variable;
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::allocation::{allocation_defect, lower_bounds};
+use crate::game::allocation::{lower_bounds, require_allocation};
 use crate::game::scale::{check_tolerance, normalized_tolerance};
 use crate::game::{Coalition, ExplicitGame, PlayerSet, default_tolerance};
 use crate::linalg::{Span, for_each_combination, solve_square};
@@ -57,20 +57,19 @@ impl KernelPiece {
 
     /// `x` がこの多面体に属するか (等式と不等式を `tolerance` の範囲で確かめる)。
     ///
-    /// 長さが違う `x` や、有限でない成分を含む `x` は属さない (`Ok(false)`)。
-    /// `tolerance` が有限で 0 以上でないときは [`Error::InvalidArgument`] を返す。
+    /// 長さが違う `x` や、有限でない成分を含む `x`、`tolerance` が有限で 0 以上でないときは
+    /// [`Error::InvalidArgument`] を返す。
     pub fn contains(&self, x: &[f64], tolerance: f64) -> Result<bool> {
         check_tolerance(tolerance)?;
+        require_allocation(self.point.len(), x)?;
         Ok(self.contains_within(x, tolerance))
     }
 
-    /// [`KernelPiece::contains`] の本体。`tolerance` は検証済みとする。
+    /// [`KernelPiece::contains`] の本体。`tolerance` と `x` は検証済みとする。
     fn contains_within(&self, x: &[f64], tolerance: f64) -> bool {
-        allocation_defect(self.point.len(), x).is_none()
-            && self
-                .equalities
-                .iter()
-                .all(|row| (row.lhs(x) - row.rhs).abs() <= tolerance)
+        self.equalities
+            .iter()
+            .all(|row| (row.lhs(x) - row.rhs).abs() <= tolerance)
             && self
                 .inequalities
                 .iter()
@@ -91,9 +90,19 @@ pub struct KernelSet {
 impl KernelSet {
     /// `x` がどれかの多面体に属するか ([`KernelPiece::contains`] と同じ基準)。
     ///
-    /// `tolerance` が有限で 0 以上でないときは [`Error::InvalidArgument`] を返す。
+    /// `tolerance` が有限で 0 以上でないとき、`x` に有限でない成分があるか長さが多面体の点と違うときは
+    /// [`Error::InvalidArgument`] を返す。
     pub fn contains(&self, x: &[f64], tolerance: f64) -> Result<bool> {
         check_tolerance(tolerance)?;
+        for piece in &self.pieces {
+            require_allocation(piece.point.len(), x)?;
+        }
+        if let Some(i) = x.iter().position(|v| !v.is_finite()) {
+            return Err(Error::InvalidArgument(format!(
+                "x_{i} = {} は有限でない",
+                x[i]
+            )));
+        }
         Ok(self
             .pieces
             .iter()
@@ -831,10 +840,21 @@ mod tests {
         assert!(set.contains(&point, 1e-9).unwrap());
         assert!(set.pieces[0].contains(&point, 1e-9).unwrap());
         assert!(!set.contains(&[1.0, 3.0, 0.0], 1e-9).unwrap());
-        // 長さの違う点・非有限の成分を含む点は、許容誤差が正しければ「含まない」。
-        assert!(!set.contains(&[2.0, 2.0], 1e-9).unwrap());
-        assert!(!set.contains(&[2.0, 2.0, 0.0, 0.0], 1e-9).unwrap());
-        assert!(!set.contains(&[f64::NAN, 2.0, 0.0], 1e-9).unwrap());
+        // 長さの違う点・非有限の成分を含む点は、「含まない」と答えずにエラーにする。
+        for x in [
+            &[2.0, 2.0][..],
+            &[2.0, 2.0, 0.0, 0.0],
+            &[f64::NAN, 2.0, 0.0],
+        ] {
+            assert!(matches!(
+                set.contains(x, 1e-9),
+                Err(Error::InvalidArgument(_))
+            ));
+            assert!(matches!(
+                set.pieces[0].contains(x, 1e-9),
+                Err(Error::InvalidArgument(_))
+            ));
+        }
         assert_eq!(set.merge_collinear_segments(1e-9).unwrap().pieces.len(), 1);
     }
 

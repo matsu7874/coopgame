@@ -41,6 +41,8 @@
 節約ゲームに直して解き、費用の分担に戻す。
 CLI で費用を扱えるのは `nucleolus` (`--exact` を含む)・`least-core`・`kernel`・`shapley`・`banzhaf`・`compare`。
 JSON・CSV の `type` が `cost` のファイルは `--cost` なしでも費用として読み、他のコマンドではエラーにする。
+`type` が `value` の JSON と見出しが `coalition,value` の CSV に `--cost` を付けるとエラーにする (`type` を省いた JSON には付けられる)。
+ライブラリでは `io::declared_kind_by_extension` で、種類を明示したか (`type` を省いたか) を確かめられる。
 
 ## 提携ごとの値の形式 (JSON・CSV)
 
@@ -61,6 +63,7 @@ JSON の `values` は、キーが提携 (番号をカンマでつなぐ。順序
 これ以外のトップレベルのキーは無視する (説明などを書き添えてよい)。
 ただし `"tpye"` や `"Players"` のように、`players`・`type`・`values` の書き間違いらしいキー (大文字小文字の違い、1 文字の違い、隣り合う 2 文字の入れ替え) はエラーにする。
 `kind` (Python の `parse_game`・`partial_nucleolus` が値の種類を返す名前) も、`type` の書き間違いとしてエラーにする。
+配列の要素も同じく、`coalition`・`value` 以外のキーは無視し、`"vlaue"` のような書き間違いらしいキーはエラーにする。
 同じオブジェクトの中で同じキーを 2 回書くと、後の値で上書きせずにエラーにする。
 
 ```json
