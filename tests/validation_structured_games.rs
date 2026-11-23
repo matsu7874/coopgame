@@ -62,6 +62,37 @@ fn weighted_voting_rejects_zero_quota() {
     assert_eq!(game.value(&PlayerSet::empty(2)), 0.0);
 }
 
+/// `WeightedVotingGame::new` と `generators::weighted_voting` は同じ入力を同じように検査する:
+/// 重みは非負 (u64 の重みは常に満たす)、基準は 0 より大きく重みの和以下 (和を超えると全提携の値が 0 になり、
+/// 全体提携も勝てないので投票ゲームにならない)、重みは 1 つ以上。
+#[test]
+fn weighted_voting_constructors_validate_the_same_way() {
+    use coopgame::generators;
+    let rejected_by_both: [(&[u64], u64); 3] = [(&[1, 2], 0), (&[1, 2], 4), (&[], 1)];
+    for (weights, quota) in rejected_by_both {
+        let err = WeightedVotingGame::new(weights.to_vec(), quota).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidArgument(_)),
+            "{weights:?} {quota}: {err:?}"
+        );
+        let floats: Vec<f64> = weights.iter().map(|&w| w as f64).collect();
+        let err = generators::weighted_voting(&floats, quota as f64).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidArgument(_)),
+            "{weights:?} {quota}: {err:?}"
+        );
+    }
+    // 浮動小数点数の入力でだけ書ける誤り: 負の基準と負の重み。
+    assert!(generators::weighted_voting(&[1.0, 2.0], -1.0).is_err());
+    assert!(generators::weighted_voting(&[3.0, -1.0], 1.0).is_err());
+    assert!(generators::weighted_voting(&[1.0, 2.0], 0.5).is_ok());
+    // 基準が重みの和に等しい (全員一致) のは正しい投票ゲーム。
+    assert!(WeightedVotingGame::new(vec![1, 2], 3).is_ok());
+    assert!(generators::weighted_voting(&[1.0, 2.0], 3.0).is_ok());
+    // 重みの和は u64 であふれても基準と比べられる。
+    assert!(WeightedVotingGame::new(vec![u64::MAX, u64::MAX], 1_000_000).is_ok());
+}
+
 #[test]
 fn bankruptcy_rules_accept_negative_zero() {
     // `-0.0` は 0 と同じ (JSON の `-0` や `0.0 * -1.0` で現れる)。

@@ -86,14 +86,38 @@ pub fn bnf(kind: u8, n: usize, seed: u64) -> Result<ExplicitGame> {
 /// 重み付き投票ゲーム: 重みの和が `quota` 以上なら 1、そうでなければ 0。
 ///
 /// 重みと基準は有限の値 (NaN は比較が常に偽になり、勝利提携のないゲームを黙って作るため拒否する)。
+/// 重みは 1 つ以上で非負、基準は 0 より大きく重みの和以下
+/// ([`crate::games::voting::WeightedVotingGame::new`] と同じ検査)。
+/// 基準が 0 以下だと空提携も勝利提携になり、重みの和を超えると全ての提携の値が 0 になる。
 pub fn weighted_voting(weights: &[f64], quota: f64) -> Result<ExplicitGame> {
     if !quota.is_finite() || !weights.iter().all(|w| w.is_finite()) {
         return Err(Error::InvalidArgument("重みと基準は有限の値".into()));
     }
-    ExplicitGame::from_fn(weights.len(), |coalition| {
+    if weights.is_empty() {
+        return Err(Error::InvalidArgument("重みが 1 つもない".into()));
+    }
+    if let Some(i) = weights.iter().position(|&w| w < 0.0) {
+        return Err(Error::InvalidArgument(format!(
+            "重み {} (プレイヤー {i}) が負",
+            weights[i]
+        )));
+    }
+    if quota <= 0.0 {
+        return Err(Error::InvalidArgument(format!(
+            "基準 {quota} は 0 より大きい値 (0 以下だと空提携が勝利提携になる)"
+        )));
+    }
+    let game = ExplicitGame::from_fn(weights.len(), |coalition| {
         let weight: f64 = coalition.members().map(|i| weights[i]).sum();
         if weight >= quota { 1.0 } else { 0.0 }
-    })
+    })?;
+    // 全体提携が勝てるか (基準が重みの和以下か) は、各提携と同じ和の計算で判定する。
+    if game.value(game.grand()) == 0.0 {
+        return Err(Error::InvalidArgument(format!(
+            "基準 {quota} が重みの和を超える (全体提携も勝てず、全ての提携の値が 0 になる)"
+        )));
+    }
+    Ok(game)
 }
 
 /// 破産ゲーム: `v(S) = max(0, E - sum_{j not in S} d_j)`。仁はタルムード則と一致する。
