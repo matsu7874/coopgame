@@ -150,6 +150,7 @@ coopgame airport --costs 1,2,3,6                            # 空港ゲームの
 
 ```console
 $ coopgame airport --costs 1,2,3,6
+nucleolus: method=convex-transfer guarantee=proven(convex)
 player	cost	shapley	nucleolus
 0	1	0.25	0.5
 1	2	0.5833333333333333	0.75

@@ -41,7 +41,8 @@
 ### 既定の経路ごとの保証
 
 許容誤差を指定しない既定の経路の保証は、どれも次の規則で決める。
-許容誤差を指定する入口を使えば、どの経路もその許容誤差で 1 回だけ解き、保証は `exact` になる (指定した許容誤差の範囲で成り立つ)。
+許容誤差を指定する入口を使えば、逐次 LP の経路はその許容誤差で 1 回だけ解き、保証は `exact` になる (指定した許容誤差の範囲で成り立つ)。
+空港ゲームの仁は凸ゲームの手法で求めるので、どちらの入口でも `proven(convex)` である。
 LP を解かずに決まる配分 (1 人ゲーム、配分集合が 1 点、全員が単独の提携構造) は、どの経路でも `exact` である。
 
 | 経路 | 既定 (許容誤差を指定しない) | 許容誤差を指定する入口 |
@@ -51,6 +52,7 @@ LP を解かずに決まる配分 (1 人ゲーム、配分集合が 1 点、全�
 | 提携構造つきの仁 (`partition::nucleolus`) | 全体 1 ブロックは仁そのものなので、仁の既定の手順で求める。2 ブロック以上は比 `1e-7` で 1 回だけ解き、確かめていないので `approximate` | `partition::nucleolus_with` |
 | 仁の変種 (`nucleolus::variants` の per capita 仁・比例仁・disruption nucleolus・modiclus) | 比 `1e-7` で 1 回だけ解き、確かめていないので `approximate` | `per_capita_nucleolus_with`・`proportional_nucleolus_with`・`disruption_nucleolus_with`・`modiclus_with` |
 | 費用分担の仁 (`games::cost::CostGame::nucleolus`、`games::spanning_tree::SpanningTreeGame::nucleolus_costs`) | 節約ゲームの仁の既定の手順と同じ (保証つきの結果を返し、配分が費用の分担) | `CostGame::nucleolus_with`・`SpanningTreeGame::nucleolus_costs_with` |
+| 空港ゲームの仁 (`games::airport::AirportGame::nucleolus_costs`) | 凸ゲームの手法で求め、節約ゲームが凸であることは型で分かっているので `proven(convex)` (保証つきの `Solution` を返し、配分が費用の分担) | `AirportGame::nucleolus_costs_with` (`ConvexOptions`) |
 | anti-nucleolus・anti-prenucleolus | 双対ゲームの仁・プレ仁の既定の手順と同じ | なし |
 
 提携構造つきの仁と、per capita 仁・比例仁・disruption nucleolus を確かめないのは、Kohlberg 基準に当たる特徴づけ (超過の段の提携族の平衡性による判定) が

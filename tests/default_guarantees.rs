@@ -348,3 +348,24 @@ fn spanning_tree_nucleolus_keeps_the_guarantee() {
     assert_eq!(default.guarantee(), Guarantee::Approximate);
     assert_eq!(default.allocation(), fixed.allocation());
 }
+
+/// 空港ゲームの仁も保証つきの結果を返す。節約ゲームが凸であることを使う凸ゲームの手法なので `proven(convex)`。
+/// 配分は費用の分担で、明示の費用ゲームの仁と一致する。
+#[test]
+fn airport_nucleolus_keeps_the_guarantee() {
+    use coopgame::Property;
+    use coopgame::games::airport::AirportGame;
+    use coopgame::nucleolus::convex::ConvexOptions;
+
+    let game = AirportGame::new(vec![3.0, 6.0, 12.0]).unwrap();
+    let result = game.nucleolus_costs().unwrap();
+    assert_eq!(result.guarantee(), Guarantee::Proven(Property::Convex));
+    assert_eq!(result.domain(), Domain::Imputation);
+    assert!(max_abs_difference(result.allocation(), &[1.5, 2.25, 8.25]) < 1e-9);
+
+    let mut options = ConvexOptions::default();
+    options.tolerance = Some(1e-12);
+    let fixed = game.nucleolus_costs_with(options).unwrap();
+    assert_eq!(fixed.guarantee(), Guarantee::Proven(Property::Convex));
+    assert!(max_abs_difference(fixed.allocation(), result.allocation()) < 1e-9);
+}

@@ -563,13 +563,15 @@ use coopgame::games::airport::AirportGame;
 fn main() -> coopgame::Result<()> {
     let game = AirportGame::new(vec![3.0, 6.0, 12.0])?;
     let shapley = game.shapley_costs();
-    let nucleolus = game.nucleolus_costs()?;
+    // 仁は保証つきの結果で、配分 (allocation) が費用の分担。
+    let result = game.nucleolus_costs()?;
+    let nucleolus = result.allocation();
     println!("{shapley:.4?}"); // [1.0000, 2.5000, 8.5000]
     println!("{nucleolus:.4?}"); // [1.5000, 2.2500, 8.2500]
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
     assert!(close(&shapley, &[1.0, 2.5, 8.5]));
-    assert!(close(&nucleolus, &[1.5, 2.25, 8.25]));
+    assert!(close(nucleolus, &[1.5, 2.25, 8.25]));
     Ok(())
 }
 ```
@@ -579,7 +581,7 @@ import coopgame
 
 costs = coopgame.airport([3, 6, 12])
 print([round(v, 4) for v in costs["shapley"]])  # => [1.0, 2.5, 8.5]
-print([round(v, 4) for v in costs["nucleolus"]])  # => [1.5, 2.25, 8.25]
+print([round(v, 4) for v in costs["nucleolus"]["allocation"]])  # => [1.5, 2.25, 8.25]
 ```
 
 Shapley 値は、区間 [0, 3] の費用 3 を 3 機で、[3, 6] の費用 3 を 2 機で、[6, 12] の費用 6 を 1 機で分けた額 (Littlechild–Owen の式) である。

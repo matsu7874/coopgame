@@ -784,13 +784,17 @@ fn cost_nucleolus<'py>(
 }
 
 /// 空港ゲーム (提携の費用 = 提携内の最大の費用) の費用分担。`shapley` は Littlechild & Owen (1973) の式、
-/// `nucleolus` は凸ゲームの手法 (節約ゲームが凸)。人数の上限はない。
+/// `nucleolus` は凸ゲームの手法 (節約ゲームが凸) による仁で、`auto_nucleolus` と同じ形の辞書
+/// (`allocation` が費用の分担、`guarantee` は `"proven(convex)"`、`method`) に `domain` を足したもの。人数の上限はない。
 #[pyfunction]
 fn airport<'py>(py: Python<'py>, costs: Vec<f64>) -> PyResult<Bound<'py, PyDict>> {
     let game = AirportGame::new(costs).map_err(to_py_err)?;
     let dict = PyDict::new(py);
     dict.set_item("shapley", game.shapley_costs())?;
-    dict.set_item("nucleolus", game.nucleolus_costs().map_err(to_py_err)?)?;
+    let solution = game.nucleolus_costs().map_err(to_py_err)?;
+    let nucleolus = solution_dict(py, &solution, None)?;
+    nucleolus.set_item("domain", domain_name(solution.domain()))?;
+    dict.set_item("nucleolus", nucleolus)?;
     Ok(dict)
 }
 

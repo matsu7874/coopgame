@@ -44,16 +44,20 @@ fn airport() -> coopgame::Result<()> {
     let total = game.cost(&PlayerSet::grand(3));
     // Shapley 値は Littlechild–Owen の式 (区間ごとの費用を、その区間を使う機で等分する)。
     let shapley = game.shapley_costs();
-    // 仁は、節約ゲームが凸であることを使う凸ゲームの手法で求める。
-    let nucleolus = game.nucleolus_costs()?;
+    // 仁は、節約ゲームが凸であることを使う凸ゲームの手法で求める。結果は保証つきで、配分は費用の分担。
+    let result = game.nucleolus_costs()?;
+    let nucleolus = result.allocation();
     println!("  全体の費用: {total:.4}");
     println!("  Shapley 値: {shapley:.4?}");
-    println!("  仁:         {nucleolus:.4?}");
+    println!(
+        "  仁:         {nucleolus:.4?} (保証 {})",
+        result.guarantee()
+    );
 
     assert!((total - 12.0).abs() < 1e-9);
     assert!(close(&shapley, &[1.0, 2.5, 8.5], 1e-6));
-    assert!(close(&nucleolus, &[1.5, 2.25, 8.25], 1e-6));
-    assert!((sum(&shapley) - total).abs() < 1e-9 && (sum(&nucleolus) - total).abs() < 1e-6);
+    assert!(close(nucleolus, &[1.5, 2.25, 8.25], 1e-6));
+    assert!((sum(&shapley) - total).abs() < 1e-9 && (sum(nucleolus) - total).abs() < 1e-6);
     Ok(())
 }
 

@@ -24,7 +24,7 @@ const USAGE: &str = "\
                       --cost: v.txt を費用として読み、費用の分担を出す (下の --cost)
                       --exact: 値を 10 進数・分数の値どおりの有理数として読み、有理数だけで解いて分数で出す (10 人まで)。
                                JSON・CSV の数も字面どおりに読む。--full とは併用できない
-  coopgame airport    --costs c1,c2,...   空港ゲームの費用分担 (Shapley 値と仁)
+  coopgame airport    --costs c1,c2,...   空港ゲームの費用分担 (Shapley 値と仁)。仁の手法と保証は標準エラーに出す
   coopgame plot       <v.txt> [--lex] [--no-kernel] > figure.svg
                       3-4 人の配分集合・コア・カーネル・仁・Shapley 値の図 (SVG)。頂点の表は標準エラーに出す
   coopgame structure  <v.txt> --blocks 0,1,2|3,4|5 [--lex] [--pre] [--tolerance T|auto | --rel-tolerance R]
@@ -522,9 +522,14 @@ fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
             let game = AirportGame::new(costs)?;
             let shapley = game.shapley_costs();
             let nucleolus = game.nucleolus_costs()?;
+            eprintln!(
+                "nucleolus: method={} guarantee={}",
+                nucleolus.method(),
+                nucleolus.guarantee()
+            );
             println!("player\tcost\tshapley\tnucleolus");
             for (i, c) in game.costs().iter().enumerate() {
-                println!("{i}\t{c}\t{}\t{}", shapley[i], nucleolus[i]);
+                println!("{i}\t{c}\t{}\t{}", shapley[i], nucleolus.allocation()[i]);
             }
         }
         "shapley" | "banzhaf" => {

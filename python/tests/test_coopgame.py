@@ -572,7 +572,9 @@ def test_cost_games():
     assert fixed["tolerance"] == 1e-6 and fixed["guarantee"] == "exact"
     airport = coopgame.airport([1, 2, 3, 6])
     assert close(airport["shapley"], [0.25, 0.25 + 1 / 3, 0.25 + 1 / 3 + 0.5, 0.25 + 1 / 3 + 0.5 + 3])
-    assert math.isclose(sum(airport["nucleolus"]), 6, abs_tol=1e-6)
+    assert math.isclose(sum(airport["nucleolus"]["allocation"]), 6, abs_tol=1e-6)
+    assert airport["nucleolus"]["guarantee"] == "proven(convex)"
+    assert airport["nucleolus"]["domain"] == "imputation" and airport["nucleolus"]["method"] == "convex-transfer"
     tree = coopgame.spanning_tree([[0, 10, 10, 10], [10, 0, 3, 8], [10, 3, 0, 4], [10, 8, 4, 0]])
     assert tree["bird"] == [10, 3, 4] and tree["total_cost"] == 17
     assert math.isclose(sum(tree["nucleolus"]["allocation"]), 17, abs_tol=1e-9)
