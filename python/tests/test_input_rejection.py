@@ -19,3 +19,19 @@ def test_duplicate_members_are_rejected():
     assert graph.value([1, 0]) == 1.0
     with pytest.raises(ValueError, match="重複"):
         coopgame.influence(GAME, coalitions=[[0, 0]])
+
+
+# ---------------------------------------------------------------- 配分の長さと有限でない値
+
+
+@pytest.mark.parametrize("x", [[3, 2], [3, 2, 1, 0], [float("nan"), 2, 1], [3, float("inf"), 1]])
+def test_allocation_checks_reject_wrong_length_and_non_finite_values(x):
+    expected = "長さ|有限でない"
+    with pytest.raises(ValueError, match=expected):
+        coopgame.is_in_kernel(GAME, x)
+    with pytest.raises(ValueError, match=expected):
+        coopgame.kernel_violation(GAME, x)
+    with pytest.raises(ValueError, match=expected):
+        coopgame.verify(GAME, x)
+    with pytest.raises(ValueError, match=expected):
+        coopgame.verify_solution(GAME, x)

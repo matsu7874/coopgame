@@ -507,18 +507,14 @@ fn kernel_point<'py>(
 }
 
 /// 最大余剰の不釣り合い `max 2 delta_ij`。カーネルに属すれば 0。
+/// `x` の長さがプレイヤー数と異なるか、nan・inf を含めば ValueError。
 #[pyfunction]
 #[pyo3(signature = (game, x, domain = "imputation"))]
 fn kernel_violation(game: &Game, x: Vec<f64>, domain: &str) -> PyResult<f64> {
-    check_length(game, &x)?;
-    Ok(kernel::kernel_violation(
-        &game.inner,
-        &x,
-        parse_domain(domain)?,
-    ))
+    kernel::kernel_violation(&game.inner, &x, parse_domain(domain)?).map_err(to_py_err)
 }
 
-/// `x` がカーネル (プレカーネル) に属するか。
+/// `x` がカーネル (プレカーネル) に属するか。`x` の長さがプレイヤー数と異なるか、nan・inf を含めば ValueError。
 #[pyfunction]
 #[pyo3(signature = (game, x, domain = "imputation", tolerance = None))]
 fn is_in_kernel(game: &Game, x: Vec<f64>, domain: &str, tolerance: Option<f64>) -> PyResult<bool> {

@@ -30,7 +30,7 @@ pub(crate) use proof::Sealed;
 pub use proof::{Assume, Assumed, ConvexChecked, ConvexGame, Convexity, ProofKind, Proven};
 
 use crate::error::Result;
-use crate::game::allocation::allocation_defect;
+use crate::game::allocation::require_allocation;
 use crate::game::scale::check_tolerance;
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 
@@ -94,15 +94,14 @@ pub fn is_zero_monotonic(game: &ExplicitGame) -> bool {
 
 /// `x` がコアに属するか (効率性と、全ての提携の超過が 0 以下であることを `tolerance` の範囲で確かめる)。
 ///
-/// 長さがプレイヤー数と異なる `x` や、有限でない成分 (NaN など) を含む `x` は属さない (`Ok(false)`)。
+/// # Errors
 ///
-/// `tolerance` が有限で 0 以上でないときは [`crate::Error::InvalidArgument`] を返す。
+/// `x` の長さがプレイヤー数と異なるか、有限でない成分 (NaN など) を含むときは [`crate::Error::InvalidArgument`]。
+/// `tolerance` が有限で 0 以上でないときも [`crate::Error::InvalidArgument`] を返す。
 /// 無限大ではどの配分も属することになり、負の値ではコアの点も属さないことになるためである。
 pub fn is_in_core(game: &ExplicitGame, x: &[f64], tolerance: f64) -> Result<bool> {
     check_tolerance(tolerance)?;
-    if allocation_defect(game.players(), x).is_some() {
-        return Ok(false);
-    }
+    require_allocation(game.players(), x)?;
     let total: f64 = x.iter().sum();
     if (total - game.value(game.grand())).abs() > tolerance {
         return Ok(false);
@@ -133,8 +132,8 @@ mod tests {
         assert!(is_in_core(&game, &[2.0, 2.0, 0.0], 0.0).unwrap());
         assert!(!is_in_core(&game, &[0.0, 2.0, 2.0], 1e-9).unwrap());
         // 不正な配分は、許容誤差が正しければ「属さない」。
-        assert!(!is_in_core(&game, &[f64::NAN, 2.0, 0.0], 1e-9).unwrap());
-        assert!(!is_in_core(&game, &[2.0, 2.0], 1e-9).unwrap());
+        assert!(is_in_core(&game, &[f64::NAN, 2.0, 0.0], 1e-9).is_err());
+        assert!(is_in_core(&game, &[2.0, 2.0], 1e-9).is_err());
     }
 
     #[test]

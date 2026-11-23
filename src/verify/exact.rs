@@ -122,7 +122,7 @@ pub fn certify_exact(exact: &ExactGame, x: &[f64], domain: Domain) -> Result<Exa
         if rejected.contains(&allocation) {
             continue;
         }
-        let report = kohlberg_exact(exact, &allocation, domain);
+        let report = kohlberg_exact(exact, &allocation, domain)?;
         if report.satisfied {
             // 仁は一意なので、別の読み取りで判定に合格する配分もこれと同じになり、合否はここで決まる。
             let (within, distance) = compare_distance(&report.allocation, x, tolerance)?;
@@ -286,16 +286,23 @@ fn solve(sorted: &SortedExcess, exact: &ExactGame, reading: &Reading) -> Option<
 
 /// 有理数の配分 `x` が仁 (プレ仁) であるかを Kohlberg 基準で厳密に判定する。
 ///
-/// `x` の長さがプレイヤー数と異なれば、不成立 (`satisfied = false`) とその理由を返す。
-pub fn kohlberg_exact(game: &ExactGame, x: &[Rational], domain: Domain) -> ExactReport {
+/// # Errors
+///
+/// `x` の長さがプレイヤー数と異なれば [`Error::InvalidArgument`] (浮動小数点数の [`crate::verify::kohlberg`] と同じ)。
+pub fn kohlberg_exact(game: &ExactGame, x: &[Rational], domain: Domain) -> Result<ExactReport> {
     let n = game.players();
     if x.len() != n {
-        return ExactReport::fail(
-            x.to_vec(),
-            format!("配分の長さ {} がプレイヤー数 {n} と異なる", x.len()),
-            0,
-        );
+        return Err(Error::InvalidArgument(format!(
+            "配分の長さ {} がプレイヤー数 {n} と異なる",
+            x.len()
+        )));
     }
+    Ok(kohlberg_exact_of_length_n(game, x, domain))
+}
+
+/// [`kohlberg_exact`] の判定 (`x` の長さはプレイヤー数と等しい)。
+fn kohlberg_exact_of_length_n(game: &ExactGame, x: &[Rational], domain: Domain) -> ExactReport {
+    let n = game.players();
     let grand = Coalition::grand(n);
     let total = x.iter().fold(Rational::zero(), |acc, v| acc + v);
     if &total != game.value(grand) {
@@ -546,8 +553,13 @@ mod tests {
     fn rejects_non_nucleolus_exactly() {
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
         let exact = ExactGame::from_explicit(&game).unwrap();
-        assert!(kohlberg_exact(&exact, &[r(2, 1), r(2, 1), r(0, 1)], Domain::Imputation).satisfied);
-        let report = kohlberg_exact(&exact, &[r(1, 1), r(3, 1), r(0, 1)], Domain::Imputation);
+        assert!(
+            kohlberg_exact(&exact, &[r(2, 1), r(2, 1), r(0, 1)], Domain::Imputation)
+                .unwrap()
+                .satisfied
+        );
+        let report =
+            kohlberg_exact(&exact, &[r(1, 1), r(3, 1), r(0, 1)], Domain::Imputation).unwrap();
         assert!(!report.satisfied);
         // 1/10^12 ずらしただけでも厳密には不合格になる。
         let tiny = r(1, 1_000_000_000_000);
@@ -555,7 +567,8 @@ mod tests {
             &exact,
             &[r(2, 1) + &tiny, r(2, 1) - &tiny, r(0, 1)],
             Domain::Imputation,
-        );
+        )
+        .unwrap();
         assert!(!report.satisfied);
     }
 
