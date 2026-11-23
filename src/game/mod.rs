@@ -9,6 +9,7 @@
 pub(crate) mod allocation;
 pub(crate) mod coalition;
 pub mod exact;
+pub(crate) mod exact_sum;
 pub mod oracle;
 mod player_set;
 pub(crate) mod scale;

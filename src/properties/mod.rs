@@ -29,14 +29,34 @@ mod proof;
 pub(crate) use proof::Sealed;
 pub use proof::{Assume, Assumed, ConvexChecked, ConvexGame, Convexity, ProofKind, Proven};
 
-use crate::error::Result;
-use crate::game::allocation::allocation_defect;
-use crate::game::scale::check_tolerance;
-use crate::game::{Coalition, ExplicitGame, default_tolerance};
+use std::cmp::Ordering;
 
-/// 互いに素な `S, T` について `v(S ∪ T) >= v(S) + v(T)`。計算量は `3^n`。
+use crate::error::Result;
+use crate::game::allocation::{ExactExcess, allocation_defect, efficient_within};
+use crate::game::exact_sum::sum_sign;
+use crate::game::scale::check_tolerance;
+use crate::game::{Coalition, ExplicitGame};
+
+/// 互いに素な `S, T` について `v(S ∪ T) >= v(S) + v(T)` (優加法的) か。計算量は `3^n`。
+///
+/// 値を f64 の 2 進数の値どおりの有理数として読み、丸めなしに判定する (許容誤差を使わない)。
+/// 10 進数の値を浮動小数点数の和で作ったゲームなどで、丸めの分だけ破れる場合も `false` になる。
+/// 破れの大きさを許容するときは [`is_superadditive_within`] で許容誤差を明示する。
 pub fn is_superadditive(game: &ExplicitGame) -> bool {
-    let tolerance = default_tolerance(game);
+    superadditive_within(game, 0.0)
+}
+
+/// `v(S ∪ T) >= v(S) + v(T) - tolerance` が互いに素な全ての `S, T` で成り立つか
+/// (許容誤差 `tolerance` の範囲で優加法的か)。比較は値どおりの有理数で行う。
+///
+/// `tolerance` が有限で 0 以上でないときは [`crate::Error::InvalidArgument`]。
+/// `true` でも優加法的とは限らない (厳密な判定は [`is_superadditive`])。
+pub fn is_superadditive_within(game: &ExplicitGame, tolerance: f64) -> Result<bool> {
+    check_tolerance(tolerance)?;
+    Ok(superadditive_within(game, tolerance))
+}
+
+fn superadditive_within(game: &ExplicitGame, tolerance: f64) -> bool {
     let full = game.grand().0;
     (1..=full).all(|union| {
         // union の空でない真部分集合 s を列挙し、s と union \ s を比べる。
@@ -44,8 +64,12 @@ pub fn is_superadditive(game: &ExplicitGame) -> bool {
         while s > 0 {
             let t = union & !s;
             if s < t
-                && game.value(Coalition(union))
-                    < game.value(Coalition(s)) + game.value(Coalition(t)) - tolerance
+                && sum_sign(&[
+                    game.value(Coalition(union)),
+                    -game.value(Coalition(s)),
+                    -game.value(Coalition(t)),
+                    tolerance,
+                ]) == Ordering::Less
             {
                 return false;
             }
@@ -55,10 +79,29 @@ pub fn is_superadditive(game: &ExplicitGame) -> bool {
     })
 }
 
-/// `v(S ∪ T) + v(S ∩ T) >= v(S) + v(T)`(優モジュラ)。
+/// `v(S ∪ T) + v(S ∩ T) >= v(S) + v(T)` (優モジュラ、凸) か。
 /// 「i の限界貢献が提携の拡大で減らない」という同値条件で `n^2 2^n` で判定する。
+///
+/// 値を f64 の 2 進数の値どおりの有理数として読み、丸めなしに判定する (許容誤差を使わない)。
+/// [`ConvexChecked::new`] はこの判定に合格したゲームだけを受け付ける。
+/// 破れの大きさを許容するときは [`is_convex_within`] で許容誤差を明示する。
 pub fn is_convex(game: &ExplicitGame) -> bool {
-    let tolerance = default_tolerance(game);
+    convex_within(game, 0.0)
+}
+
+/// 全ての `S` と `i, j not in S` (`i != j`) で
+/// `v(S ∪ {i, j}) - v(S ∪ {j}) >= v(S ∪ {i}) - v(S) - tolerance` が成り立つか
+/// (許容誤差 `tolerance` の範囲で凸か)。比較は値どおりの有理数で行う。
+///
+/// `tolerance` が有限で 0 以上でないときは [`crate::Error::InvalidArgument`]。
+/// `true` でも凸とは限らないので、凸ゲームの手法の保証 ([`ConvexChecked`]) には使わない
+/// (厳密な判定は [`is_convex`])。
+pub fn is_convex_within(game: &ExplicitGame, tolerance: f64) -> Result<bool> {
+    check_tolerance(tolerance)?;
+    Ok(convex_within(game, tolerance))
+}
+
+fn convex_within(game: &ExplicitGame, tolerance: f64) -> bool {
     let n = game.players();
     let full = game.grand().0;
     (0..=full).all(|s| {
@@ -69,30 +112,60 @@ pub fn is_convex(game: &ExplicitGame) -> bool {
                     return true;
                 }
                 // i の限界貢献: S に j を加えても減らない。
-                let without = game.value(Coalition(s | bi)) - game.value(Coalition(s));
-                let with = game.value(Coalition(s | bi | bj)) - game.value(Coalition(s | bj));
-                with >= without - tolerance
+                sum_sign(&[
+                    game.value(Coalition(s | bi | bj)),
+                    -game.value(Coalition(s | bj)),
+                    -game.value(Coalition(s | bi)),
+                    game.value(Coalition(s)),
+                    tolerance,
+                ]) != Ordering::Less
             })
         })
     })
 }
 
-/// `v(S ∪ {i}) >= v(S) + v({i})`(`i` が `S` に加わって損をしない)。
+/// `v(S ∪ {i}) >= v(S) + v({i})` (`i` が `S` に加わって損をしない、0-単調) か。
+///
+/// 値を f64 の 2 進数の値どおりの有理数として読み、丸めなしに判定する (許容誤差を使わない)。
+/// 破れの大きさを許容するときは [`is_zero_monotonic_within`] で許容誤差を明示する。
 pub fn is_zero_monotonic(game: &ExplicitGame) -> bool {
-    let tolerance = default_tolerance(game);
+    zero_monotonic_within(game, 0.0)
+}
+
+/// `v(S ∪ {i}) >= v(S) + v({i}) - tolerance` が成り立つか (許容誤差 `tolerance` の範囲で 0-単調か)。
+/// 比較は値どおりの有理数で行う。
+///
+/// `tolerance` が有限で 0 以上でないときは [`crate::Error::InvalidArgument`]。
+/// `true` でも 0-単調とは限らない (厳密な判定は [`is_zero_monotonic`])。
+pub fn is_zero_monotonic_within(game: &ExplicitGame, tolerance: f64) -> Result<bool> {
+    check_tolerance(tolerance)?;
+    Ok(zero_monotonic_within(game, tolerance))
+}
+
+fn zero_monotonic_within(game: &ExplicitGame, tolerance: f64) -> bool {
     let n = game.players();
     let full = game.grand().0;
     (1..=full).all(|s| {
         (0..n).all(|i| {
             let bit = 1u64 << i;
             s & bit != 0
-                || game.value(Coalition(s | bit))
-                    >= game.value(Coalition(s)) + game.value(Coalition(bit)) - tolerance
+                || sum_sign(&[
+                    game.value(Coalition(s | bit)),
+                    -game.value(Coalition(s)),
+                    -game.value(Coalition(bit)),
+                    tolerance,
+                ]) != Ordering::Less
         })
     })
 }
 
-/// `x` がコアに属するか (効率性と、全ての提携の超過が 0 以下であることを `tolerance` の範囲で確かめる)。
+/// `x` がコアに属するか: 効率性 `|x(N) - v(N)| <= tolerance` と、全ての提携の超過
+/// `v(S) - x(S) <= tolerance` を確かめる。
+///
+/// 比較は、ゲームの値と `x` と `tolerance` を f64 の 2 進数の値どおりの有理数として読んで行う
+/// (浮動小数点数の和の丸めで結論が変わらない)。`tolerance = 0.0` で、`x` がちょうどコアに属するかの判定になる。
+/// 浮動小数点数で表した配分 (`1/3` を丸めた値など) は、和が `v(N)` にちょうど一致しないことが多いので、
+/// そうした配分を「コアの点を丸めたもの」として扱うときは、その丸めの分の `tolerance` を明示する。
 ///
 /// 長さがプレイヤー数と異なる `x` や、有限でない成分 (NaN など) を含む `x` は属さない (`Ok(false)`)。
 ///
@@ -103,13 +176,11 @@ pub fn is_in_core(game: &ExplicitGame, x: &[f64], tolerance: f64) -> Result<bool
     if allocation_defect(game.players(), x).is_some() {
         return Ok(false);
     }
-    let total: f64 = x.iter().sum();
-    if (total - game.value(game.grand())).abs() > tolerance {
+    if !efficient_within(game.value(game.grand()), x, tolerance) {
         return Ok(false);
     }
-    Ok(crate::game::excess_table(game, x)
-        .iter()
-        .all(|e| *e <= tolerance))
+    let excess = ExactExcess::new(game, x, tolerance);
+    Ok((1..game.grand().0).all(|mask| !excess.exceeds(Coalition(mask))))
 }
 
 #[cfg(test)]
@@ -153,6 +224,65 @@ mod tests {
         let broken = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 4.0]).unwrap();
         assert!(!is_superadditive(&broken));
         assert!(!is_zero_monotonic(&broken));
+    }
+
+    #[test]
+    fn properties_are_decided_on_exact_values() {
+        // v(N) = 1e8 - 6 < v({0, 1}) + v({2}) = 1e8。破れは 6 で、以前の許容誤差 (1e-7 max|v| = 10) より小さい。
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1e8, 0.0, 0.0, 1e8 - 6.0]).unwrap();
+        assert!(!is_convex(&game));
+        assert!(!is_superadditive(&game));
+        assert!(!is_zero_monotonic(&game));
+        assert!(ConvexChecked::new(game.clone()).is_err());
+        // 許容誤差を明示すれば、破れの大きさまで許す。
+        assert!(is_convex_within(&game, 6.0).unwrap());
+        assert!(!is_convex_within(&game, 5.0).unwrap());
+        assert!(is_superadditive_within(&game, 6.0).unwrap());
+        assert!(!is_superadditive_within(&game, 5.0).unwrap());
+        assert!(is_zero_monotonic_within(&game, 6.0).unwrap());
+        assert!(!is_zero_monotonic_within(&game, 5.0).unwrap());
+        // v(N) - v({0, 1}) = 1 - 1e-8 < v({0, 2}) - v({0}) = 1。
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0 - 1e-8]).unwrap();
+        assert!(!is_convex(&game));
+        assert!(is_superadditive(&game));
+        // 10 進数では加法的だが、2 進数の値どおりでは 0.1 + 0.2 > 0.3 なので優加法的でない。
+        let decimal = ExplicitGame::from_binary(&[0.1, 0.2, 0.3]).unwrap();
+        assert!(!is_superadditive(&decimal));
+        assert!(is_superadditive(
+            &ExplicitGame::from_binary(&[0.1, 0.2, 0.1 + 0.2]).unwrap()
+        ));
+        for tolerance in [f64::NAN, -1.0, f64::INFINITY] {
+            assert!(is_convex_within(&game, tolerance).is_err());
+            assert!(is_superadditive_within(&game, tolerance).is_err());
+            assert!(is_zero_monotonic_within(&game, tolerance).is_err());
+        }
+    }
+
+    #[test]
+    fn core_membership_is_decided_on_exact_values() {
+        // 値の小さいゲーム: v({1, 2}) = 6e-12 > x({1, 2}) = 0 なのでコアに属さない
+        // (絶対値の許容誤差 1e-9 では属すると判定していた)。
+        let small =
+            ExplicitGame::from_binary(&[0.0, 0.0, 6e-12, 0.0, 6e-12, 6e-12, 9e-12]).unwrap();
+        assert!(!is_in_core(&small, &[9e-12, 0.0, 0.0], 0.0).unwrap());
+        assert!(is_in_core(&small, &[9e-12, 0.0, 0.0], 6e-12).unwrap());
+        // 同じ形で値が 2 進数で正確に表せるゲーム (単位 2^-40) では、均等な配分がちょうどコアに属する。
+        let unit = 2f64.powi(-40);
+        let exact: Vec<f64> = [0.0, 0.0, 6.0, 0.0, 6.0, 6.0, 9.0]
+            .iter()
+            .map(|v| v * unit)
+            .collect();
+        let exact = ExplicitGame::from_binary(&exact).unwrap();
+        assert!(is_in_core(&exact, &[3.0 * unit; 3], 0.0).unwrap());
+        assert!(!is_in_core(&exact, &[9.0 * unit, 0.0, 0.0], 0.0).unwrap());
+        // 和の丸め: 0.1 + 0.2 は 2 進数の値どおりでは 0.3 と異なる。
+        let decimal = ExplicitGame::from_binary(&[0.0, 0.0, 0.3]).unwrap();
+        assert!(!is_in_core(&decimal, &[0.1, 0.2], 0.0).unwrap());
+        assert!(is_in_core(&decimal, &[0.1, 0.2], 1e-15).unwrap());
+        // 超過がちょうど許容誤差に等しい提携は属する側。
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
+        assert!(is_in_core(&game, &[1.5, 2.0, 0.5], 0.5).unwrap());
+        assert!(!is_in_core(&game, &[1.5, 2.0, 0.5], 0.25).unwrap());
     }
 
     #[test]
