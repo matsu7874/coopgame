@@ -69,19 +69,21 @@ coopgame nucleolus v.txt > sol.txt          # 仁 (オプションは下の表)
 coopgame least-core v.txt                   # 最小コア
 coopgame kernel v.txt                       # カーネルの 1 点 (--pre でプレカーネル)
 coopgame kernel-set v.txt                   # カーネル全体を多面体ごとの頂点で出す (--merge で線分をまとめる)
-coopgame shapley v.txt                      # Shapley 値 (--samples N でサンプリング推定)
+coopgame shapley v.txt                      # Shapley 値 (--samples N でサンプリング推定。--seed S は --samples と併用する)
 coopgame banzhaf v.txt --normalize          # 正規化 Banzhaf 指数
 coopgame disruption v.txt                   # disruption nucleolus (コアが空でないゲーム)
 coopgame anti-nucleolus v.txt               # anti-nucleolus (--pre で anti-prenucleolus)
 coopgame solidarity v.txt                   # solidarity 値
 coopgame tau v.txt                          # tau 値 (準平衡でなければエラー)
 coopgame gately v.txt                       # Gately 点
-coopgame myerson v.txt --edges 0-1,1-2      # 通信グラフ (プレイヤーの番号の組) のもとでの Myerson 値
+coopgame myerson v.txt --edges 0-1,1-2      # 通信グラフ (プレイヤーの番号の組) のもとでの Myerson 値 (辺のないグラフは --edges "")
 coopgame power v.txt                        # 単純ゲームの投票力指数の表 (Shapley–Shubik・Banzhaf・Johnston・Deegan–Packel・Public Good・Coleman)
 coopgame per-capita v.txt                   # per capita 仁 (proportional で比例仁、modiclus で modiclus)
 coopgame structure v.txt --blocks "0,1|2"   # 提携構造の Aumann–Drèze 値・提携構造つきの仁・Owen 値
 coopgame convex-nucleolus v.txt             # 凸ゲームの手法で仁 (凸でなければエラー。--assume で凸と仮定して試し、事後検証する)
 ```
+
+`power` は、定義されない指数 (勝利提携がないゲームの Johnston 指数など) の列を空欄にし、理由を標準エラーに出す (Python の `power_indices` の `None` に当たる)。
 
 `nucleolus` の主なオプション:
 
@@ -122,12 +124,16 @@ time=0.000167s lp_solves=3 rows_added=0 solver=lp tolerance=6e-7 refinements=0 g
 
 `least-core`・`kernel`・`shapley`・`banzhaf`・`compare` も `--cost` で費用ゲームを扱う ([費用ゲーム](input-format.md#費用ゲーム))。
 他のコマンドに費用のゲーム (`type` が `cost`) を渡すとエラーにする。
+JSON の `type`・CSV の見出しで価値 (`value`) と明示したファイルに `--cost` を付けると、どちらの種類で読むかが食い違うのでエラーにする (`type` を省いた JSON と 1 行 1 値のファイルには付けられる)。
+価値として読んだゲームで配分集合が空になると (`sum v({i}) > v(N)`)、エラーに `--cost` の案内を添える (費用を価値として読んだときに起きやすいため)。
 費用のゲームで `--missing zero` を使うと、値が分からない提携の費用を 0 とみなす ([入力形式](input-format.md#値が分からない提携))。
 
 同じオプションを 2 回書くとエラーにする (どちらの値を使うかが曖昧になるため)。
 `--lex` は 1 行 1 値のファイル (`v.txt`) の並び順の指定なので、JSON・CSV の入力に付けるとエラーにする (どのコマンドでも同じ)。
 `--missing` は JSON・CSV で値が分からない提携の扱いの指定なので、1 行 1 値のファイルに付けるとエラーにする (既定と同じ `--missing error` も同じ。どのコマンドでも同じ)。
 コマンドが受け付けないオプションは、効果がないので未知のオプションとしてエラーにする。
+位置引数 (`v.txt`・`sol.txt`) の数はコマンドごとに決まっていて、余分な位置引数はエラーにする。
+`-` で始まる位置引数 (`-pre` など) は、オプションの書き間違いとして未知のオプションのエラーにする。
 ゲームのファイルを読まないコマンド (`talmud`・`airport`・`generate`・`bench`) に `--lex`・`--missing` を付けた場合も同じである。
 
 ## 特定のゲームを解く
@@ -149,7 +155,7 @@ player	cost	shapley	nucleolus
 ## 結果を検証する
 
 ```bash
-coopgame verify v.txt sol.txt               # Kohlberg 基準とカーネル条件
+coopgame verify v.txt sol.txt               # Kohlberg 基準とカーネル条件 (どちらも既定の許容誤差の 10 倍で判定)
 coopgame certify v.txt sol.txt              # 有理数による厳密な検証 (厳密な仁を分数で出す)
 coopgame certify v.txt sol.txt --rational   # v.txt の値を 10 進数・分数の値どおりの有理数として検証する
 coopgame check v.txt sol.txt                # 配分が仁かを検証し、結論 (certified・refuted・undecided) を出す
@@ -283,3 +289,5 @@ coopgame bench --types 1,2,3,4,5 --n 4..12 --seeds 3 > bench.csv
 `bench` は `type,n,seed,method,seconds,lp_solves,rows_added,iterations,verified,violation,error` の CSV を出す。
 `--methods` には `nucleolus`, `nucleolus-full`, `prenucleolus`, `prenucleolus-full`, `kernel`, `prekernel` を指定できる。
 仁の `verified` は Kohlberg 基準、カーネルの `verified` は収束したかどうか。
+`--types` は 1 から 5、`--n` は 2 以上、`--seeds` は 1 以上で、未知の手法とともにエラーにする。
+タイプと人数の組でゲームを作れない場合 (タイプ 5 の `n < 7` など) は、その組の各手法の行の `error` 列に理由を書く。

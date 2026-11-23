@@ -183,6 +183,8 @@ struct RawEntry {
 struct RawGame {
     players: Option<usize>,
     kind: Kind,
+    /// 値の種類を入力に書いたか (JSON の `type`、CSV の見出し)。
+    declared: bool,
     entries: Vec<RawEntry>,
 }
 
@@ -409,6 +411,7 @@ fn raw_json(text: &str) -> Result<RawGame> {
             )));
         }
     }
+    let declared = root.contains_key("type");
     let kind = match root.get("type") {
         None => Kind::Value,
         Some(raw) => {
@@ -486,6 +489,7 @@ fn raw_json(text: &str) -> Result<RawGame> {
     Ok(RawGame {
         players,
         kind,
+        declared,
         entries,
     })
 }
@@ -527,6 +531,7 @@ fn raw_csv(text: &str) -> Result<RawGame> {
     Ok(RawGame {
         players: None,
         kind,
+        declared: true,
         entries,
     })
 }
@@ -594,6 +599,16 @@ pub fn parse_csv_exact(text: &str) -> Result<ExactGameData> {
 /// 拡張子 (`.json` か `.csv`) で形式を選び、値を 10 進数・分数の値どおりの有理数として読む。
 pub fn parse_exact_by_extension(path: &str, text: &str) -> Result<ExactGameData> {
     ExactGameData::from_raw(raw_by_extension(path, text)?)
+}
+
+/// 入力が値の種類を明示しているか。拡張子 (`.json` か `.csv`) で形式を選んで読む。
+///
+/// JSON は `type` を書いたときだけ `Some` (省けば `None`。[`GameData::kind`] は省いたとき [`Kind::Value`])。
+/// CSV は見出し (`coalition,value` か `coalition,cost`) が常に種類を示すので `Some`。
+/// 値の種類を呼び出し側の指定 (CLI の `--cost` など) で変えるときに、明示した種類と食い違わないかを確かめるのに使う。
+pub fn declared_kind_by_extension(path: &str, text: &str) -> Result<Option<Kind>> {
+    let raw = raw_by_extension(path, text)?;
+    Ok(raw.declared.then_some(raw.kind))
 }
 
 /// 人数 `n` のゲームで、`known` に含まれない (空でない) 提携 (提携の番号順)。
@@ -1194,6 +1209,22 @@ mod tests {
         // 書き間違いらしくないキーは無視する (説明などを書き添えられる)。
         let data = parse_json(r#"{"name": "例", "description": "x", "values": {"0": 1}}"#).unwrap();
         assert_eq!(data.kind, Kind::Value);
+    }
+
+    #[test]
+    fn declared_kind_distinguishes_omitted_type() {
+        let declared = |path: &str, text: &str| declared_kind_by_extension(path, text).unwrap();
+        assert_eq!(declared("g.json", r#"{"values": {"0": 1}}"#), None);
+        let value = r#"{"type": "value", "values": {"0": 1}}"#;
+        assert_eq!(declared("g.json", value), Some(Kind::Value));
+        let cost = r#"{"type": "cost", "values": {"0": 1}}"#;
+        assert_eq!(declared("g.json", cost), Some(Kind::Cost));
+        assert_eq!(
+            declared("g.csv", "coalition,value\n0,1\n"),
+            Some(Kind::Value)
+        );
+        assert_eq!(declared("g.csv", "coalition,cost\n0,1\n"), Some(Kind::Cost));
+        assert!(declared_kind_by_extension("g.txt", "1\n").is_err());
     }
 
     #[test]

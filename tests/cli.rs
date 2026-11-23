@@ -174,8 +174,10 @@ fn missing_ignore_honors_cost_and_rejects_full() {
         "{}",
         run.stderr
     );
+    // 見出しで価値と明示した CSV は、--cost で費用として読まない (明示した種類と食い違う)。
     let run = cli.run(&["nucleolus", "pval.csv", "--missing", "ignore", "--cost"]);
-    assert_close(&run.values(), &expected);
+    assert!(!run.success);
+    assert!(run.stderr.contains("--cost"), "{}", run.stderr);
     let run = cli.run(&["nucleolus", "pcost.csv", "--missing", "ignore", "--full"]);
     assert!(!run.success);
     assert!(run.stderr.contains("--full"), "{}", run.stderr);
