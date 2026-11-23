@@ -1470,12 +1470,8 @@ impl GraphGame {
 
     fn value(&self, coalition: Vec<usize>) -> PyResult<f64> {
         let n = SetFunction::players(&self.inner);
-        if let Some(&i) = coalition.iter().find(|&&i| i >= n) {
-            return Err(PyValueError::new_err(format!(
-                "プレイヤー番号 {i} が人数 {n} 以上"
-            )));
-        }
-        Ok(self.inner.value(&PlayerSet::from_players(n, &coalition)))
+        let coalition = PlayerSet::try_from_players(n, &coalition).map_err(to_py_err)?;
+        Ok(self.inner.value(&coalition))
     }
 
     fn __repr__(&self) -> String {
