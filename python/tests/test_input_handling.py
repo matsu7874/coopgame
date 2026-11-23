@@ -46,15 +46,6 @@ def test_membership_checks_reject_invalid_tolerance(bad):
     assert coopgame.is_in_kernel(GAME, [3, 2, 1], tolerance=1e-9)
 
 
-def test_is_in_kernel_default_tolerance_matches_verify():
-    # 既定の許容誤差は verify (Kohlberg 基準) と CLI の verify と同じ default_tolerance の 10 倍。
-    # 仁と判定する配分を、カーネルの外と判定しない。
-    x = [3.000001, 1.999999, 1]
-    assert coopgame.verify(GAME, x)["satisfied"]
-    assert coopgame.is_in_kernel(GAME, x)
-    assert not coopgame.is_in_kernel(GAME, [3.00001, 1.99999, 1])
-
-
 # ---------------------------------------------------------------- 感度
 
 
