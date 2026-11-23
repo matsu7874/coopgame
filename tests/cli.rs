@@ -283,7 +283,14 @@ fn rejects_empty_samples_and_ranges() {
     for args in [
         &["shapley", "pair.txt", "--samples", "0"][..],
         &["banzhaf", "pair.txt", "--samples", "0"],
-        &["uncertainty", "pair.txt", "--samples", "0"],
+        &[
+            "uncertainty",
+            "pair.txt",
+            "--relative",
+            "0.1",
+            "--samples",
+            "0",
+        ],
         &["bench", "--n", "10..4"],
     ] {
         let run = cli.run(args);

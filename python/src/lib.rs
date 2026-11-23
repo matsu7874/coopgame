@@ -1189,15 +1189,15 @@ fn linear_production<'py>(
     Ok(dict)
 }
 
-/// 分析 (`uncertainty`・`influence`) の解き方。仁・プレ仁は、許容誤差を指定しなければ `max|v(S)|` の `1e-7` 倍で
-/// 1 回だけ解く (標本や差分のために何度も解くので、仁の既定の手順の解き直しはしない)。
+/// 分析 (`uncertainty`・`influence`) の解き方。仁・プレ仁は、許容誤差を指定しなければ `nucleolus` の既定の手順で解く
+/// (許容誤差を指定すると、確かめずに 1 回だけ解く)。
 fn solver_by_name(
     name: &str,
     tolerance: Option<&Bound<'_, PyAny>>,
     rel_tolerance: Option<f64>,
 ) -> PyResult<uncertainty_core::Solver> {
     let tolerance = match parse_tolerance(tolerance, rel_tolerance)? {
-        None => Tolerance::Relative(1e-7),
+        None => Tolerance::Auto,
         Some(specified) => {
             if name == "shapley" {
                 return Err(PyValueError::new_err(
@@ -1215,13 +1215,32 @@ fn solver_by_name(
     })
 }
 
+/// 保証の内訳を `{"exact": 198, "approximate": 2}` の dict にする (保証を報告しない解は `"unreported"`)。
+fn guarantee_counts<'py>(
+    py: Python<'py>,
+    counts: &uncertainty_core::GuaranteeCounts,
+) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    for (guarantee, count) in counts.iter() {
+        dict.set_item(guarantee.to_string(), count)?;
+    }
+    if counts.unreported() > 0 {
+        dict.set_item("unreported", counts.unreported())?;
+    }
+    Ok(dict)
+}
+
 /// 値が不確かなときの配分の分布。`relative` (例: 0.1 で各値 ±10%) か、`lower`・`upper` (Game) で区間を与え、
-/// 区間内の一様分布から `samples` 個のゲームを引いて `solver` で解く。
-/// 戻り値は `mean`・`std`・`quantiles` (`{0.05: [...], 0.5: [...], 0.95: [...]}`)・`samples`・`failures`。
+/// 区間内の一様分布から `samples` 個 (1 以上) のゲームを引いて `solver` で解く。
+/// 戻り値は `mean`・`std`・`quantiles` (`{0.05: [...], 0.5: [...], 0.95: [...]}`)・`samples`・`failures`・
+/// `guarantees` (解けた標本の保証の内訳。`{"exact": 198, "approximate": 2}` など。`approximate` は正しいと言えない解)。
+/// 標本の解の許容誤差が、幅が正の区間のうち最も狭いものの幅の半分以上なら、揺れが許容誤差に埋もれるので ValueError。
+/// 値が丸め誤差程度の非 0 の提携 (`0.1 + 0.2 - 0.3` など) や、値の桁が `1e6` 倍以上離れた提携を持つゲームでは、
+/// 小さい値の提携の幅が許容誤差より狭くなりエラーになりやすい (値を 0 に丸めるか、`rel_tolerance` を小さくする)。
 ///
 /// 仁・プレ仁は、`tolerance` (値の単位) も `rel_tolerance` (`max|v(S)|` に対する比) も指定しなければ、
-/// 比 `1e-7` の許容誤差で 1 回だけ解く。`tolerance="auto"` は、`nucleolus` の既定の手順で解く
-/// (有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
+/// `nucleolus` の既定の手順で解く (有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
+/// 許容誤差を指定すると、確かめずに 1 回だけ解く (速いが、値の大きいゲームでは仁と異なりうる)。
 #[pyfunction]
 #[pyo3(signature = (game, relative = None, upper = None, samples = Arg(200), seed = Arg(0), solver = "nucleolus", tolerance = None, rel_tolerance = None))]
 #[allow(clippy::too_many_arguments)]
@@ -1252,40 +1271,48 @@ fn uncertainty<'py>(
         }
     }
     .map_err(to_py_err)?;
+    if samples == 0 {
+        return Err(PyValueError::new_err("samples は 1 以上"));
+    }
     let solve = solver_by_name(solver, tolerance, rel_tolerance)?;
     let d = uncertainty_core::interval_monte_carlo(&interval, samples, seed, solve)
         .map_err(to_py_err)?;
     let dict = PyDict::new(py);
-    dict.set_item("mean", d.mean)?;
-    dict.set_item("std", d.std)?;
+    dict.set_item("mean", d.mean())?;
+    dict.set_item("std", d.std())?;
     let quantiles = PyDict::new(py);
-    for (q, values) in d.quantiles {
+    for (q, values) in d.quantiles() {
         quantiles.set_item(q, values)?;
     }
     dict.set_item("quantiles", quantiles)?;
-    dict.set_item("samples", d.samples)?;
-    dict.set_item("failures", d.failures)?;
+    dict.set_item("samples", d.samples())?;
+    dict.set_item("failures", d.failures())?;
+    dict.set_item("guarantees", guarantee_counts(py, d.guarantees())?)?;
     Ok(dict)
 }
 
-/// [`influence`] の 1 行: (提携のメンバー, 各プレイヤーの感度, 差分の取り方)。
-type InfluenceRow = (Vec<usize>, Vec<f64>, String);
+/// [`influence`] の 1 行: (提携のメンバー, 各プレイヤーの感度, 差分の取り方, 差分に使った解の保証の内訳)。
+type InfluenceRow<'py> = (Vec<usize>, Vec<f64>, String, Bound<'py, PyDict>);
 
 /// 提携の値を `±delta` 動かしたときの配分の変化率 `dx/dv(S)`。`coalitions` を省くと、
 /// 配分で超過が大きい上位 `levels` 段 (既定は 2) の提携 (仁ではこれが配分を決める) と全体提携を調べる。
 /// `levels` は `coalitions` を省くときだけ指定できる (両方を指定すると ValueError)。
-/// 戻り値は `(提携, 感度のリスト, 差分の取り方)` の列 (感度の大きい順)。
+/// 戻り値は `(提携, 感度のリスト, 差分の取り方, 保証の内訳)` の列 (感度の大きい順)。
 ///
 /// 差分の取り方は `"central"` (中心差分)、`"forward"`・`"backward"` (片側のゲームが解けないときの片側差分。
 /// 配分集合が 1 点のゲームで v(N) を下げる・1 人提携の値を上げる場合など)。
+/// 保証の内訳は、差分に使った 2 つの解の `{"exact": 2}` などの dict (`approximate` は正しいと言えない解)。
 /// 両側とも解けない提携があれば、その提携を示した ValueError。
+/// 解の許容誤差が `delta` 以上 (変化が許容誤差に埋もれる) なら ValueError。
 ///
 /// 仁・プレ仁は、`tolerance` (値の単位) も `rel_tolerance` (`max|v(S)|` に対する比) も指定しなければ、
-/// 比 `1e-7` の許容誤差で 1 回だけ解く。`tolerance="auto"` は、`nucleolus` の既定の手順で解く
-/// (有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
+/// `nucleolus` の既定の手順で解く (有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
+/// 許容誤差を指定すると、確かめずに 1 回だけ解く。
 #[pyfunction]
 #[pyo3(signature = (game, coalitions = None, solver = "nucleolus", levels = None, delta = None, tolerance = None, rel_tolerance = None))]
-fn influence(
+#[allow(clippy::too_many_arguments)]
+fn influence<'py>(
+    py: Python<'py>,
     game: ValueGame<'_>,
     coalitions: Option<Arg<Vec<Vec<usize>>>>,
     solver: &str,
@@ -1293,7 +1320,7 @@ fn influence(
     delta: Option<Arg<f64>>,
     tolerance: Option<&Bound<'_, PyAny>>,
     rel_tolerance: Option<Arg<f64>>,
-) -> PyResult<Vec<InfluenceRow>> {
+) -> PyResult<Vec<InfluenceRow<'py>>> {
     let coalitions = coalitions.map(|Arg(v)| v);
     let levels = levels.map(|Arg(v)| v);
     let delta = delta.map(|Arg(v)| v);
@@ -1312,7 +1339,7 @@ fn influence(
             .collect::<PyResult<_>>()?,
         None => {
             let x = solve(&game.inner).map_err(to_py_err)?;
-            uncertainty_core::key_coalitions(&game.inner, &x, levels.unwrap_or(2))
+            uncertainty_core::key_coalitions(&game.inner, x.allocation(), levels.unwrap_or(2))
                 .map_err(to_py_err)?
         }
     };
@@ -1320,16 +1347,16 @@ fn influence(
     let mut rows =
         uncertainty_core::influence(&game.inner, &coalitions, delta, solve).map_err(to_py_err)?;
     rows.sort_by(|a, b| b.magnitude().total_cmp(&a.magnitude()));
-    Ok(rows
-        .into_iter()
+    rows.into_iter()
         .map(|row| {
-            (
-                row.coalition.members().collect(),
-                row.sensitivity,
-                row.difference.to_string(),
-            )
+            Ok((
+                row.coalition().members().collect(),
+                row.sensitivity().to_vec(),
+                row.difference().to_string(),
+                guarantee_counts(py, row.guarantees())?,
+            ))
         })
-        .collect())
+        .collect()
 }
 
 /// 有理数の値 (int・Fraction・"8/3"・"0.1") のゲームの仁 (プレ仁) を、有理数だけの逐次 LP で求める (10 人まで)。

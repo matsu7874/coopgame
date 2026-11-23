@@ -1147,15 +1147,15 @@ use coopgame::{ExplicitGame, nucleolus};
 fn main() -> coopgame::Result<()> {
     let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0])?;
     let interval = IntervalGame::around(&game, 0.1)?;
-    let distribution = uncertainty::interval_monte_carlo(&interval, 50, 1, |g| {
-        Ok(nucleolus::nucleolus(g)?.into_allocation())
-    })?;
-    println!("{:.1?}", distribution.mean); // [2.1, 4.0, 5.9]
-    println!("{} {}", distribution.samples, distribution.failures); // 50 0
+    let distribution = uncertainty::interval_monte_carlo(&interval, 50, 1, nucleolus::nucleolus)?;
+    println!("{:.1?}", distribution.mean()); // [2.1, 4.0, 5.9]
+    println!("{} {}", distribution.samples(), distribution.failures()); // 50 0
+    println!("{}", distribution.guarantees()); // exact:50
 
     let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.01);
-    assert!(close(&distribution.mean, &[2.07, 4.00, 5.90]));
-    assert_eq!((distribution.samples, distribution.failures), (50, 0));
+    assert!(close(distribution.mean(), &[2.07, 4.00, 5.90]));
+    assert_eq!((distribution.samples(), distribution.failures()), (50, 0));
+    assert_eq!(distribution.guarantees().to_string(), "exact:50");
     Ok(())
 }
 ```
@@ -1167,7 +1167,9 @@ game = coopgame.Game([0, 0, 0, 4, 6, 8, 12], order="lex")
 result = coopgame.uncertainty(game, relative=0.1, samples=50, seed=1)
 print([round(v, 1) for v in result["mean"]])  # => [2.1, 4.0, 5.9]
 print(result["samples"], result["failures"])  # => 50 0
+print(result["guarantees"])  # => {'exact': 50}
 ```
 
 値の揺れがない時の仁 (2, 4, 6) に対して、平均は (2.1, 4.0, 5.9) である。
+`guarantees` は解けた標本の保証の内訳で、`approximate` (正しいと言えない解) が混ざっていないことが分かる。
 標本の値は乱数の種で決まるので、同じ種なら同じ結果になる。

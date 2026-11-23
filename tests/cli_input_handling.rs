@@ -160,7 +160,7 @@ fn influence_uses_one_sided_difference_on_single_point_imputation_set() {
     let mut lines = run.stdout.lines();
     assert_eq!(
         lines.next(),
-        Some("coalition\tmax|dx/dv|\tdx/dv (プレイヤー順)\tdifference")
+        Some("coalition\tmax|dx/dv|\tdx/dv (プレイヤー順)\tdifference\tguarantees")
     );
     let rows: Vec<Vec<&str>> = lines.map(|line| line.split('\t').collect()).collect();
     assert_eq!(rows.len(), 7);
@@ -564,13 +564,6 @@ fn analysis_commands_accept_tolerance() {
         first_row(&compare_default.stdout),
         first_row(&compare_single.stdout)
     );
-    // influence・uncertainty は、指定しなければ比 1e-7 で 1 回だけ解く。
-    for command in ["influence", "uncertainty"] {
-        let default = cli.run(&[command, "large.txt"]);
-        assert!(default.success, "{command}: {}", default.stderr);
-        let single = cli.run(&[command, "large.txt", "--rel-tolerance", "1e-7"]);
-        assert_eq!(default.stdout, single.stdout, "{command}");
-    }
     // --tolerance auto は、既定の手順を明示して選ぶ。nucleolus・compare では指定しない場合と同じ。
     let explicit = cli.run(&["nucleolus", "large.txt", "--tolerance", "auto"]);
     assert_eq!(explicit.stdout, nucleolus.stdout);
@@ -581,8 +574,8 @@ fn analysis_commands_accept_tolerance() {
     );
     let explicit = cli.run(&["compare", "large.txt", "--tolerance", "auto"]);
     assert_eq!(explicit.stdout, compare_default.stdout);
-    // uncertainty・influence では、1 回だけ解く既定の代わりに既定の手順で解く。値をほとんど動かさない標本
-    // (超過の段の間隔が比 1e-7 の許容誤差より小さいまま) では、1 回だけ解いた分布と異なる。
+    // uncertainty・influence も、指定しなければ nucleolus と同じ既定の手順で解く。値をほとんど動かさない標本
+    // (超過の段の間隔が比 1e-7 の許容誤差より小さいまま) でも、既定の手順なら求められる。
     let narrow = [
         "uncertainty",
         "large.txt",
@@ -591,13 +584,18 @@ fn analysis_commands_accept_tolerance() {
         "--relative",
         "1e-13",
     ];
-    let single = cli.run(&narrow);
-    assert!(single.success, "{}", single.stderr);
+    let default = cli.run(&narrow);
+    assert!(default.success, "{}", default.stderr);
     let auto = cli.run(&[&narrow[..], &["--tolerance", "auto"]].concat());
-    assert!(auto.success, "{}", auto.stderr);
-    assert_ne!(auto.stdout, single.stdout);
+    assert_eq!(auto.stdout, default.stdout);
+    // 比 1e-7 の許容誤差 (約 4e5) で 1 回だけ解くと、区間の幅 (半分で 0.2 程度) の揺れが許容誤差に埋もれるのでエラー。
+    let single = cli.run(&[&narrow[..], &["--rel-tolerance", "1e-7"]].concat());
+    assert_eq!(single.code, Some(1));
+    assert!(single.stderr.contains("埋もれる"), "{}", single.stderr);
+    let default = cli.run(&["influence", "large.txt"]);
+    assert!(default.success, "{}", default.stderr);
     let auto = cli.run(&["influence", "large.txt", "--tolerance", "auto"]);
-    assert!(auto.success, "{}", auto.stderr);
+    assert_eq!(auto.stdout, default.stdout);
     let default = cli.run(&["influence", "v.txt"]);
     assert!(default.success, "{}", default.stderr);
     for arguments in [
@@ -613,6 +611,8 @@ fn analysis_commands_accept_tolerance() {
         &[
             "uncertainty",
             "v.txt",
+            "--relative",
+            "0.1",
             "--samples",
             "5",
             "--rel-tolerance",
@@ -640,6 +640,8 @@ fn analysis_commands_accept_tolerance() {
             &[
                 "uncertainty",
                 "v.txt",
+                "--relative",
+                "0.1",
                 "--tolerance",
                 "1e-6",
                 "--rel-tolerance",
@@ -692,6 +694,8 @@ fn analysis_commands_accept_tolerance() {
             &[
                 "uncertainty",
                 "v.txt",
+                "--relative",
+                "0.1",
                 "--samples",
                 "5",
                 "--rel-tolerance",
@@ -708,6 +712,65 @@ fn analysis_commands_accept_tolerance() {
             run.stderr
         );
     }
+}
+
+/// uncertainty は誤差の幅 --relative を必須にし、標本の保証の内訳を出す。influence は差分に使った解の保証の内訳を出し、
+/// 解の許容誤差が --delta 以上ならエラーにする。
+#[test]
+fn uncertainty_and_influence_report_guarantees() {
+    let cli = Cli::new("analysis_guarantees");
+    cli.file("v.txt", V_TXT).file("large.txt", LARGE_TXT);
+    let run = cli.run(&["uncertainty", "v.txt"]);
+    assert_eq!(run.code, Some(1));
+    assert!(run.stderr.contains("--relative"), "{}", run.stderr);
+    let run = cli.run(&[
+        "uncertainty",
+        "v.txt",
+        "--relative",
+        "0.1",
+        "--samples",
+        "7",
+    ]);
+    assert!(run.success, "{}", run.stderr);
+    assert!(
+        run.stderr
+            .contains("samples=7 failures=0 guarantees=exact:7"),
+        "{}",
+        run.stderr
+    );
+    let run = cli.run(&["influence", "v.txt"]);
+    assert!(run.success, "{}", run.stderr);
+    let mut lines = run.stdout.lines();
+    assert!(
+        lines
+            .next()
+            .is_some_and(|header| header.ends_with("\tguarantees"))
+    );
+    assert!(
+        lines.all(|line| line.ends_with("\texact:2")),
+        "{}",
+        run.stdout
+    );
+    // 比 1e-7 の許容誤差 (約 4e5) で解くと、delta = 10 の変化は許容誤差に埋もれる。
+    let buried = [
+        "influence",
+        "large.txt",
+        "--delta",
+        "10",
+        "--rel-tolerance",
+        "1e-7",
+    ];
+    let run = cli.run(&buried);
+    assert_eq!(run.code, Some(1));
+    assert!(run.stderr.contains("埋もれる"), "{}", run.stderr);
+    // 既定の手順でも、Kohlberg 基準を確かめて最初の許容誤差のまま返した解 (v(N) を 10 下げたゲーム) があるので、
+    // delta = 10 は同じくエラーにする (このゲームの解は有理数の仁と 2 程度ずれる)。
+    let run = cli.run(&buried[..4]);
+    assert_eq!(run.code, Some(1));
+    assert!(run.stderr.contains("埋もれる"), "{}", run.stderr);
+    // 許容誤差より大きい delta なら求める。
+    let run = cli.run(&["influence", "large.txt", "--delta", "1e6"]);
+    assert!(run.success, "{}", run.stderr);
 }
 
 /// convex-nucleolus の `--reference` は、`--assume` の事後検証の基準の仁の求め方を選ぶ。
