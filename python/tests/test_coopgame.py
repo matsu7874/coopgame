@@ -365,6 +365,19 @@ def test_results_report_guarantee():
     assert coopgame.kernel_point(game)["guarantee"] == "exact"
 
 
+def test_default_nucleolus_is_approximate_beyond_check_limit():
+    """既定の手順は 21 人以上で Kohlberg 基準を確かめないので approximate。許容誤差を指定すると exact。"""
+    assert coopgame.nucleolus(coopgame.Game.bnf(1, 20, 3))["guarantee"] == "exact"
+    game = coopgame.Game.bnf(1, 21, 3)
+    auto = coopgame.nucleolus(game)
+    assert auto["guarantee"] == "approximate"
+    assert coopgame.prenucleolus(game)["guarantee"] == "approximate"
+    fixed = coopgame.nucleolus(game, rel_tolerance=1e-7)
+    assert fixed["guarantee"] == "exact"
+    assert fixed["allocation"] == auto["allocation"]
+    assert coopgame.auto_nucleolus(game)["guarantee"] == "approximate"
+
+
 def test_convex_nucleolus_proven_and_assumed():
     graph = coopgame.InducedSubgraphGame(5, [(0, 1, 3.0), (1, 2, 1.0), (2, 3, 2.0), (3, 4, 4.0), (0, 4, 1.0)])
     proven = coopgame.convex_nucleolus(graph)

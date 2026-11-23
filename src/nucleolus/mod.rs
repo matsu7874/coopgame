@@ -19,6 +19,7 @@
 //! 超過の差が許容誤差より小さい別の段があるゲームでは、結果が仁から許容誤差の程度ずれる。
 //! 既定の設定 ([`Tolerance::Auto`]) は、解いた配分が Kohlberg 基準を細かい許容誤差でも満たすかでこのずれを確かめ、
 //! 必要なら許容誤差を下げて解き直すか、有理数の逐次 LP ([`exact`]) で求める ([`nucleolus_with`])。
+//! 確かめない人数 ([`MAX_AUTO_CHECK_PLAYERS`] 人を超える) では、保証を [`crate::Guarantee::Approximate`] にする。
 //! 許容誤差を指定すれば ([`Tolerance::Absolute`]・[`Tolerance::Relative`])、その値で 1 回だけ解く。
 //!
 //! LP は絶対誤差で判定するので、値の大きさによらず同じ精度で解けるよう、ゲームの値を 2 のべき乗で割って
@@ -222,7 +223,8 @@ impl NucleolusResult {
 
     /// 全提携の値を持つゲームの逐次 LP ([`nucleolus`] など) では [`Guarantee::Exact`]。
     /// ただし [`Tolerance::Auto`] で、許容誤差を下げても Kohlberg 基準を満たさず、有理数の逐次 LP にも
-    /// 切り替えなかった結果は [`Guarantee::Approximate`] ([`nucleolus_with`])。
+    /// 切り替えなかった結果と、Kohlberg 基準を確かめない [`MAX_AUTO_CHECK_PLAYERS`] 人を超えるゲームで
+    /// LP を解いて求めた結果は [`Guarantee::Approximate`] ([`nucleolus_with`])。
     /// オラクル版 ([`oracle`]) では、オラクルが全ての真部分提携について答えれば `Exact`、
     /// 一部の提携だけなら [`Guarantee::Approximate`]。
     pub fn guarantee(&self) -> Guarantee {
@@ -375,7 +377,11 @@ pub const MAX_AUTO_CHECK_PLAYERS: usize = 20;
 ///      [`Guarantee::Approximate`] で返す。
 ///
 ///   解き直しと有理数の逐次 LP の分だけ時間がかかる (有理数の逐次 LP は 8 人で 10 秒ほどかかることがある)。
-///   [`MAX_AUTO_CHECK_PLAYERS`] 人を超えるゲームは 1. だけを行う。
+///   [`MAX_AUTO_CHECK_PLAYERS`] 人を超えるゲームは 1. だけを行い、確かめていないので保証
+///   [`Guarantee::Approximate`] で返す (LP を解かずに決まった配分は [`Guarantee::Exact`])。
+///   最初に解いた配分は、値が大きい整数のゲームなどでは仁と限らない (`docs/performance.md` の「既定の手順の効果」)。
+///   確かめずに 1 回だけ解いた配分を使うなら、許容誤差を指定する ([`Tolerance::Relative`] など。
+///   指定した許容誤差の範囲で成り立つものとして、保証は [`Guarantee::Exact`])。
 ///   結果の [`NucleolusResult::tolerance`] (返した配分を求めた許容誤差)・[`NucleolusResult::refinements`]
 ///   (許容誤差を下げて解き直しを試みた回数。失敗した試行を含む)・[`NucleolusResult::is_rational`]
 ///   で、どう求めたかが分かる。
@@ -468,10 +474,17 @@ fn solve_auto(
             row_budget = (REFINEMENT_ROW_FACTOR * result.rows_added).max(4 * n * n);
         }
         // LP を解かずに決まった配分 (1 人ゲーム、配分集合が 1 点) には、確かめる段がない。
-        if result.lp_solves == 0
-            || n > MAX_AUTO_CHECK_PLAYERS
-            || kohlberg_at(&normalized, &result.allocation, domain, reading)
-                .is_ok_and(|check| check.satisfied)
+        if result.lp_solves == 0 {
+            return finish(result, attempts - 1);
+        }
+        // 確かめない人数では、別の段を同じ段として確定した配分を見分けられないので、保証を近似にする。
+        if n > MAX_AUTO_CHECK_PLAYERS {
+            let mut result = result;
+            result.guarantee = Guarantee::Approximate;
+            return finish(result, attempts - 1);
+        }
+        if kohlberg_at(&normalized, &result.allocation, domain, reading)
+            .is_ok_and(|check| check.satisfied)
         {
             return finish(result, attempts - 1);
         }

@@ -3,6 +3,7 @@
 //! - 既定 (`Tolerance::Auto`) は、解いた配分が Kohlberg 基準を細かい許容誤差でも満たすかを確かめる。
 //!   満たさなければ許容誤差を下げて解き直し、それでも満たさなければ、8 人以下は有理数の逐次 LP で求め、
 //!   9 人以上は保証を `approximate` にする。値が 1e9 程度までの整数のゲームで、有理数の仁と一致する。
+//!   確かめない人数 (21 人以上) では、LP を解いて求めた配分の保証を `approximate` にする。
 //! - 許容誤差を指定すると (`Absolute`・`Relative`)、その許容誤差で 1 回だけ解く。
 //! - 最初に解いた配分が Kohlberg 基準を細かい許容誤差でも満たすゲームでは、既定でも 1 回だけ解く。
 
@@ -341,4 +342,46 @@ fn kohlberg_check_stops_early_when_a_player_stays_at_the_lower_bound() {
         "有理数の判定が {} 段を読んだ",
         exact.levels_checked
     );
+}
+
+/// 確認する人数 ([`nucleolus::MAX_AUTO_CHECK_PLAYERS`]) を超えるゲームでは、既定の手順は Kohlberg 基準を確かめないので、
+/// 1 回解いた配分を保証 `approximate` で返す。許容誤差を指定した場合は、従来どおり `exact` のまま返す。
+/// 確認する人数以下では、Kohlberg 基準を満たした配分に `exact` を付ける。
+#[test]
+fn default_reports_approximate_beyond_check_limit() {
+    let limit = nucleolus::MAX_AUTO_CHECK_PLAYERS;
+    // BNF タイプ 1 は、最初に解いた配分が Kohlberg 基準を満たす (docs/performance.md の「既定の手順の効果」)。
+    let checked = generators::bnf(1, limit, 3).unwrap();
+    let auto = nucleolus::nucleolus(&checked).unwrap();
+    assert_eq!(auto.guarantee(), Guarantee::Exact, "{limit} 人");
+    assert_eq!(auto.refinements(), 0);
+
+    let game = generators::bnf(1, limit + 1, 3).unwrap();
+    for domain in [Domain::Imputation, Domain::Preimputation] {
+        let auto = nucleolus::nucleolus_with(&game, Options::new(domain)).unwrap();
+        assert_eq!(auto.guarantee(), Guarantee::Approximate, "{domain:?}");
+        assert_eq!(auto.refinements(), 0, "{domain:?}");
+        assert!(!auto.is_rational(), "{domain:?}");
+        let mut options = Options::new(domain);
+        options.tolerance = Tolerance::Relative(1e-7);
+        let fixed = nucleolus::nucleolus_with(&game, options).unwrap();
+        assert_eq!(fixed.guarantee(), Guarantee::Exact, "{domain:?}");
+        // 既定の手順は比 `1e-7` で 1 回だけ解いた配分をそのまま返す。
+        assert_eq!(auto.allocation(), fixed.allocation(), "{domain:?}");
+        assert_eq!(auto.tolerance(), fixed.tolerance(), "{domain:?}");
+    }
+}
+
+/// LP を解かずに決まる配分 (配分集合が 1 点) は、確認する人数を超えても `exact` のまま。
+#[test]
+fn default_keeps_exact_without_lp_beyond_check_limit() {
+    let n = nucleolus::MAX_AUTO_CHECK_PLAYERS + 1;
+    // 加法的なゲーム: 配分集合は `x_i = v({i}) = 1` の 1 点。
+    let values: Vec<f64> = (1usize..1 << n)
+        .map(|mask| mask.count_ones() as f64)
+        .collect();
+    let game = ExplicitGame::from_binary(&values).unwrap();
+    let result = nucleolus::nucleolus(&game).unwrap();
+    assert_eq!(result.lp_solves(), 0, "{result:?}");
+    assert_eq!(result.guarantee(), Guarantee::Exact);
 }
