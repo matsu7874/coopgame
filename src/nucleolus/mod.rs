@@ -50,13 +50,16 @@ pub mod sampled;
 pub mod variants;
 
 use microlp::{Problem, Solution, Variable};
+use num_traits::Signed;
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::allocation::{block_lower_bounds, coalition_sums, excess_table};
-use crate::game::exact::{ExactGame, to_f64, to_rational};
+use crate::game::allocation::{
+    ExactExcess, block_lower_bounds, coalition_sums, efficient_within, excess_table,
+};
+use crate::game::exact::{ExactGame, to_f64};
 use crate::game::scale::{
-    normalized_tolerance, positive_scale, rounding_magnitude, tolerance_from_ratio,
+    check_tolerance, normalized_tolerance, positive_scale, tolerance_from_ratio,
 };
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::levels::kohlberg_at;
@@ -643,25 +646,33 @@ fn normalized_least_core(
 }
 
 /// [`has_nonempty_core`] が、最小コアの `epsilon` の符号を有理数の LP で厳密に判定する人数の上限。
+///
+/// 帯の中のゲームのうち、コアの点が 2 進数で表せないものは有理数の LP で決める。その LP は退化して重く、
+/// `v(S) = |S| / 3` のゲームで 9 人 11 秒 (30 MB)、`v(S) = 0.1 |S|` のゲームで 10 人が 60 秒で終わらない
+/// (計測は `docs/performance.md`)。上限を超える人数で帯に入ったゲームは、符号を決めずにエラーにする。
 pub const MAX_EXACT_CORE_PLAYERS: usize = 9;
 
 /// コアが空でないか (原配分集合の上の最小コアの `epsilon` ([`least_core`]) が 0 以下か)。
 ///
-/// 判定の方法:
+/// ゲームの値を f64 の 2 進数の値どおりの有理数として読み、厳密に判定する。判定の方法:
 ///
 /// 1. 浮動小数点の LP で `epsilon` を求める。許容誤差 `tol` ([`default_tolerance`]) の帯の外
 ///    (`epsilon < -tol` または `epsilon > tol`) なら、その符号で決める。
-/// 2. 帯の中 (`|epsilon| <= tol`) では、人数が [`MAX_EXACT_CORE_PLAYERS`] 以下なら、ゲームの値を
-///    f64 の値どおりの有理数として `epsilon` を有理数の LP ([`exact`]) で厳密に求め、
-///    入力の丸めの大きさ `4 n ε max|v|` (`ε` は [`f64::EPSILON`]) 以下かで決める。
-///    `epsilon` がちょうど 0 のゲーム (手袋ゲーム、コアが 1 点のゲームなど) はこの場合に当たる。
-///    0 ではなく丸めの大きさと比べるのは、値を 10 進数の和などで作ると、有理数では 0 のはずの
-///    `epsilon` が丸めで正になるからである (`v = (0.1, 0.2, 0.3)` の 2 人ゲームなど)。
-/// 3. [`MAX_EXACT_CORE_PLAYERS`] より多い人数では、帯の中を全て「空でない」とする
-///    (`epsilon` が `(0, tol]` に入る、コアが空のゲームでも true を返す)。
+/// 2. 帯の中 (`|epsilon| <= tol`) では、まず浮動小数点の LP の配分が値どおりにコアに属するかを確かめ、
+///    属すれば空でないとする (コアの点が見つかったので確定する)。
+/// 3. 属さなければ、`epsilon` を有理数の LP ([`exact`]) で厳密に求め、0 以下かで決める。
+///    `epsilon` がちょうど 0 のゲーム (手袋ゲーム、コアが 1 点のゲームなど) は 2 か 3 で決まる。
 ///
-/// したがって [`MAX_EXACT_CORE_PLAYERS`] 人以下では、`epsilon` が丸めの大きさを超えて正のゲーム
-/// (値が大きい整数で `epsilon = 1/3` のゲームなど) を、値の大きさによらず空と判定する。
+/// 10 進数の値を浮動小数点数の和などで作ったゲームでは、10 進数では 0 の `epsilon` が丸めで正になり、
+/// 空と判定することがある (`v = (0.1, 0.2, 0.3)` の 2 人ゲームでは、2 進数の値どおりに読むと
+/// `0.1 + 0.2 > 0.3` なのでコアは空)。そうしたゲームで丸めの分を許すときは、[`has_nonempty_core_within`] で
+/// 許容誤差を明示する。
+///
+/// # Errors
+///
+/// 帯の中のゲームで人数が [`MAX_EXACT_CORE_PLAYERS`] を超えるときは、符号を決めずに
+/// [`Error::LimitExceeded`] を返す (許容誤差の範囲で判定するには [`has_nonempty_core_within`])。
+/// LP が失敗したときは [`Error::Numerical`] などを返す。
 pub fn has_nonempty_core(game: &ExplicitGame) -> Result<bool> {
     let (normalized, divisor) = game.normalized();
     // コアが空かどうかは値の大きさによらないので、正規化したゲームの epsilon の符号で判定する
@@ -683,14 +694,26 @@ pub fn has_nonempty_core(game: &ExplicitGame) -> Result<bool> {
     if epsilon > tolerance {
         return Ok(false);
     }
+    // 浮動小数点の LP の配分が、値どおりの有理数でちょうどコアに属すれば、コアは空でないと確定する
+    // (`epsilon` がちょうど 0 で、コアの点が 2 進数で表せるゲーム。手袋ゲームなど)。
+    // 2 のべき乗で割った正規化はコアへの所属を変えない。
+    let grand = game.grand();
+    if has_exact_core_point(&normalized, &x) {
+        return Ok(true);
+    }
     let n = game.players();
     if n > MAX_EXACT_CORE_PLAYERS {
-        return Ok(true);
+        return Err(Error::LimitExceeded(format!(
+            "最小コアの epsilon (浮動小数点の LP で {:e}) が許容誤差 {:e} の帯の中にあり、\
+             {n} 人では有理数の LP で符号を決められない (上限 {MAX_EXACT_CORE_PLAYERS} 人)。\
+             許容誤差の範囲で判定するには has_nonempty_core_within を使う",
+            epsilon * divisor,
+            tolerance * divisor
+        )));
     }
     // 浮動小数点の LP で最大超過を達成した提携のうち、特性ベクトルが 1 次独立なものを最初から行に入れ、
     // 有理数の LP の解き直しを減らす (退化したゲームでは達成する提携が多く、全てを入れると LP が重くなる)。
     let excess = excess_table(&normalized, &x);
-    let grand = game.grand();
     let mut span = Span::new(n);
     span.insert_coalition(grand);
     let mut seed = Vec::new();
@@ -703,9 +726,57 @@ pub fn has_nonempty_core(game: &ExplicitGame) -> Result<bool> {
     }
     let exact_game = ExactGame::from_explicit(game)?;
     let epsilon = exact::least_core_epsilon(&exact_game, &seed)?;
-    // 値は浮動小数点数なので、入力の丸めの大きさに収まる正の epsilon は 0 とみなす。
-    let rounding = rounding_magnitude(n, game.max_abs_value());
-    Ok(epsilon <= to_rational(rounding)?)
+    Ok(!epsilon.is_positive())
+}
+
+/// 浮動小数点の LP の配分 `x` (正規化したゲーム `game` の最小コアの点) か、それを粗い 2 進の格子に丸めた配分が、
+/// 値どおりの有理数でちょうどコアに属するか。属する配分があればコアは空でない (確定)。
+///
+/// LP の解は丸めでコアの点からわずかにずれるので、`2^-k` の格子に丸めた点も試す
+/// (手袋ゲームのコアの点 `0.5` が `0.49999999999999994` になるなど)。最後のプレイヤーの値は効率性から決める。
+fn has_exact_core_point(game: &ExplicitGame, x: &[f64]) -> bool {
+    let grand = game.grand();
+    let total = game.value(grand);
+    let in_core = |point: &[f64]| {
+        point.iter().all(|v| v.is_finite()) && efficient_within(total, point, 0.0) && {
+            let check = ExactExcess::new(game, point, 0.0);
+            (1..grand.0).all(|mask| !check.exceeds(Coalition(mask)))
+        }
+    };
+    if in_core(x) {
+        return true;
+    }
+    let n = x.len();
+    [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40]
+        .iter()
+        .any(|&k: &i32| {
+            let grid = 2f64.powi(k);
+            let mut point: Vec<f64> = x.iter().map(|v| (v * grid).round() / grid).collect();
+            point[n - 1] = total - point[..n - 1].iter().sum::<f64>();
+            in_core(&point)
+        })
+}
+
+/// 許容誤差 `tolerance` の範囲でコアが空でないか: 浮動小数点の LP で求めた最小コアの `epsilon`
+/// ([`least_core`] と同じ LP) が `tolerance` 以下か。
+///
+/// `true` でもコアが空でないとは限らない (`epsilon` が `(0, tolerance]` のゲームのコアは空)。
+/// 厳密な判定は [`has_nonempty_core`]。`tolerance` が有限で 0 以上でないときは [`Error::InvalidArgument`]。
+/// 1 人ゲームは常に `true`。
+pub fn has_nonempty_core_within(game: &ExplicitGame, tolerance: f64) -> Result<bool> {
+    check_tolerance(tolerance)?;
+    let (normalized, divisor) = game.normalized();
+    let settings = Settings::new(
+        Domain::Preimputation,
+        Method::default(),
+        default_tolerance(game),
+        divisor,
+    )?;
+    let Some((epsilon, _)) = normalized_least_core(&normalized, settings)? else {
+        return Ok(true);
+    };
+    // 正規化したゲームの epsilon を元の大きさに戻さずに比べる (元の大きさでは f64 で表せないことがある)。
+    Ok(epsilon <= tolerance / divisor)
 }
 
 /// 提携 `S` の行の形。

@@ -87,7 +87,7 @@ per capita 仁では 30 個が、許容誤差を下げて解いた配分より�
 | 根拠 | 型 | 証明の種類 | 性質に基づく手法の戻り値 |
 |---|---|---|---|
 | 型が構造的に持つ | `BankruptcyGame`、`InducedSubgraphGame` (重みは非負)、`AirportGame` (節約ゲーム) | `Proven` | `Solution` (`proven(convex)`) |
-| 計算で確認した | `ConvexChecked::new(game)` (全提携で優モジュラ性を判定) | `Proven` | `Solution` |
+| 計算で確認した | `ConvexChecked::new(game)` (全提携で優モジュラ性を、値を 2 進数の値どおりの有理数として厳密に判定) | `Proven` | `Solution` |
 | 利用者が宣言した | `Assume::convex(game)` | `Assumed` | `Unverified<Solution>` |
 
 凸ゲームを表すトレイト `ConvexGame` と証明の種類 `ProofKind` は、クレートの外では実装できない。
@@ -135,10 +135,10 @@ per capita 仁では 30 個が、許容誤差を下げて解いた配分より�
 
 | n | 逐次 LP (秒) | 凸ゲームの手法 (秒) | 2 つの配分の差 (`max\|v\|` で割る) |
 |---|---|---|---|
-| 12 | 0.0035 | 0.0223 | 5.7e-17 |
-| 16 | 0.0292 | 0.0597 | 7.6e-17 |
-| 18 | 0.0863 | 0.0679 | 6.6e-12 |
-| 20 | 0.3533 | 0.1136 | 7.8e-10 |
+| 12 | 0.0027 | 0.0162 | 5.6e-17 |
+| 16 | 0.0234 | 0.0431 | 1.7e-16 |
+| 18 | 0.0973 | 0.0600 | 6.6e-12 |
+| 20 | 0.4053 | 0.0921 | 7.8e-10 |
 
 ## 凸ゲームの手法 (`coopgame::nucleolus::convex`)
 
@@ -218,19 +218,21 @@ Faigle, Kern & Kuipers (2001) の楕円体法に基づく手法は、論文の�
 
 ## 有理数で構築したゲーム
 
-浮動小数点数の和で作ったゲーム (`random_superadditive`) では、有理数では等しいはずの値の間に丸め誤差が残る。
+値を浮動小数点数の和で作ったゲームでは、有理数では等しいはずの値の間に丸め誤差が残る。
 そのため、LP で求めた仁でも厳密な検証 (有理数の Kohlberg 判定) に合格しないことがある
-(例: n = 4, seed 0。テスト `rational_construction_makes_certification_possible`)。次の入口で、値を有理数のまま扱える。
+(例: 優加法的な包を浮動小数点数の和で計算した n = 4, seed 0 のゲーム。テスト `rational_construction_makes_certification_possible`)。
+`generators::random_superadditive` と `random_convex` は、値を 2 のべき乗の格子にそろえて和を丸めなしに計算するので、この問題は起きない。
+次の入口で、値を有理数のまま扱える。
 
 | 入口 | 内容 |
 |---|---|
 | `game::exact::ExactGame::from_binary` / `from_lex` | 有理数の値からゲームを作る。`to_explicit` で浮動小数点数のゲームにして LP などに渡す |
 | `verify::certify_exact`、`verify::check_exact`、`Unverified::verify_exact` | 有理数のゲームの値で検証する |
-| `generators::random_superadditive_exact` | `random_superadditive` と同じ乱数で、和と最大値を有理数で計算する |
+| `generators::random_superadditive_exact` | `random_superadditive` と同じゲームを有理数のゲームとして返す |
 | `game::exact::parse_rational_values`、CLI の `certify --rational` | `0.1` を `1/10` のように 10 進数・分数の値どおりに読む |
 | Python の `certify_rational(values, x)` | 値を `Fraction`・`"8/3"`・`"0.1"` で渡す |
 
-実験の superadditive クラスは、以前は浮動小数点数で構築したゲームを使っており、「未決」が 6 個あった。有理数で構築したゲームに替えると、その 6 個は全て合格した (以前の版での一度の実行の結果で、出力は `data/` に保存していない)。
+実験の superadditive クラスは、以前は浮動小数点数の和で包を計算した生成器のゲームを使っており、「未決」が 6 個あった。有理数で構築したゲームに替えると、その 6 個は全て合格した (以前の版での一度の実行の結果で、出力は `data/` に保存していない)。
 
 ## 検証の範囲 (`coopgame::verify`)
 

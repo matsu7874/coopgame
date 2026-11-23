@@ -62,9 +62,11 @@ pub fn nucleolus(game: &ExactGame, domain: Domain) -> Result<ExactNucleolus> {
 /// 逐次 LP の第 1 段だけを解く。`seed` は最初から LP の行に入れる提携
 /// (浮動小数点の LP で最大超過を達成した提携などを渡すと、制約生成で解き直す回数が減る)。
 /// 真部分提携のない 1 人ゲームは [`Error::InvalidArgument`]。
+///
+/// 人数は [`MAX_EXACT_PLAYERS`] で制限しない (1 回の LP なので、仁より多い人数で解ける)。
+/// 人数の上限は呼び出し側で決める ([`crate::nucleolus::MAX_EXACT_CORE_PLAYERS`])。
 pub(crate) fn least_core_epsilon(game: &ExactGame, seed: &[Coalition]) -> Result<Rational> {
     let n = game.players();
-    check_players(n)?;
     if n < 2 {
         return Err(Error::InvalidArgument(
             "1 人ゲームには真部分提携がなく、最小コアの epsilon は有理数で表せない".into(),

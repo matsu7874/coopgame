@@ -51,6 +51,7 @@ cargo run --example io --features io     # io は feature `io` が要る
 | `bench_uncertainty` | 値の不確かさの分析 (`uncertainty`・`influence`) で、仁を既定の手順で解く場合と 1 回だけ解く場合の時間 |
 | `bench_convex` | 凸ゲームの手法の計測 |
 | `bench_auto_threshold` | 逐次 LP と凸ゲームの手法の時間の比較 (`auto` の切り替えの境目の根拠) |
+| `bench_properties` | 性質の判定 (`properties::is_convex`・`is_superadditive`) の時間を、許容誤差つきの浮動小数点数の判定と比べる |
 | `bench_limits` | 仁の変種と交渉集合の判定の時間と最大メモリ (プレイヤー数の上限 `nucleolus::variants::MAX_*_PLAYERS` と `bargaining::MAX_BARGAINING_SET_PLAYERS` の根拠) |
 | `study_assumption` | 凸と仮定した手法を一般のゲームに使い、事後検証で分類する |
 | `study_tolerance` | 仁の許容誤差の決め方 (既定の手順と、1 回だけ解く場合) の正しさと時間の比較。`rows` を付けると、許容誤差ごとに追加する行の数 |

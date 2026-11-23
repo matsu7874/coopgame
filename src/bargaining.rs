@@ -28,8 +28,8 @@ use microlp::Variable;
 use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::feasibility_violation;
-use crate::game::scale::check_tolerance;
-use crate::game::{Coalition, ExplicitGame, default_tolerance};
+use crate::game::scale::{check_tolerance, normalized_tolerance};
+use crate::game::{Coalition, ExplicitGame, verification_tolerance};
 use crate::lp::{self, Cmp, Counter};
 
 /// [`check`] (と [`is_in_bargaining_set`]) が扱うプレイヤー数の上限。
@@ -69,8 +69,14 @@ impl BargainingReport {
 
 /// `x` が交渉集合 (プレ交渉集合) に属するかを判定する。異議の余裕が `tolerance` 以下なら異議とみなさない。
 ///
+/// 異議の余裕は浮動小数点の LP で求めるので、`tolerance = 0` でも厳密な判定ではない。
+/// LP は、他の LP と同じく値を 2 のべき乗で割って最大絶対値を `[1, 2)` にそろえて解くので、判定は値の大きさによらない
+/// (2 のべき乗倍したゲームと配分・許容誤差では、結論も異議の支払いと余裕もちょうど同じ倍率になる)。
+///
 /// プレイヤー数が [`MAX_BARGAINING_SET_PLAYERS`] を超えれば [`Error::TooManyPlayers`]、
 /// `tolerance` が有限で 0 以上でなければ [`Error::InvalidArgument`] を返す。
+/// 異議の LP は数学的には常に実行可能で有界なので、ソルバーが実行不可能・非有界と答えたときは
+/// 異議なしとはみなさず、[`Error::Numerical`] を返す。
 pub fn check(
     game: &ExplicitGame,
     x: &[f64],
@@ -94,6 +100,13 @@ pub fn check(
     if let Some(reason) = feasibility_violation(game, x, domain, tolerance) {
         return Err(Error::InvalidArgument(format!("配分が不正: {reason}")));
     }
+    // LP ソルバーは絶対誤差で判定するので、他の LP と同じく値を 2 のべき乗で割って最大絶対値を [1, 2) にそろえて解く
+    // (2 のべき乗による乗除は丸めを生まないので、判定は値の大きさによらず、異議の余裕と支払いはちょうど元の大きさに戻る)。
+    let (normalized, divisor) = game.normalized();
+    let game = &normalized;
+    let scaled: Vec<f64> = x.iter().map(|v| v / divisor).collect();
+    let x = scaled.as_slice();
+    let tolerance = normalized_tolerance(tolerance, divisor)?;
     let mut counter = Counter::default();
     let grand = game.grand();
     for objector in 0..n {
@@ -110,17 +123,16 @@ pub fn check(
                 if excess <= tolerance {
                     continue;
                 }
-                if let Some((margin, payoff)) =
-                    best_objection(game, x, objector, target, coalition, &mut counter)?
-                    && margin > tolerance
-                {
+                let (margin, payoff) =
+                    best_objection(game, x, objector, target, coalition, &mut counter)?;
+                if margin > tolerance {
                     return Ok(BargainingReport {
                         objection: Some(Objection {
                             objector,
                             target,
                             coalition,
-                            payoff,
-                            margin,
+                            payoff: payoff.iter().map(|v| v * divisor).collect(),
+                            margin: margin * divisor,
                         }),
                         lp_solves: counter.solves,
                     });
@@ -134,10 +146,11 @@ pub fn check(
     })
 }
 
-/// 既定の許容誤差 (`1e-7 * max |v|` の 10 倍。全ての値が 0 なら `1e-6`) で判定する。
+/// 検証の既定の許容誤差 ([`crate::game::verification_tolerance`]、`max|v(S)|` の `1e-11` 倍) で判定する。
+/// Kohlberg 基準 ([`crate::verify::kohlberg`]) やカーネル条件の既定と同じ幅である。
 /// プレイヤー数の上限は [`check`] と同じ。
 pub fn is_in_bargaining_set(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<bool> {
-    Ok(check(game, x, domain, 10.0 * default_tolerance(game))?.is_member())
+    Ok(check(game, x, domain, verification_tolerance(game))?.is_member())
 }
 
 /// 異議の余裕 `delta` を最大化する。最適値と、そのときの `y` (`S` 以外は `x`) を返す。
@@ -148,7 +161,7 @@ fn best_objection(
     target: usize,
     coalition: Coalition,
     counter: &mut Counter,
-) -> Result<Option<(f64, Vec<f64>)>> {
+) -> Result<(f64, Vec<f64>)> {
     let n = game.players();
     let mut problem = lp::maximize();
     let y: Vec<Option<Variable>> = (0..n)
@@ -192,13 +205,17 @@ fn best_objection(
             game.value(counter_coalition) - outside,
         );
     }
+    // delta を十分小さくすれば全ての行を満たすので、LP は常に実行可能で、
     // y_k >= x_k + delta と y(S) = v(S) から delta <= e(S, x) / abs(S) で有界。
-    Ok(counter.solve(&problem)?.map(|solution| {
-        let payoff = (0..n)
-            .map(|k| y[k].map_or(x[k], |var| solution[var]))
-            .collect();
-        (solution[delta], payoff)
-    }))
+    // ソルバーが実行不可能・非有界と答えたら数値的な失敗なので、異議なしとはみなさずエラーにする。
+    let solution = counter.solve_feasible(
+        &problem,
+        &format!("プレイヤー {objector} の {target} への提携 {coalition} での異議の LP "),
+    )?;
+    let payoff = (0..n)
+        .map(|k| y[k].map_or(x[k], |var| solution[var]))
+        .collect();
+    Ok((solution[delta], payoff))
 }
 
 #[cfg(test)]
@@ -225,6 +242,33 @@ mod tests {
         assert_eq!((objection.objector, objection.target), (1, 0));
         assert_eq!(objection.coalition, Coalition::from_players(&[1, 2]));
         assert!(objection.payoff[1] > 0.4 && objection.payoff[2] > 0.4);
+    }
+
+    #[test]
+    fn judgment_does_not_depend_on_the_scale_of_values() {
+        // LP ソルバーは絶対誤差 (1e-10) で判定するので、値を正規化せずに解くと、値の小さいゲームでは
+        // 異議の余裕が誤差に埋もれていた。2 のべき乗倍したゲームでは、判定も異議の支払いもちょうど同じ倍率になる。
+        let reference = check(&majority(), &[0.6, 0.4, 0.0], Domain::Imputation, 1e-12).unwrap();
+        let reference = reference.objection.expect("正当な異議がある");
+        for power in [-60, -40, -20, 20, 40] {
+            let scale = 2f64.powi(power);
+            let values: Vec<f64> = majority().values()[1..].iter().map(|v| v * scale).collect();
+            let game = ExplicitGame::from_binary(&values).unwrap();
+            let x: Vec<f64> = [0.6, 0.4, 0.0].iter().map(|v| v * scale).collect();
+            let report = check(&game, &x, Domain::Imputation, 1e-12 * scale).unwrap();
+            let objection = report.objection.unwrap_or_else(|| panic!("2^{power} 倍"));
+            assert_eq!(
+                (objection.objector, objection.target),
+                (1, 0),
+                "2^{power} 倍"
+            );
+            assert_eq!(objection.margin, reference.margin * scale, "2^{power} 倍");
+            let third = [scale / 3.0; 3];
+            assert!(
+                is_in_bargaining_set(&game, &third, Domain::Imputation).unwrap(),
+                "2^{power} 倍"
+            );
+        }
     }
 
     #[test]

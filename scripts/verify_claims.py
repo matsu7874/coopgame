@@ -481,6 +481,30 @@ def verify_uncertainty_bench():
     check(doc, "解き直した influence の時間の比の範囲", (round(min(ratios)), round(max(ratios))), (30, 109))
 
 
+PROPERTY_GAMES = [("`\\|S\\|^2`", "square"), ("加法的 (`w_i = i + 1`)", "additive-integer"),
+                  ("加法的 (`1e9` まで)", "additive-integer-1e9"), ("対称", "symmetric"), ("`random_convex`", "convex")]
+
+
+def verify_properties_bench():
+    doc = "docs/performance.md"
+    rows = read("data/bench/properties.csv")
+    labels = dict(PROPERTY_GAMES)
+    for cells in doc_table(doc, "| ゲーム | n | 浮動小数点数の判定 (秒)", [label for label, _ in PROPERTY_GAMES], 4):
+        game = labels[cells[0]]
+        group = [r for r in rows if r["game"] == game and r["property"] == "convex"]
+        check(doc, f"性質の判定 {game} の人数", [r["n"] for r in group], cells[1].split("・"))
+        for column, text in (("float_seconds", cells[2]), ("exact_seconds", cells[3])):
+            for r, shown in zip(group, text.split("・")):
+                check(doc, f"性質の判定 {game} n = {r['n']} の {column} (有効数字 2 桁)",
+                      float(f"{float(r[column]):.2g}"), float(shown))
+    check(doc, "性質の判定: どのゲームも凸かつ優加法的と判定した", all(r["result"] == "true" for r in rows), True)
+    m = doc_match(doc, r"厳密な判定の時間は浮動小数点数の判定の ([\d.]+)〜([\d.]+) 倍だった")
+    if m:
+        ratios = [float(r["exact_seconds"]) / float(r["float_seconds"]) for r in rows]
+        check_number(doc, "性質の判定の時間の比の最小", m.group(1), min(ratios))
+        check_number(doc, "性質の判定の時間の比の最大", m.group(2), max(ratios))
+
+
 def verify_guarantees():
     doc = "docs/guarantees.md"
     rows = read("data/analysis/assumption-study.csv")
@@ -593,7 +617,7 @@ TOLERANCE_KEYS = [
     ("整数 (下限、scale = 1e7)", "3-6"), ("整数 (下限、scale = 1e9)", "3-6"), ("整数 (下限、scale = 1e10)", "3-6"),
     ("整数 (scale = 1e7)", "7-8"), ("整数 (scale = 1e9)", "7-8"), ("整数 (scale = 1e7)", "9-10"), ("整数 (scale = 1e9)", "9-10"),
     ("整数 (scale = 1e6)", "11-14"), ("整数 (scale = 1e7)", "11-14"), ("整数 (scale = 1e8)", "11-14"), ("整数 (scale = 1e9)", "11-14"),
-    ("BNF タイプ 1・2・4", "3-6、11-14、16-20"), ("凸", "11-14、16-20"),
+    ("BNF タイプ 1・2・4", "3-6、11-14、16-20"), ("凸", "11-14、16-20"), ("優加法的", "3-6、11-14"),
 ]
 
 
@@ -603,6 +627,8 @@ def tolerance_families(label):
         return ["bnf1", "bnf2", "bnf4"]
     if label == "凸":
         return ["convex"]
+    if label == "優加法的":
+        return ["superadditive"]
     m = re.fullmatch(r"整数 \((下限、)?scale = ([\de・]+)\)", label)
     prefix = "lower" if m.group(1) else "integer"
     return [f"{prefix}-{'1e0' if s == '1' else s}" for s in m.group(2).split("・")]
@@ -660,13 +686,12 @@ def verify_tolerance_study():
         check(doc, "scale = 1e9 の 7-8 人のゲーム数", r["games"], m.group(1))
         check_number(doc, "scale = 1e9 の 7-8 人の合計の秒 (1 回だけ解く)", m.group(2), float(r["fixed_seconds"]))
         check_number(doc, "scale = 1e9 の 7-8 人の合計の秒 (既定)", m.group(3), float(r["auto_seconds"]))
-    m = doc_match(doc, r"浮動小数点数の和で作った優加法的なゲーム \((\d+-\d+) 人、(\d+) 個\) は、どちらの解き方でも (\d+) 個が厳密な検証に合格し、(\d+) 個が合格しなかった。\n\s*既定の手順は (\d+) 個とも解き直していない")
+    m = doc_match(doc, r"優加法的なゲームは `generators::random_superadditive` で作った[^\n]*\n\s*(\d+-\d+) 人の (\d+) 個は、どちらの解き方でも全て厳密な検証に合格した")
     if m:
-        r = rows[("superadditive-float", m.group(1))]
-        check(doc, "浮動小数点数の和の優加法的なゲーム (数, 合格, 不合格, 解き直さなかった数)",
-              tuple(int(g) for g in m.groups()[1:]),
-              (int(r["games"]), int(r["fixed_correct"]) if r["fixed_correct"] == r["auto_correct"] else -1,
-               int(r["games"]) - int(r["auto_correct"]), int(r["games"]) - int(r["refined"])))
+        r = rows[("superadditive", m.group(1))]
+        check(doc, "優加法的なゲーム (数, 1 回だけ解く: 合格, 既定: 合格)",
+              (int(r["games"]), int(r["fixed_correct"]), int(r["auto_correct"])),
+              (int(m.group(2)),) * 3)
 
 
 def verify_refinement_rows():
@@ -1057,12 +1082,12 @@ def verify_guarantees_text():
 
 # 照合した項目の数の下限。照合の関数が表や記述を見失って何も照合しなくなったときに気づくため。
 # 照合を足したり外したりしたら、出力の最後に表示する数に合わせて更新する。
-MIN_CHECKS = 429
+MIN_CHECKS = 480
 
 
 def run_all():
     for verify in (verify_comparison, verify_phase2_bench, verify_oracle_bench, verify_oracle_tolerance, verify_uncertainty_bench,
-                   verify_voting_bench, verify_certified, verify_sampled, verify_guarantees, verify_exact_solver,
+                   verify_voting_bench, verify_properties_bench, verify_certified, verify_sampled, verify_guarantees, verify_exact_solver,
                    verify_variant_limits, verify_tolerance_study, verify_refinement_rows, verify_exact_integer,
                    verify_auto_constants, verify_comparison_text, verify_variants_text, verify_values_text,
                    verify_variants_record, verify_hadamard_primes, verify_prekernel_study, verify_performance_text,
@@ -1094,6 +1119,7 @@ SELF_TEST_TABLES = [
     ("docs/performance.md", "| n | 仁 (制約生成) | 追加した行"),
     ("docs/performance.md", "| ゲーム | n | seed 数 | 時間 | 段の数"),
     ("docs/performance.md", "| 対象 | 上限 | 上限の人数での最大"),
+    ("docs/performance.md", "| ゲーム | n | 浮動小数点数の判定 (秒)"),
     ("docs/guarantees.md", "| n | 逐次 LP (秒)"),
     ("docs/guarantees.md", "| ゲーム | n | 時間 (秒) | 周回"),
     ("docs/guarantees.md", "| クラス | ゲーム数 | 実際に凸"),

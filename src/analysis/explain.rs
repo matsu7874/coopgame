@@ -14,8 +14,8 @@ use std::fmt::Write as _;
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::allocation::allocation_defect;
-use crate::game::excess_table;
+use crate::game::allocation::{ExactExcess, allocation_defect, efficient_within};
+use crate::game::scale::check_tolerance;
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::nucleolus;
 
@@ -26,8 +26,13 @@ pub struct ExplainOptions {
     pub levels: usize,
     /// 1 つの段に列挙する提携の数の上限 (数は `count` に全て数える)。
     pub max_listed: usize,
-    /// 同じ段とみなす超過の差。`None` なら [`default_tolerance`] の 10 倍。
+    /// 同じ段とみなす超過の差 (表示のための幅)。`None` なら [`default_tolerance`] の 10 倍。
+    /// コアに属するかの判定には使わない ([`ExplainOptions::core_tolerance`])。
     pub tolerance: Option<f64>,
+    /// コアに属するかの判定で、効率性の差と超過を 0 とみなす幅 (値の単位)。既定は 0 で、ゲームの値と配分を
+    /// f64 の 2 進数の値どおりの有理数として読んだ厳密な判定 ([`crate::properties::is_in_core`] と同じ)。
+    /// 浮動小数点数で表した配分 (`1/3` を丸めた値など) をコアの点を丸めたものとして扱うときは、丸めの分を指定する。
+    pub core_tolerance: f64,
 }
 
 impl Default for ExplainOptions {
@@ -36,6 +41,7 @@ impl Default for ExplainOptions {
             levels: 3,
             max_listed: 10,
             tolerance: None,
+            core_tolerance: 0.0,
         }
     }
 }
@@ -78,9 +84,15 @@ pub struct Report {
     /// 最小コアの値 (準配分で最大超過を最小化した値)。`max_excess` がこれに等しい配分は最小コアに属する。
     /// 真部分提携のない 1 人ゲームでは定まらないので `None`。
     pub least_core_epsilon: Option<f64>,
-    /// 効率性 (`efficiency_gap` が 0) と、全ての超過が 0 以下であることを、どちらも `tolerance` の範囲で満たすか。
+    /// コアに属するか: `efficient` で、`blocking_coalitions` が 0。
     pub in_core: bool,
-    /// 判定に使った許容誤差 (超過と `efficiency_gap` を 0 とみなす幅、同じ段とみなす超過の差)。
+    /// 効率性 `|x(N) - v(N)| <= core_tolerance` を値どおりの有理数で満たすか。
+    pub efficient: bool,
+    /// 超過が `core_tolerance` を超える提携の数 (値どおりの有理数で判定)。
+    pub blocking_coalitions: usize,
+    /// コアの判定に使った許容誤差 (0 なら厳密な判定)。
+    pub core_tolerance: f64,
+    /// 同じ段とみなした超過の差 (表示のための幅)。
     pub tolerance: f64,
     pub levels: Vec<Level>,
     pub players: Vec<PlayerReport>,
@@ -103,11 +115,13 @@ fn check_allocation(game: &ExplicitGame, x: &[f64]) -> Result<()> {
 pub fn report(game: &ExplicitGame, x: &[f64], options: ExplainOptions) -> Result<Report> {
     let n = game.players();
     check_allocation(game, x)?;
+    let core_tolerance = check_tolerance(options.core_tolerance)?;
     let tolerance = options
         .tolerance
         .unwrap_or_else(|| 10.0 * default_tolerance(game));
     let full = game.grand().0;
-    let excess = excess_table(game, x);
+    let core = CoreCheck::new(game, x, core_tolerance);
+    let excess = core.excess.table();
     let mut order: Vec<u64> = (1..full).collect();
     order.sort_by(|a, b| {
         excess[*b as usize]
@@ -173,7 +187,10 @@ pub fn report(game: &ExplicitGame, x: &[f64], options: ExplainOptions) -> Result
         efficiency_gap,
         max_excess,
         least_core_epsilon,
-        in_core: efficiency_gap.abs() <= tolerance && max_excess <= tolerance,
+        in_core: core.efficient && core.blocking == 0,
+        efficient: core.efficient,
+        blocking_coalitions: core.blocking,
+        core_tolerance,
         tolerance,
         levels,
         players,
@@ -191,8 +208,8 @@ pub fn render(report: &Report) -> String {
             p.player, p.payoff, p.standalone, p.gain
         );
     }
-    let efficient = report.efficiency_gap.abs() <= report.tolerance;
-    let blocked = report.max_excess > report.tolerance;
+    let efficient = report.efficient;
+    let blocked = report.blocking_coalitions > 0;
     if !efficient {
         let _ = writeln!(
             out,
@@ -218,6 +235,30 @@ pub fn render(report: &Report) -> String {
         }
     };
     let _ = writeln!(out, "  {largest}{verdict}");
+    if report.core_tolerance == 0.0 {
+        let _ = writeln!(
+            out,
+            "  (コアの判定は、ゲームの値と配分を 2 進数の値どおりに読んだ厳密な判定。"
+        );
+        if !report.in_core
+            && report.efficiency_gap.abs() <= report.tolerance
+            && report.max_excess <= report.tolerance
+        {
+            let _ = writeln!(
+                out,
+                "  和の差と超過はどれも {:e} 以下なので、浮動小数点数の丸めの分を許すなら許容誤差を指定する。)",
+                report.tolerance
+            );
+        } else {
+            let _ = writeln!(out, "  許容誤差を指定すると、その幅まで許して判定する。)");
+        }
+    } else {
+        let _ = writeln!(
+            out,
+            "  (コアの判定は、和の差と超過を {:e} まで 0 とみなした判定。)",
+            report.core_tolerance
+        );
+    }
     match report.least_core_epsilon {
         Some(epsilon) => {
             let _ = writeln!(
@@ -277,17 +318,57 @@ pub fn render(report: &Report) -> String {
 pub struct Comparison {
     pub allocation: Vec<f64>,
     pub max_excess: f64,
+    /// コアに属するか (効率性と、全ての超過が `core_tolerance` 以下。値どおりの有理数で判定)。
     pub in_core: bool,
-    /// 超過が正の提携の数 (離脱で得をする提携の数)。
+    /// 超過が `core_tolerance` を超える提携の数 (離脱で得をする提携の数)。
     pub blocking_coalitions: usize,
+    /// 効率性 `|x(N) - v(N)| <= core_tolerance` を値どおりの有理数で満たすか。
+    pub efficient: bool,
+    /// コアの判定に使った許容誤差 (0 なら厳密な判定)。
+    pub core_tolerance: f64,
+}
+
+/// コアに属するかの判定 (値どおりの有理数で、許容誤差 `core_tolerance` と比べる)。
+struct CoreCheck<'a> {
+    excess: ExactExcess<'a>,
+    efficient: bool,
+    /// 超過が許容誤差を超える提携 (全体提携を除く) の数。
+    blocking: usize,
+}
+
+impl<'a> CoreCheck<'a> {
+    fn new(game: &'a ExplicitGame, x: &'a [f64], core_tolerance: f64) -> CoreCheck<'a> {
+        let excess = ExactExcess::new(game, x, core_tolerance);
+        let blocking = (1..game.grand().0)
+            .filter(|&mask| excess.exceeds(Coalition(mask)))
+            .count();
+        CoreCheck {
+            excess,
+            efficient: efficient_within(game.value(game.grand()), x, core_tolerance),
+            blocking,
+        }
+    }
 }
 
 /// 複数の配分を、安定性の指標で比べる。結果は `candidates` と同じ順。
 ///
+/// コアの判定は値どおりの有理数による厳密な判定 (許容誤差 0)。許容誤差を指定するときは [`compare_within`]。
+///
 /// 長さがプレイヤー数と異なるか、有限でない成分 (NaN・無限大) を持つ配分があれば、
 /// その位置 (0 始まり) を示した [`Error::InvalidArgument`]。
 pub fn compare(game: &ExplicitGame, candidates: &[Vec<f64>]) -> Result<Vec<Comparison>> {
-    let tolerance = 10.0 * default_tolerance(game);
+    compare_within(game, candidates, 0.0)
+}
+
+/// コアの判定の許容誤差 `core_tolerance` (値の単位) を指定した [`compare`]。
+///
+/// `core_tolerance` が有限で 0 以上でないときは [`Error::InvalidArgument`]。
+pub fn compare_within(
+    game: &ExplicitGame,
+    candidates: &[Vec<f64>],
+    core_tolerance: f64,
+) -> Result<Vec<Comparison>> {
+    check_tolerance(core_tolerance)?;
     candidates
         .iter()
         .enumerate()
@@ -299,15 +380,16 @@ pub fn compare(game: &ExplicitGame, candidates: &[Vec<f64>]) -> Result<Vec<Compa
                 other => other,
             })?;
             // 超過だけで決まる指標なので、最小コアの LP を解く report は使わない。
-            let all = excess_table(game, x);
-            let proper = &all[1..game.grand().index()];
+            let core = CoreCheck::new(game, x, core_tolerance);
+            let proper = &core.excess.table()[1..game.grand().index()];
             let max_excess = proper.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-            let efficiency_gap = x.iter().sum::<f64>() - game.value(game.grand());
             Ok(Comparison {
                 allocation: x.clone(),
                 max_excess,
-                in_core: efficiency_gap.abs() <= tolerance && max_excess <= tolerance,
-                blocking_coalitions: proper.iter().filter(|&&e| e > tolerance).count(),
+                in_core: core.efficient && core.blocking == 0,
+                blocking_coalitions: core.blocking,
+                efficient: core.efficient,
+                core_tolerance,
             })
         })
         .collect()
@@ -332,8 +414,10 @@ pub fn render_comparison(rows: &[Comparison]) -> String {
             row.max_excess,
             if row.in_core {
                 "属する"
-            } else {
+            } else if row.efficient {
                 "属さない"
+            } else {
+                "属さない (和が v(N) と異なる)"
             },
             row.blocking_coalitions
         );
@@ -405,15 +489,53 @@ mod tests {
     fn notice_uses_same_tolerance_as_core_check() {
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
         let options = ExplainOptions {
-            tolerance: Some(1e-6),
+            core_tolerance: 1e-6,
             ..ExplainOptions::default()
         };
         let report = report(&game, &[2.0 + 1e-8, 2.0, 0.0], options).unwrap();
         assert!(report.in_core);
-        assert_eq!(report.tolerance, 1e-6);
+        assert_eq!(report.core_tolerance, 1e-6);
         let text = render(&report);
         assert!(!text.contains("注意"), "{text}");
         assert!(text.contains("コアに属する"), "{text}");
+    }
+
+    #[test]
+    fn core_membership_is_exact_by_default() {
+        // has_nonempty_core が偽 (コアが空) の 3 人多数決に近いゲーム: v(ij) = 1e8 + 6、v(N) = 1.5e8。
+        // 以前は 10 * 1e-7 * max|v| = 150 の幅で判定し、超過 6 の等分を「コアに属する」としていた。
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1e8 + 6.0, 1e8 + 6.0, 1e8 + 6.0, 1.5e8])
+            .unwrap();
+        assert!(!crate::nucleolus::has_nonempty_core(&game).unwrap());
+        let x = [5e7; 3];
+        let report = report(&game, &x, ExplainOptions::default()).unwrap();
+        assert!(!report.in_core);
+        assert_eq!(report.blocking_coalitions, 3);
+        assert_eq!(report.core_tolerance, 0.0);
+        let rows = compare(&game, &[x.to_vec()]).unwrap();
+        assert!(!rows[0].in_core);
+        // 許容誤差を明示すれば、その幅で判定する。
+        assert!(compare_within(&game, &[x.to_vec()], 6.0).unwrap()[0].in_core);
+        let options = ExplainOptions {
+            core_tolerance: 6.0,
+            ..ExplainOptions::default()
+        };
+        assert!(super::report(&game, &x, options).unwrap().in_core);
+        // 和が丸めで v(N) と異なる配分 (1/3 の丸め) は、厳密な判定では属さず、説明に丸めの注記が付く。
+        let third = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]).unwrap();
+        let x = [1.0 / 3.0; 3];
+        let report = super::report(&third, &x, ExplainOptions::default()).unwrap();
+        assert!(!report.efficient && !report.in_core);
+        assert!(
+            render(&report).contains("丸めの分を許すなら"),
+            "{}",
+            render(&report)
+        );
+        assert!(compare_within(&third, &[x.to_vec()], 1e-15).unwrap()[0].in_core);
+        assert!(matches!(
+            compare_within(&third, &[x.to_vec()], f64::NAN),
+            Err(Error::InvalidArgument(_))
+        ));
     }
 
     /// NaN・無限大を含む配分は、超過の最大 (`f64::max` は NaN を捨てる) などが誤った値になるのでエラーにする。

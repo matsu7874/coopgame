@@ -1,5 +1,5 @@
 //! コアが空でないかの判定 (`nucleolus::has_nonempty_core`) を、最小コアの `epsilon` の絶対値が
-//! 許容誤差 (`1e-7 max|v|`) 以下のゲームで確かめる。
+//! 許容誤差 (`1e-7 max|v|`) 以下のゲームで確かめる。判定は値どおりの有理数で、0 と比べる。
 //!
 //! どのゲームも、`epsilon` の値を手計算で求められるものを使う。
 
@@ -97,25 +97,53 @@ fn games_whose_epsilon_is_exactly_zero_have_nonempty_core() {
 }
 
 #[test]
-fn epsilon_within_input_rounding_counts_as_zero() {
+fn epsilon_is_compared_with_zero_on_exact_values() {
     // 2 人ゲーム v({0}) = 0.1, v({1}) = 0.2, v(N) = 0.3。10 進数では加法的でコアは 1 点だが、
     // f64 の値どおりの有理数では 0.1 + 0.2 = 0.3000000000000000166... > 0.3 = 0.2999999999999999888... となり、
-    // epsilon は 1.4e-17 だけ正になる。入力の丸めの大きさ (4 n ε max|v| = 5.3e-16) 以下なので空でないとする。
+    // epsilon は 1.4e-17 だけ正なのでコアは空 (以前は入力の丸めの大きさ以下の正の epsilon を 0 とみなしていた)。
     let decimal = ExplicitGame::from_binary(&[0.1, 0.2, 0.3]).unwrap();
-    assert!(nucleolus::has_nonempty_core(&decimal).unwrap());
+    assert!(!nucleolus::has_nonempty_core(&decimal).unwrap());
+    // 丸めの分を許すときは許容誤差を明示する。
+    assert!(nucleolus::has_nonempty_core_within(&decimal, 1e-15).unwrap());
+    // v(N) を浮動小数点数の和で作れば、値どおりでも加法的。
     let rounded_sum = ExplicitGame::from_binary(&[0.1, 0.2, 0.1 + 0.2]).unwrap();
     assert!(nucleolus::has_nonempty_core(&rounded_sum).unwrap());
-    // 丸めの大きさを超える正の epsilon は、許容誤差 (1e-7 max|v|) より小さくても空と判定する。
-    // v(N) = 0.3 - 1e-12 なら epsilon = 5e-13 で、丸めの大きさ 5.3e-16 を超える。
     let short = ExplicitGame::from_binary(&[0.1, 0.2, 0.3 - 1e-12]).unwrap();
     assert!(!nucleolus::has_nonempty_core(&short).unwrap());
+    assert!(!nucleolus::has_nonempty_core_within(&short, 1e-13).unwrap());
+    assert!(nucleolus::has_nonempty_core_within(&short, 1e-12).unwrap());
+    for tolerance in [f64::NAN, -1.0, f64::INFINITY] {
+        assert!(matches!(
+            nucleolus::has_nonempty_core_within(&short, tolerance),
+            Err(coopgame::Error::InvalidArgument(_))
+        ));
+    }
 }
 
 #[test]
-fn above_exact_limit_epsilon_within_tolerance_counts_as_nonempty() {
-    // 厳密に判定する人数を超えると、epsilon (= 1) が許容誤差 (10 n) 以下なら空でないとする。
+fn above_exact_limit_undecidable_band_is_an_error() {
+    // 10 人の対称ゲーム: 9 人の提携が 9e8 + 1、全体が 1e9。epsilon = 1 > 0 でコアは空だが、
+    // 許容誤差の帯 (1e-7 max|v| = 100) の中にある。以前は人数が上限を超えると黙って true を返していた。
     let n = MAX_EXACT_CORE_PLAYERS + 1;
-    assert!(nucleolus::has_nonempty_core(&symmetric_game(n, 1.0)).unwrap());
-    // 許容誤差を超える epsilon は、人数によらず空と判定する。
+    let game = symmetric_game(n, 1.0);
+    let result = nucleolus::has_nonempty_core(&game);
+    assert!(
+        matches!(&result, Err(coopgame::Error::LimitExceeded(m)) if m.contains("has_nonempty_core_within")),
+        "{result:?}"
+    );
+    // 許容誤差を明示すれば判定できる。
+    assert!(nucleolus::has_nonempty_core_within(&game, 10.0 * n as f64).unwrap());
+    assert!(!nucleolus::has_nonempty_core_within(&game, 0.5).unwrap());
+    // 帯の中でも、コアの点が 2 進数で表せるゲームは、その点で空でないと確定する。
+    assert!(nucleolus::has_nonempty_core(&symmetric_game(n, 0.0)).unwrap());
+    assert!(nucleolus::has_nonempty_core(&symmetric_game(16, 0.0)).unwrap());
+    for (n, left) in [(10, 5), (12, 6), (14, 4)] {
+        assert!(
+            nucleolus::has_nonempty_core(&glove_game(n, left)).unwrap(),
+            "手袋 {left} / {n}"
+        );
+    }
+    // 帯の外は人数によらず符号で決まる。
     assert!(!nucleolus::has_nonempty_core(&symmetric_game(n, 100.0 * n as f64)).unwrap());
+    assert!(nucleolus::has_nonempty_core(&symmetric_game(n, -100.0 * n as f64)).unwrap());
 }

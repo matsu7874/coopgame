@@ -1,7 +1,10 @@
 //! 配分に関する基本的な計算: 配分を探す領域 ([`Domain`])、提携ごとの和 `x(S)` と超過、
 //! 配分が領域に入るかの判定。解の手法・検証・分析が共有する。
 
+use std::cmp::Ordering;
+
 use crate::error::{Error, Result};
+use crate::game::exact_sum::{filtered_sign, sum_sign};
 use crate::game::{Coalition, ExplicitGame, PlayerSet, SetFunction};
 
 /// 配分を探す領域。
@@ -36,6 +39,72 @@ pub(crate) fn excess_table(game: &ExplicitGame, x: &[f64]) -> Vec<f64> {
         *e = value - *e;
     }
     excess
+}
+
+/// 効率性 `|x(N) - v(N)| <= tolerance` を、値を f64 の 2 進数の値どおりの有理数として読んで判定する。
+///
+/// `x` と `grand` と `tolerance` は有限であること。
+pub(crate) fn efficient_within(grand: f64, x: &[f64], tolerance: f64) -> bool {
+    let mut above: Vec<f64> = x.to_vec();
+    above.push(-grand);
+    above.push(-tolerance);
+    if sum_sign(&above) == Ordering::Greater {
+        return false;
+    }
+    let mut below: Vec<f64> = x.iter().map(|v| -v).collect();
+    below.push(grand);
+    below.push(-tolerance);
+    sum_sign(&below) != Ordering::Greater
+}
+
+/// 超過 `e(S, x) = v(S) - x(S)` が `tolerance` を超える提携を、値どおりの有理数で判定する。
+///
+/// 浮動小数点数の超過の表 ([`excess_table`]) で符号が丸めによらず決まる提携はそれで決め、
+/// 決まらない提携だけ有理数で和を取る。`x` と `tolerance` とゲームの値は有限であること。
+pub(crate) struct ExactExcess<'a> {
+    game: &'a ExplicitGame,
+    x: &'a [f64],
+    excess: Vec<f64>,
+    /// `Σ|x_i| + tolerance` (浮動小数点数の超過の誤差の上限に使う)。
+    magnitude: f64,
+    tolerance: f64,
+}
+
+impl<'a> ExactExcess<'a> {
+    pub(crate) fn new(game: &'a ExplicitGame, x: &'a [f64], tolerance: f64) -> ExactExcess<'a> {
+        let magnitude = x.iter().map(|v| v.abs()).sum::<f64>() + tolerance;
+        ExactExcess {
+            game,
+            x,
+            excess: excess_table(game, x),
+            magnitude,
+            tolerance,
+        }
+    }
+
+    /// 浮動小数点数で計算した超過の表。
+    pub(crate) fn table(&self) -> &[f64] {
+        &self.excess
+    }
+
+    /// `e(S, x) > tolerance` か。
+    pub(crate) fn exceeds(&self, coalition: Coalition) -> bool {
+        let index = coalition.index();
+        let value = self.game.value(coalition);
+        // x(S) は |S| - 1 回、超過と許容誤差との差でさらに 2 回丸める。
+        let filtered = filtered_sign(
+            self.excess[index] - self.tolerance,
+            self.magnitude + value.abs(),
+            self.x.len() + 3,
+        );
+        let sign = filtered.unwrap_or_else(|| {
+            let mut terms: Vec<f64> = coalition.members().map(|i| -self.x[i]).collect();
+            terms.push(value);
+            terms.push(-self.tolerance);
+            sum_sign(&terms)
+        });
+        sign == Ordering::Greater
+    }
 }
 
 /// 配分の長さがプレイヤー数 `n` と等しいことを確かめる (release でも確かめる)。

@@ -7,6 +7,8 @@
 //! - 仁の配分集合が空なら否定する。空かどうかの判定は、浮動小数点数のゲームでは逐次 LP と揃え、
 //!   有理数のゲームでは有理数で行う。
 
+mod common;
+
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -14,7 +16,7 @@ use coopgame::game::exact::{ExactGame, Rational};
 use coopgame::nucleolus;
 use coopgame::properties::Assume;
 use coopgame::verify::{self, Check, Reference, Verified, VerifyOptions};
-use coopgame::{Domain, Error, ExplicitGame, Guarantee, generators};
+use coopgame::{Domain, Error, ExplicitGame, Guarantee};
 
 fn r(numerator: i64, denominator: i64) -> Rational {
     Rational::new(numerator.into(), denominator.into())
@@ -353,7 +355,7 @@ fn refined_lp_reference_refutes_points_beyond_tolerance() {
 /// Kohlberg 判定に合格した LP の仁が基準になる。基準との差が許容誤差の 100 倍以下の点は未決、それを超える点は否定する。
 #[test]
 fn point_is_judged_against_float_verified_reference() {
-    let game = generators::random_superadditive(4, 0).unwrap();
+    let game = common::float_sum_superadditive(4, 0);
     let lp = nucleolus::nucleolus(&game).unwrap().into_allocation();
     assert!(
         !verify::certify(&game, &lp, Domain::Imputation)

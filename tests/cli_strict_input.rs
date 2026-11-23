@@ -259,14 +259,24 @@ fn power_leaves_undefined_indices_empty() {
     assert!(run.stderr.contains("johnston"), "{}", run.stderr);
 }
 
-/// verify のカーネルの判定は、Kohlberg 基準と同じ許容誤差 (既定の許容誤差の 10 倍) を使い、
-/// 仁 (カーネルに含まれる) と判定した配分をカーネルの外と判定しない。
+/// verify のカーネルの判定は、Kohlberg 基準と同じ許容誤差 (既定は検証の許容誤差 max|v(S)| の 1e-11 倍) を使い、
+/// 仁 (カーネルに含まれる) と判定した配分をカーネルの外と判定しない。使った許容誤差を出す。
 #[test]
 fn verify_judges_kernel_with_kohlberg_tolerance() {
     let cli = Cli::new("verify_kernel_tolerance");
     cli.file("v.txt", V_TXT)
         .file("x.txt", "3.000001\n1.999999\n1\n");
+    // 仁 (3, 2, 1) から 1e-6 ずれた配分は、既定の許容誤差ではどちらの判定でも不合格。
     let output = cli.run(&["verify", "v.txt", "x.txt"]).output().to_string();
+    assert!(output.contains("tolerance=6e-11"), "{output}");
+    assert!(output.contains("kohlberg=false"), "{output}");
+    assert!(output.contains("kernel=false"), "{output}");
+    // 許容誤差を明示すると、どちらの判定も同じ幅で合格する。
+    let output = cli
+        .run(&["verify", "v.txt", "x.txt", "--check-tolerance", "1e-5"])
+        .output()
+        .to_string();
+    assert!(output.contains("tolerance=1e-5"), "{output}");
     assert!(output.contains("kohlberg=true"), "{output}");
     assert!(output.contains("kernel=true"), "{output}");
 }

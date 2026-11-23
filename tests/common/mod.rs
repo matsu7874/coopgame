@@ -68,3 +68,28 @@ pub fn littlechild_owen(costs: &[f64]) -> Vec<f64> {
     }
     shares
 }
+
+/// 基本値 `[0, |S|)` の優加法的な包を、浮動小数点数の和で作ったゲーム
+/// (`generators::random_superadditive` の 0.6 までの作り方。同じ seed で同じ乱数を使う)。
+///
+/// 包の和に丸めが入るので、値を有理数として読むと優加法性がわずかに破れ、等しいはずの超過がずれる。
+/// 丸めのあるゲームでの検証の挙動を確かめるために使う。
+pub fn float_sum_superadditive(n: usize, seed: u64) -> coopgame::ExplicitGame {
+    let mut rng = coopgame::generators::SplitMix64::new(seed);
+    let size = 1usize << n;
+    let mut values = vec![0.0; size];
+    for (mask, value) in values.iter_mut().enumerate().skip(1) {
+        *value = rng.next_f64() * mask.count_ones() as f64;
+    }
+    for mask in 1..size {
+        let mut part = (mask - 1) & mask;
+        while part > 0 {
+            let rest = mask & !part;
+            if part < rest && values[part] + values[rest] > values[mask] {
+                values[mask] = values[part] + values[rest];
+            }
+            part = (part - 1) & mask;
+        }
+    }
+    coopgame::ExplicitGame::from_binary(&values[1..]).unwrap()
+}

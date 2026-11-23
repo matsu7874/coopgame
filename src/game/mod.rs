@@ -9,6 +9,7 @@
 pub(crate) mod allocation;
 pub(crate) mod coalition;
 pub mod exact;
+pub(crate) mod exact_sum;
 pub mod oracle;
 mod player_set;
 pub(crate) mod scale;
@@ -205,6 +206,22 @@ impl ExplicitGame {
 /// (値の小さいゲームでも許容誤差が値を上回らない)。
 pub fn default_tolerance(game: &ExplicitGame) -> f64 {
     relative_tolerance(game, 1e-7)
+}
+
+/// 浮動小数点数の配分を検証する判定の既定の許容誤差の比 (`max|v(S)|` に対する比)。
+///
+/// Kohlberg 基準 ([`crate::verify::kohlberg`])、カーネル条件 (CLI の `verify`、Python の `is_in_kernel`)、
+/// 交渉集合 ([`crate::bargaining::is_in_bargaining_set`]) の既定はどれもこの比で、入口によらずそろえる。
+/// 仁の既定の手順が、解いた配分の Kohlberg 基準を確かめるときの許容誤差 (`1e-11` 倍、8 人以下では `1e-12` 倍) 以上なので、
+/// 既定の手順が確かめた配分は合格する。仁から値の `1e-11` 倍を超えてずれた配分は、どの判定でも不合格になりやすい。
+pub const VERIFICATION_RATIO: f64 = 1e-11;
+
+/// 浮動小数点数の配分を検証する判定の既定の許容誤差: `max|v(S)|` の [`VERIFICATION_RATIO`] 倍
+/// (全ての値が 0 なら [`VERIFICATION_RATIO`])。
+///
+/// 浮動小数点数の判定なので、合格しても解であるとは限らない。厳密な判定は [`crate::verify::certify`]。
+pub fn verification_tolerance(game: &ExplicitGame) -> f64 {
+    relative_tolerance(game, VERIFICATION_RATIO)
 }
 
 /// 値の最大絶対値 `max|v(S)|` に対する比 `ratio` の許容誤差 (全ての値が 0 なら `ratio`)。

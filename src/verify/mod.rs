@@ -33,7 +33,7 @@ pub use exact::{
     ExactReport, certify, certify_exact, kohlberg_exact, max_difference, recover_allocation,
 };
 use exact::{certify_tolerance, compare_distance};
-pub use kohlberg::{KohlbergReport, kohlberg};
+pub use kohlberg::{KohlbergReport, kohlberg, kohlberg_within};
 
 use num_traits::{Signed, Zero};
 
