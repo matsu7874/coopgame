@@ -331,6 +331,24 @@ def test_variants_documented_examples():
     assert close(coopgame.modiclus(game)["allocation"], [13 / 3, 16 / 3, 17 / 3, 17 / 3])
     young = coopgame.Game([0, 0, 0, 0, 9, 10, 12], order="lex")
     assert close(coopgame.per_capita_nucleolus(young)["allocation"], [2 / 3, 7 / 6, 61 / 6])
+    # 仁の変種は、許容誤差を指定しなければ確かめていないので approximate、指定すれば exact。
+    for solve in (
+        lambda **kw: coopgame.per_capita_nucleolus(young, **kw),
+        lambda **kw: coopgame.proportional_nucleolus(young, **kw),
+        lambda **kw: coopgame.modiclus(young, **kw),
+        lambda **kw: coopgame.disruption_nucleolus(young, **kw),
+    ):
+        default = solve()
+        assert default["guarantee"] == "approximate"
+        fixed = solve(rel_tolerance=1e-7)
+        assert fixed["guarantee"] == "exact" and fixed["allocation"] == default["allocation"]
+        assert fixed["tolerance"] == default["tolerance"]
+        assert solve(tolerance=1e-6)["tolerance"] == 1e-6
+        with pytest.raises(ValueError):
+            solve(tolerance=1e-6, rel_tolerance=1e-7)
+        # 数の引数は bool を数として読まない (Arg<T> の方針)。
+        with pytest.raises(TypeError):
+            solve(rel_tolerance=True)
     with pytest.raises(ValueError):
         coopgame.proportional_nucleolus(coopgame.Game([-1, 0, 1, 3, 4, 2, 5], order="lex"))
 
@@ -549,12 +567,20 @@ def test_explain_and_compare():
 def test_cost_games():
     costs = coopgame.Game([15, 20, 55, 35, 61, 65, 78], order="lex")
     shares = coopgame.cost_nucleolus(costs)
-    assert close(shares, [14, 18.5, 45.5], 1e-6)
+    assert close(shares["allocation"], [14, 18.5, 45.5], 1e-6)
+    assert shares["domain"] == "imputation" and shares["guarantee"] == "exact"
+    assert shares["tolerance"] > 0
+    fixed = coopgame.cost_nucleolus(costs, tolerance=1e-6)
+    assert fixed["tolerance"] == 1e-6 and fixed["guarantee"] == "exact"
     airport = coopgame.airport([1, 2, 3, 6])
     assert close(airport["shapley"], [0.25, 0.25 + 1 / 3, 0.25 + 1 / 3 + 0.5, 0.25 + 1 / 3 + 0.5 + 3])
-    assert math.isclose(sum(airport["nucleolus"]), 6, abs_tol=1e-6)
+    assert math.isclose(sum(airport["nucleolus"]["allocation"]), 6, abs_tol=1e-6)
+    assert airport["nucleolus"]["guarantee"] == "proven(convex)"
+    assert airport["nucleolus"]["domain"] == "imputation" and airport["nucleolus"]["method"] == "convex-transfer"
     tree = coopgame.spanning_tree([[0, 10, 10, 10], [10, 0, 3, 8], [10, 3, 0, 4], [10, 8, 4, 0]])
     assert tree["bird"] == [10, 3, 4] and tree["total_cost"] == 17
+    assert math.isclose(sum(tree["nucleolus"]["allocation"]), 17, abs_tol=1e-9)
+    assert tree["nucleolus"]["guarantee"] == "exact" and tree["nucleolus"]["domain"] == "imputation"
     production = coopgame.linear_production([[1, 2], [3, 1]], [4, 5], [[2, 3], [4, 1], [0, 5]])
     assert math.isclose(sum(production["owen"]), production["value"], rel_tol=1e-9)
 
@@ -681,6 +707,13 @@ def test_coalition_structures():
     assert close(coopgame.aumann_dreze(game, [[0, 1], [2, 3]]), [2.5, 2.5, 4, 4])
     result = coopgame.structured_nucleolus(game, [[0, 1], [2, 3]])
     assert math.isclose(result["allocation"][0] + result["allocation"][1], 5, abs_tol=1e-9)
+    # 2 つ以上のブロックは確かめていないので approximate。許容誤差を明示すれば 1 回だけ解いて exact。
+    assert result["guarantee"] == "approximate" and result["domain"] == "imputation"
+    fixed = coopgame.structured_nucleolus(game, [[0, 1], [2, 3]], rel_tolerance=1e-7)
+    assert fixed["guarantee"] == "exact" and fixed["allocation"] == result["allocation"]
+    # 全体 1 ブロックは仁そのものなので、nucleolus の既定と同じ。
+    grand = coopgame.structured_nucleolus(game, [[0, 1, 2, 3]])
+    assert grand == coopgame.nucleolus(game)
     with pytest.raises(ValueError):
         coopgame.owen(game, [[0, 1], [1, 2, 3]])
 

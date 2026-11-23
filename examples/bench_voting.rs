@@ -91,7 +91,14 @@ fn game(kind: &str, n: usize) -> (WeightedVotingGame, Option<Vec<f64>>) {
 fn run(kind: &str, n: usize) -> String {
     let (game, expected) = game(kind, n);
     let started = Instant::now();
-    let result = oracle::nucleolus(&game).expect("仁を求められない");
+    // 既定の許容誤差で 1 回だけ解く (data/bench/voting-oracle-*.csv を計測したときの既定の手順と同じ計算)。
+    // 既定の oracle::nucleolus は、20 人以下では全提携の表を作って Kohlberg 基準を確かめる分の時間が加わる。
+    let result = oracle::nucleolus_with(
+        &game,
+        coopgame::Domain::Imputation,
+        oracle::default_tolerance(&game),
+    )
+    .expect("仁を求められない");
     let seconds = started.elapsed().as_secs_f64();
     let error = expected.map_or("-".to_string(), |e| {
         let max = result

@@ -254,7 +254,8 @@ fn veto_games_with_many_fixed_coalitions_are_solved_quickly() {
         let started = Instant::now();
         let result = oracle_nucleolus::nucleolus(&game).unwrap();
         let seconds = started.elapsed().as_secs_f64();
-        assert_eq!(result.guarantee(), coopgame::Guarantee::Exact);
+        // 既定の手順は、Kohlberg 基準を確かめない 21 人以上の結果を approximate にする。
+        assert_eq!(result.guarantee(), coopgame::Guarantee::Approximate);
         assert_eq!(result.levels().len(), 2, "big={big} n={n}");
         assert_close(
             result.allocation(),

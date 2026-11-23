@@ -24,17 +24,18 @@ const USAGE: &str = "\
                       --cost: v.txt を費用として読み、費用の分担を出す (下の --cost)
                       --exact: 値を 10 進数・分数の値どおりの有理数として読み、有理数だけで解いて分数で出す (10 人まで)。
                                JSON・CSV の数も字面どおりに読む。--full とは併用できない
-  coopgame airport    --costs c1,c2,...   空港ゲームの費用分担 (Shapley 値と仁)
+  coopgame airport    --costs c1,c2,...   空港ゲームの費用分担 (Shapley 値と仁)。仁の手法と保証は標準エラーに出す
   coopgame plot       <v.txt> [--lex] [--no-kernel] > figure.svg
                       3-4 人の配分集合・コア・カーネル・仁・Shapley 値の図 (SVG)。頂点の表は標準エラーに出す
-  coopgame structure  <v.txt> --blocks 0,1,2|3,4|5 [--lex] [--pre]
+  coopgame structure  <v.txt> --blocks 0,1,2|3,4|5 [--lex] [--pre] [--tolerance T|auto | --rel-tolerance R]
                       提携構造 (ブロックはプレイヤーの番号を , でつなぎ | で区切る) の Aumann-Drèze 値・
-                      提携構造つきの仁、事前の連合とみなした Owen 値
+                      提携構造つきの仁、事前の連合とみなした Owen 値。提携構造つきの仁の許容誤差と保証は標準エラーに出す
   coopgame least-core <v.txt> [--pre] [--lex] [--cost]
-  coopgame per-capita   <v.txt> [--pre] [--lex]   per capita 仁
-  coopgame proportional <v.txt> [--pre] [--lex]   比例仁 (非負のゲーム)
-  coopgame modiclus     <v.txt> [--lex]           modiclus (準配分)
-  coopgame disruption   <v.txt> [--lex]           disruption nucleolus (コアが空でないゲーム)
+  coopgame per-capita   <v.txt> [--pre] [--lex] [--tolerance T|auto | --rel-tolerance R]   per capita 仁
+  coopgame proportional <v.txt> [--pre] [--lex] [--tolerance T|auto | --rel-tolerance R]   比例仁 (非負のゲーム)
+  coopgame modiclus     <v.txt> [--lex] [--tolerance T|auto | --rel-tolerance R]           modiclus (準配分)
+  coopgame disruption   <v.txt> [--lex] [--tolerance T|auto | --rel-tolerance R]
+                        disruption nucleolus (コアが空でないゲーム)
   coopgame anti-nucleolus <v.txt> [--pre] [--lex] anti-nucleolus (--pre で anti-prenucleolus)。双対ゲームの仁 (プレ仁)
   coopgame convex-nucleolus <v.txt> [--lex] [--assume [--reference auto|exact|lp]]
                       凸ゲームの手法で仁 (--assume は凸と仮定して試し、事後検証する)
@@ -84,7 +85,8 @@ const USAGE: &str = "\
   sol.txt  検証する配分を 1 行 1 値で書いたファイル
   --pre    プレ仁・プレカーネル(個人合理性を課さない)
   --full   仁の LP に全提携の行を最初から入れる(既定は制約生成)
-  --tolerance T      仁の逐次 LP の許容誤差を値の単位で指定し、1 回だけ解く (nucleolus・compare・uncertainty・influence)
+  --tolerance T      仁の逐次 LP の許容誤差を値の単位で指定し、1 回だけ解く (nucleolus・compare・uncertainty・influence・
+                     structure・per-capita・proportional・modiclus・disruption)
   --rel-tolerance R  同じ許容誤差を max|v(S)| に対する比で指定する (--tolerance とはどちらか一方)。
            nucleolus と compare は、どちらも指定しなければ仁を正しく求めることを優先する: 比 1e-7 で解いた配分が
            Kohlberg 基準を細かい許容誤差でも満たすかを確かめ、満たさなければ許容誤差を下げて解き直し、
@@ -94,6 +96,10 @@ const USAGE: &str = "\
            値が 1e12 程度のゲームを 1 単位まで正しく求めるには --exact を使う。
            uncertainty と influence も、標本・差分ごとにこの既定の手順で解く (有理数の逐次 LP に切り替わる
            ゲームでは、解く回数の分だけ時間が延びる。速さを優先するなら --rel-tolerance 1e-7 などで 1 回だけ解く)。
+           structure (提携構造つきの仁) は、指定しなければ全体 1 ブロックのとき nucleolus と同じ手順で解き、
+           全員が単独なら guarantee=exact、それ以外は比 1e-7 で 1 回だけ解いて guarantee=approximate (確かめない)。
+           per-capita・proportional・modiclus・disruption は、指定しなければ比 1e-7 で 1 回だけ解き、
+           確かめないので guarantee=approximate。許容誤差を指定すると、どれも 1 回だけ解いて guarantee=exact
            --tolerance auto は、この既定の手順を明示して選ぶ
   --samples N  Shapley 値・Banzhaf 値をサンプリングで推定する (順列数・提携数、1 以上)。省略すると厳密計算
   --merge  カーネル全体で、同じ直線上でつながる線分を 1 本にまとめる
@@ -479,7 +485,17 @@ fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
             }
         }
         "structure" => {
-            args.check_options(&["<v.txt>"], &["--blocks", "--lex", "--missing", "--pre"])?;
+            args.check_options(
+                &["<v.txt>"],
+                &[
+                    "--blocks",
+                    "--lex",
+                    "--missing",
+                    "--pre",
+                    "--tolerance",
+                    "--rel-tolerance",
+                ],
+            )?;
             let game = read_game(&args, 0)?;
             let text = args.value("--blocks")?.ok_or("--blocks が必要")?;
             let blocks: Vec<Vec<usize>> = text
@@ -489,7 +505,14 @@ fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
             let structure = partition::CoalitionStructure::new(game.players(), &blocks)?;
             let ad = partition::aumann_dreze(&game, &structure)?;
             let owen = partition::owen(&game, &structure)?;
-            let nucleolus = partition::nucleolus(&game, &structure, args.domain())?;
+            let mut options = Options::new(args.domain());
+            options.tolerance = tolerance(&args)?.unwrap_or(Tolerance::Auto);
+            let nucleolus = partition::nucleolus_with(&game, &structure, options)?;
+            eprintln!(
+                "structured_nucleolus: tolerance={:e} guarantee={}",
+                nucleolus.tolerance(),
+                nucleolus.guarantee()
+            );
             println!("player\taumann_dreze\tstructured_nucleolus\towen");
             for i in 0..game.players() {
                 println!("{i}\t{}\t{}\t{}", ad[i], nucleolus.allocation()[i], owen[i]);
@@ -502,9 +525,14 @@ fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
             let game = AirportGame::new(costs)?;
             let shapley = game.shapley_costs();
             let nucleolus = game.nucleolus_costs()?;
+            eprintln!(
+                "nucleolus: method={} guarantee={}",
+                nucleolus.method(),
+                nucleolus.guarantee()
+            );
             println!("player\tcost\tshapley\tnucleolus");
             for (i, c) in game.costs().iter().enumerate() {
-                println!("{i}\t{c}\t{}\t{}", shapley[i], nucleolus[i]);
+                println!("{i}\t{c}\t{}\t{}", shapley[i], nucleolus.allocation()[i]);
             }
         }
         "shapley" | "banzhaf" => {
@@ -572,12 +600,18 @@ fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
             print_allocation(&prepared.output(result.allocation()));
         }
         "disruption" => {
-            args.check_options(&["<v.txt>"], &["--lex", "--missing"])?;
+            args.check_options(
+                &["<v.txt>"],
+                &["--lex", "--missing", "--tolerance", "--rel-tolerance"],
+            )?;
             let game = read_game(&args, 0)?;
-            let result = variants::disruption_nucleolus(&game)?;
+            let specified = tolerance(&args)?.unwrap_or(Tolerance::Auto);
+            let result = variants::disruption_nucleolus_with(&game, specified)?;
             eprintln!(
-                "lp_solves={} levels={:?}",
+                "lp_solves={} tolerance={:e} guarantee={} levels={:?}",
                 result.lp_solves(),
+                result.tolerance(),
+                result.guarantee(),
                 result.levels()
             );
             print_allocation(result.allocation());
@@ -676,22 +710,35 @@ fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
         }
         "per-capita" | "proportional" | "modiclus" => {
             let known: &[&str] = if command == "modiclus" {
-                &["--lex", "--missing"]
+                &["--lex", "--missing", "--tolerance", "--rel-tolerance"]
             } else {
-                &["--pre", "--lex", "--missing"]
+                &[
+                    "--pre",
+                    "--lex",
+                    "--missing",
+                    "--tolerance",
+                    "--rel-tolerance",
+                ]
             };
             args.check_options(&["<v.txt>"], known)?;
             let game = read_game(&args, 0)?;
+            let specified = tolerance(&args)?.unwrap_or(Tolerance::Auto);
             let started = Instant::now();
             let result = match command {
-                "per-capita" => variants::per_capita_nucleolus(&game, args.domain()),
-                "proportional" => variants::proportional_nucleolus(&game, args.domain()),
-                _ => variants::modiclus(&game),
+                "per-capita" => {
+                    variants::per_capita_nucleolus_with(&game, args.domain(), specified)
+                }
+                "proportional" => {
+                    variants::proportional_nucleolus_with(&game, args.domain(), specified)
+                }
+                _ => variants::modiclus_with(&game, specified),
             }?;
             eprintln!(
-                "time={:.6}s lp_solves={} levels={:?}",
+                "time={:.6}s lp_solves={} tolerance={:e} guarantee={} levels={:?}",
                 started.elapsed().as_secs_f64(),
                 result.lp_solves(),
+                result.tolerance(),
+                result.guarantee(),
                 result.levels()
             );
             print_allocation(result.allocation());

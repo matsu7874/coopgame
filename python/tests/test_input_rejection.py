@@ -113,7 +113,7 @@ def test_parsed_cost_game_is_not_used_as_value_game():
         with pytest.raises(ValueError, match="cost_nucleolus"):
             run(cost)
     # 費用のゲームを受け付ける関数: 仁による費用の分担と、線形な値 (費用の分担になる)。
-    assert coopgame.cost_nucleolus(cost) == pytest.approx([3, 4])
+    assert coopgame.cost_nucleolus(cost)["allocation"] == pytest.approx([3, 4])
     assert coopgame.shapley(cost) == pytest.approx([3, 4])
     assert coopgame.banzhaf(cost) == pytest.approx([3, 4])
     # サンプリング版も線形な値の推定なので、費用の分担の推定値を返す (厳密版と同じ扱い)。

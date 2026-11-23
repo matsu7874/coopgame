@@ -179,14 +179,42 @@ pub fn owen(game: &ExplicitGame, unions: &CoalitionStructure) -> Result<Vec<f64>
     Ok(value)
 }
 
-/// 提携構造のもとでの仁 (各ブロックで `x(B) = v(B)`)。
+/// 提携構造のもとでの仁 (各ブロックで `x(B) = v(B)`)。許容誤差を指定しない既定の設定 ([`Options::new`]) で求める。
+///
+/// 保証は次のとおり ([`nucleolus_with`])。
+///
+/// - 全体 1 ブロックなら仁そのものなので、既定の仁 ([`nucleolus::nucleolus`]) と同じく確かめて求める。
+/// - 全員が単独なら `x_i = v({i})` で [`crate::Guarantee::Exact`]。
+/// - それ以外は既定の許容誤差で 1 回だけ解き、確かめていないので [`crate::Guarantee::Approximate`]。
+///   1 回だけ解いた配分を使うなら、許容誤差を指定する ([`nucleolus_with`])。
 pub fn nucleolus(
     game: &ExplicitGame,
     structure: &CoalitionStructure,
     domain: Domain,
 ) -> Result<NucleolusResult> {
+    nucleolus_with(game, structure, Options::new(domain))
+}
+
+/// 設定 `options` で、提携構造のもとでの仁 (`Domain::Imputation`) またはプレ仁を求める。
+///
+/// - 許容誤差を指定すれば ([`nucleolus::Tolerance::Absolute`]・[`nucleolus::Tolerance::Relative`])、その値で 1 回だけ解き、
+///   保証は [`crate::Guarantee::Exact`] (指定した許容誤差の範囲で成り立つ)。
+/// - [`nucleolus::Tolerance::Auto`] (既定) では、全体 1 ブロックなら [`nucleolus::nucleolus_with`] の既定の手順で求める。
+///   全員が単独なら `x_i = v({i})` で [`crate::Guarantee::Exact`]。それ以外は比 `1e-7` の許容誤差で 1 回だけ解き、
+///   保証は [`crate::Guarantee::Approximate`] (LP を解かずに決まった配分は [`crate::Guarantee::Exact`])。
+///   提携構造つきの仁について、Kohlberg 基準に当たる特徴づけを原典の本文で確認できていないので、確かめない。
+///   値が大きい整数のゲームなどでは、1 回だけ解いた配分は、超過の差が許容誤差より小さい段をまとめて仁からずれることがある。
+///
+/// # Errors
+///
+/// 提携構造の人数がゲームと異なれば [`Error::InvalidArgument`]。そのほかは [`nucleolus::nucleolus_with`] と同じ。
+pub fn nucleolus_with(
+    game: &ExplicitGame,
+    structure: &CoalitionStructure,
+    options: Options,
+) -> Result<NucleolusResult> {
     structure.check(game)?;
-    nucleolus::nucleolus_with_structure(game, structure.blocks(), Options::new(domain))
+    nucleolus::nucleolus_with_structure(game, structure.blocks(), options)
 }
 
 /// 連合を 1 人のプレイヤーとみなした商ゲーム `v_B(R) = v(∪_{k ∈ R} B_k)`。

@@ -19,6 +19,18 @@ use coopgame::games::voting::WeightedVotingGame;
 use coopgame::generators::SplitMix64;
 use coopgame::nucleolus::oracle as oracle_nucleolus;
 
+/// 既定の許容誤差で 1 回だけ解く (`data/bench/oracle-scaling.csv` を計測したときの既定の手順と同じ計算)。
+/// 既定の `oracle_nucleolus::nucleolus` は、20 人以下では全提携の表を作って Kohlberg 基準を確かめる分の時間が加わる。
+fn solve_once<G: coopgame::game::oracle::Separation>(
+    game: &G,
+) -> coopgame::Result<coopgame::nucleolus::NucleolusResult> {
+    oracle_nucleolus::nucleolus_with(
+        game,
+        coopgame::Domain::Imputation,
+        oracle_nucleolus::default_tolerance(game),
+    )
+}
+
 #[path = "../tests/common/mod.rs"]
 mod common;
 
@@ -59,22 +71,19 @@ fn main() {
                     let estate = (rng.next_f64() * claims.iter().sum::<f64>()).round();
                     let game = BankruptcyGame::new(estate, claims.clone()).unwrap();
                     (
-                        oracle_nucleolus::nucleolus(&game),
+                        solve_once(&game),
                         Some(common::talmud_rule(estate, &claims)),
                     )
                 }
                 "majority" => {
                     let game = WeightedVotingGame::new(vec![1; n], (n / 2 + 1) as u64).unwrap();
-                    (
-                        oracle_nucleolus::nucleolus(&game),
-                        Some(vec![1.0 / n as f64; n]),
-                    )
+                    (solve_once(&game), Some(vec![1.0 / n as f64; n]))
                 }
                 "voting" => {
                     let weights: Vec<u64> = (0..n).map(|_| rng.range(1, 10)).collect();
                     let quota = weights.iter().sum::<u64>() / 2 + 1;
                     let game = WeightedVotingGame::new(weights, quota).unwrap();
-                    (oracle_nucleolus::nucleolus(&game), None)
+                    (solve_once(&game), None)
                 }
                 other => panic!("未知の種類 {other}"),
             };

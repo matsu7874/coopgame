@@ -139,7 +139,7 @@ fn yoh_six_municipalities_shapley_nucleolus_and_weak_nucleolus() {
         "Shapley 値",
     );
     assert_close(
-        &game.nucleolus().unwrap(),
+        game.nucleolus().unwrap().allocation(),
         &[20.35, 12.06, 5.00, 8.61, 18.32, 19.49],
         0.01,
         "仁",
