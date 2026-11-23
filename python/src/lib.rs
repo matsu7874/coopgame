@@ -519,10 +519,14 @@ fn kernel_violation(game: &Game, x: Vec<f64>, domain: &str) -> PyResult<f64> {
 }
 
 /// `x` がカーネル (プレカーネル) に属するか。
+///
+/// `tolerance` を省くと、`verify` (Kohlberg 基準) と CLI の `verify` と同じ既定の許容誤差
+/// (`1e-7 * max|v(S)|` の 10 倍。全ての値が 0 なら `1e-6`) で判定する。
 #[pyfunction]
 #[pyo3(signature = (game, x, domain = "imputation", tolerance = None))]
 fn is_in_kernel(game: &Game, x: Vec<f64>, domain: &str, tolerance: Option<f64>) -> PyResult<bool> {
-    let tolerance = tolerance.unwrap_or_else(|| coopgame::game::default_tolerance(&game.inner));
+    let tolerance =
+        tolerance.unwrap_or_else(|| 10.0 * coopgame::game::default_tolerance(&game.inner));
     kernel::is_in_kernel(&game.inner, &x, parse_domain(domain)?, tolerance).map_err(to_py_err)
 }
 

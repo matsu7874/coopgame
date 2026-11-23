@@ -41,6 +41,8 @@
 節約ゲームに直して解き、費用の分担に戻す。
 CLI で費用を扱えるのは `nucleolus` (`--exact` を含む)・`least-core`・`kernel`・`shapley`・`banzhaf`・`compare`。
 JSON・CSV の `type` が `cost` のファイルは `--cost` なしでも費用として読み、他のコマンドではエラーにする。
+`type` が `value` の JSON と見出しが `coalition,value` の CSV に `--cost` を付けるとエラーにする (`type` を省いた JSON には付けられる)。
+ライブラリでは `io::declared_kind_by_extension` で、種類を明示したか (`type` を省いたか) を確かめられる。
 
 ## 提携ごとの値の形式 (JSON・CSV)
 
