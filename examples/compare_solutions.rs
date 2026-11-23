@@ -87,7 +87,12 @@ fn main() -> coopgame::Result<()> {
     println!();
 
     // 安定性の指標で比べる。表の列はタブ区切りで、解とプレイヤーは 0 始まりの番号で表示される。
-    let rows = explain::compare(&game, &candidates)?;
+    // コアの判定は既定で、値と配分を 2 進数の値どおりに読んだ厳密な判定になる。
+    // 1/3 などを丸めた配分は和が v(N) にちょうど一致しないので、丸めの分 (ここでは 1e-9) を許して比べる。
+    let strict = explain::compare(&game, &candidates)?;
+    // 仁 (2, 4, 6) は 2 進数で正確に表せるので、厳密な判定でもコアに入る。
+    assert!(strict[6].in_core);
+    let rows = explain::compare_within(&game, &candidates, 1e-9)?;
     println!("安定性の比較:");
     print!("{}", explain::render_comparison(&rows));
 

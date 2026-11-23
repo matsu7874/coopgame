@@ -388,7 +388,7 @@ pub fn key_coalitions(game: &ExplicitGame, x: &[f64], levels: usize) -> Result<V
         ExplainOptions {
             levels,
             max_listed: usize::MAX,
-            tolerance: None,
+            ..ExplainOptions::default()
         },
     )?;
     let mut coalitions: Vec<Coalition> = report
