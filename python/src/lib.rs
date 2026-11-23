@@ -798,6 +798,7 @@ fn compare<'py>(
             d.set_item("allocation", row.allocation.clone())?;
             d.set_item("max_excess", row.max_excess)?;
             d.set_item("in_core", row.in_core)?;
+            d.set_item("efficient", row.efficient)?;
             d.set_item("blocking_coalitions", row.blocking_coalitions)?;
             Ok(d)
         })

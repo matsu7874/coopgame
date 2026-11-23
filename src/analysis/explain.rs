@@ -322,6 +322,8 @@ pub struct Comparison {
     pub in_core: bool,
     /// 超過が `core_tolerance` を超える提携の数 (離脱で得をする提携の数)。
     pub blocking_coalitions: usize,
+    /// 効率性 `|x(N) - v(N)| <= core_tolerance` を値どおりの有理数で満たすか。
+    pub efficient: bool,
     /// コアの判定に使った許容誤差 (0 なら厳密な判定)。
     pub core_tolerance: f64,
 }
@@ -386,6 +388,7 @@ pub fn compare_within(
                 max_excess,
                 in_core: core.efficient && core.blocking == 0,
                 blocking_coalitions: core.blocking,
+                efficient: core.efficient,
                 core_tolerance,
             })
         })
@@ -411,8 +414,10 @@ pub fn render_comparison(rows: &[Comparison]) -> String {
             row.max_excess,
             if row.in_core {
                 "属する"
-            } else {
+            } else if row.efficient {
                 "属さない"
+            } else {
+                "属さない (和が v(N) と異なる)"
             },
             row.blocking_coalitions
         );

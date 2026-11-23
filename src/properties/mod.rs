@@ -1,6 +1,9 @@
 //! ゲームの性質: 判定する関数と、性質を型で表すラッパー。
 //!
-//! - 判定: [`is_convex`]・[`is_superadditive`]・[`is_zero_monotonic`]・[`is_in_core`]
+//! - 判定: [`is_convex`]・[`is_superadditive`]・[`is_zero_monotonic`]・[`is_in_core`]。
+//!   ゲームの値を f64 の 2 進数の値どおりの有理数として読み、丸めなしに判定する。
+//!   許容誤差つきの判定は [`is_convex_within`]・[`is_superadditive_within`]・[`is_zero_monotonic_within`]
+//!   (`is_in_core` は許容誤差を引数に取り、0 で厳密)
 //!   (コアが空でないかは最小コアの LP で判定するので、[`crate::nucleolus::has_nonempty_core`] にある)
 //! - 型: 性質を持つ根拠 ([`Proven`]・[`Assumed`]) を型で区別し、性質に基づく手法の保証を決める
 //!   ([`ConvexGame`]・[`ConvexChecked`]・[`Assume`])
