@@ -239,6 +239,73 @@ def verify_oracle_bench():
     check(doc, "請求 1-1000 の 100 人で 23 秒以下の seed の数", sum(t <= 23 for t in wide), 9)
 
 
+def verify_voting_bench():
+    """拒否権のある重み付き投票ゲームの、修正前後の時間と最大メモリ、列挙の上限の根拠。"""
+    doc = "docs/performance.md (拒否権のある重み付き投票ゲーム)"
+    before = {(r["kind"], int(r["n"])): r for r in read("data/bench/voting-oracle-before.csv")}
+    after = {(r["kind"], int(r["n"])): r for r in read("data/bench/voting-oracle-after.csv")}
+
+    def cell(rows, kind, n):
+        r = rows[(kind, n)]
+        if r["status"] != "ok":
+            return r["status"]
+        return (round(float(r["seconds"]), 2), int(r["max_rss_mb"]))
+
+    check(doc, "修正後は全ての計測が完了した", {r["status"] for r in after.values()}, {"ok"})
+    check(doc, "修正前は 26 人で 6 GB を超えて止まった (拒否権 3 人, 2 人)",
+          (cell(before, "veto3", 26), cell(before, "veto2", 26)), ("rss_limit", "rss_limit"))
+    table = {
+        ("veto3", 20): ((1.44, 668), (0.07, 10)),
+        ("veto3", 24): ((26.67, 3718), (0.10, 13)),
+        ("veto3", 26): ("rss_limit", (0.12, 14)),
+        ("veto3", 40): ("skipped", (0.43, 25)),
+        ("veto3", 60): ("skipped", (1.41, 36)),
+        ("veto2", 24): ((20.68, 3824), (0.07, 11)),
+        ("veto2", 50): ("skipped", (0.58, 23)),
+        ("majority", 31): ((0.23, 9), (0.23, 10)),
+        ("random100", 30): ((2.49, 91), (2.50, 92)),
+        ("random100q90", 15): ((0.16, 13), (0.13, 12)),
+    }
+    for (kind, n), value in table.items():
+        check(doc, f"{kind} の {n} 人 (修正前, 修正後)", (cell(before, kind, n), cell(after, kind, n)), value)
+    veto = [r for (kind, _), r in after.items() if kind.startswith("veto")]
+    check(doc, "拒否権のあるゲームの仁との差が全て 5.6e-17 以下",
+          max(float(r["max_error"]) for r in veto) <= 5.6e-17, True)
+    others = [key for key in before if not key[0].startswith("veto")]
+    check(doc, "拒否権のあるゲーム以外の組の数", len(others), 30)
+    check(doc, "拒否権のあるゲーム以外で、LP を解いた回数と追加した行が同じ",
+          all((before[k]["lp_solves"], before[k]["rows_added"]) == (after[k]["lp_solves"], after[k]["rows_added"])
+              for k in others), True)
+    check(doc, "拒否権のあるゲーム以外で、時間の差が修正前の 2% と 0.04 秒の大きい方以内、最大メモリの増加が 5 MB 以下",
+          (all(abs(float(after[k]["seconds"]) - float(before[k]["seconds"]))
+               <= max(0.02 * float(before[k]["seconds"]), 0.04) for k in others),
+           max(int(after[k]["max_rss_mb"]) - int(before[k]["max_rss_mb"]) for k in others) <= 5), (True, True))
+
+    budget = read("data/bench/voting-budget.csv")
+    with open("src/games/voting.rs", encoding="utf-8") as f:
+        constant = int(re.search(r"const ENUMERATION_BUDGET: usize = (\d+);", f.read()).group(1))
+    check(doc, "列挙の上限 ENUMERATION_BUDGET", constant, 256)
+
+    def row(b, kind, n):
+        return next(r for r in budget if (int(r["budget"]), r["kind"], int(r["n"])) == (b, kind, n))
+
+    one_stage = ("majority", "apex", "random10", "random100", "random100q23")
+    check(doc, "仁が 1 段で決まるゲームでは、確定済みの提携のある探索で読んだ提携が全て 0 個",
+          {r["max_read"] for r in budget if r["kind"] in one_stage}, {"0"})
+    check(doc, "重み 1-100・基準 9/10 の 10 人は最大 73 個を読み、上限 64 では上限まで読む",
+          (row(256, "random100q90", 10)["max_read"], int(row(64, "random100q90", 10)["searches_over_budget"]) > 0),
+          ("73", True))
+    check(doc, "拒否権 3 人の 40 人 (上限 256, 4096 の秒と MB)",
+          [(round(float(row(b, "veto3", 40)["seconds"]), 2), int(row(b, "veto3", 40)["max_rss_mb"])) for b in (256, 4096)],
+          [(0.42, 24), (2.37, 377)])
+    with open("src/games/voting.rs", encoding="utf-8") as f:
+        source = f.read()
+    check(doc, "定数の説明の数値 (上限 256 で 0.42 秒・24 MB、1024 で 0.85 秒・69 MB、4096 で 2.4 秒・377 MB)",
+          "上限 256 で 0.42 秒・24 MB、1024 で 0.85 秒・69 MB、" in source and "4096 で 2.4 秒・377 MB" in source
+          and (round(float(row(1024, "veto3", 40)["seconds"]), 2), int(row(1024, "veto3", 40)["max_rss_mb"])) == (0.85, 69),
+          True)
+
+
 def verify_oracle_tolerance():
     doc = "docs/performance.md (上限と既定値の根拠)"
     rows = read("data/bench/oracle-tolerance.csv")
@@ -505,6 +572,7 @@ def main():
     verify_phase2_bench()
     verify_oracle_bench()
     verify_oracle_tolerance()
+    verify_voting_bench()
     verify_certified()
     verify_sampled()
     verify_guarantees()

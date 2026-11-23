@@ -46,6 +46,7 @@ cargo run --example io --features io     # io は feature `io` が要る
 |---|---|
 | `bench_exact` | 有理数だけの仁のソルバーの計測 (BNF のゲームと、`integer` を付けると整数ゲーム) |
 | `bench_oracle` | オラクル版の仁の計測 (破産・多数決・重み付き投票) |
+| `bench_voting` | 重み付き投票ゲームのオラクル版の仁の時間と最大メモリ (拒否権のあるゲーム、多数決、ランダムな重み) |
 | `bench_oracle_tolerance` | オラクル版の仁を、許容誤差を変えて解いたときの計測 (40 人の重み付き投票ゲーム) |
 | `bench_convex` | 凸ゲームの手法の計測 |
 | `bench_auto_threshold` | 逐次 LP と凸ゲームの手法の時間の比較 (`auto` の切り替えの境目の根拠) |

@@ -28,6 +28,24 @@ pub trait OracleGame: SetFunction {
     /// 特性関数の値の大きさの目安 (許容誤差の基準)。
     fn scale(&self) -> f64;
 
+    /// [`Separation::violated_outside_span`] の実装。一括実装 (`impl<G: OracleGame> Separation for G`) がこれを呼ぶ。
+    ///
+    /// 契約は [`Separation::violated_outside_span`] と同じ。既定は [`OracleGame::excess_order`] の先頭から、
+    /// `skip(S)` が偽で超過が `bound` を超える提携を集める (`fixed` は使わない)。確定済みの空間に入る提携のうち
+    /// 超過の大きいものが多いゲームでは、それを 1 つずつ読み飛ばすことになるので、確定済みの空間を使って
+    /// 探せるゲーム ([`crate::games::voting::WeightedVotingGame`]) は上書きする。
+    fn search_outside_span(
+        &self,
+        x: &[f64],
+        bound: f64,
+        fixed: &[PlayerSet],
+        skip: &dyn Fn(&PlayerSet) -> bool,
+        limit: usize,
+    ) -> Vec<(PlayerSet, f64)> {
+        let _ = fixed;
+        violated_in_order(self.excess_order(x), bound, skip, limit)
+    }
+
     /// [`OracleGame::excess_order`] が全ての真部分提携を返すか。
     ///
     /// 既定は `true` で、これは「全ての真部分提携を超過の順に返す」という [`OracleGame::excess_order`]
@@ -58,6 +76,34 @@ pub trait Separation: SetFunction {
         limit: usize,
     ) -> Vec<(PlayerSet, f64)>;
 
+    /// 確定済みの提携 `fixed` の特性ベクトルが張る空間に入らない提携に限って、
+    /// [`Separation::violated`] と同じく違反する提携を返す。
+    ///
+    /// 仁の制約生成 ([`crate::nucleolus::oracle`]) は、超過が確定した提携 (`fixed` の特性ベクトルの線形結合で
+    /// 書ける提携) を探索から除く。超過の大きい提携の多くが確定済みになる段では、`skip` で 1 つずつ除くと
+    /// 指数個の提携を読むことがある。このメソッドは `fixed` を受け取るので、確定済みの空間を使って探索の段階で
+    /// 除ける。
+    ///
+    /// 契約:
+    /// - 返す提携は、超過が `bound` より大きく、`skip(S)` が偽で、`fixed` の特性ベクトルの張る空間に入らない
+    ///   真部分提携。最大 `limit` 個
+    /// - そのような提携が 1 つでもあれば、空でない列を返す (空の列は「違反する提携はない」という主張)
+    /// - 呼び出し側は、`fixed` の張る空間に入る提携に対して `skip` が真になるようにする。
+    ///   そのため、`fixed` を使わずに [`Separation::violated`] に委ねても契約を満たす
+    ///
+    /// 既定の実装は [`Separation::violated`] に委ねる。
+    fn violated_outside_span(
+        &self,
+        x: &[f64],
+        bound: f64,
+        fixed: &[PlayerSet],
+        skip: &dyn Fn(&PlayerSet) -> bool,
+        limit: usize,
+    ) -> Vec<(PlayerSet, f64)> {
+        let _ = fixed;
+        self.violated(x, bound, skip, limit)
+    }
+
     /// 特性関数の値の大きさの目安 (許容誤差の基準)。
     fn value_scale(&self) -> f64;
 
@@ -82,16 +128,18 @@ impl<G: OracleGame + ?Sized> Separation for G {
         skip: &dyn Fn(&PlayerSet) -> bool,
         limit: usize,
     ) -> Vec<(PlayerSet, f64)> {
-        let mut found = Vec::new();
-        for (coalition, excess) in self.excess_order(x) {
-            if excess <= bound || found.len() >= limit {
-                break;
-            }
-            if !skip(&coalition) {
-                found.push((coalition, excess));
-            }
-        }
-        found
+        violated_in_order(self.excess_order(x), bound, skip, limit)
+    }
+
+    fn violated_outside_span(
+        &self,
+        x: &[f64],
+        bound: f64,
+        fixed: &[PlayerSet],
+        skip: &dyn Fn(&PlayerSet) -> bool,
+        limit: usize,
+    ) -> Vec<(PlayerSet, f64)> {
+        self.search_outside_span(x, bound, fixed, skip, limit)
     }
 
     fn value_scale(&self) -> f64 {
@@ -101,6 +149,25 @@ impl<G: OracleGame + ?Sized> Separation for G {
     fn covers_all_coalitions(&self) -> bool {
         self.lists_all_coalitions()
     }
+}
+
+/// 超過の非増加順の列の先頭から、`skip(S)` が偽で超過が `bound` を超える提携を最大 `limit` 個集める。
+pub(crate) fn violated_in_order(
+    order: impl Iterator<Item = (PlayerSet, f64)>,
+    bound: f64,
+    skip: &dyn Fn(&PlayerSet) -> bool,
+    limit: usize,
+) -> Vec<(PlayerSet, f64)> {
+    let mut found = Vec::new();
+    for (coalition, excess) in order {
+        if excess <= bound || found.len() >= limit {
+            break;
+        }
+        if !skip(&coalition) {
+            found.push((coalition, excess));
+        }
+    }
+    found
 }
 
 /// 明示ゲームは全提携の超過を、読んだ分だけ並べ替えて返す (オラクルの正しさを確かめる基準)。

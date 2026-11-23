@@ -167,6 +167,22 @@ impl<G: Separation + ?Sized> Separation for Scaled<'_, G> {
             .collect()
     }
 
+    fn violated_outside_span(
+        &self,
+        x: &[f64],
+        bound: f64,
+        fixed: &[PlayerSet],
+        skip: &dyn Fn(&PlayerSet) -> bool,
+        limit: usize,
+    ) -> Vec<(PlayerSet, f64)> {
+        let original: Vec<f64> = x.iter().map(|v| v * self.divisor).collect();
+        self.game
+            .violated_outside_span(&original, bound * self.divisor, fixed, skip, limit)
+            .into_iter()
+            .map(|(coalition, excess)| (coalition, excess / self.divisor))
+            .collect()
+    }
+
     fn value_scale(&self) -> f64 {
         self.game.value_scale() / self.divisor
     }
