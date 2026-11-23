@@ -293,3 +293,49 @@ fn rejects_empty_samples_and_ranges() {
         );
     }
 }
+
+/// 提携構造つきの仁と仁の変種は、許容誤差を指定しなければ確かめていないので guarantee=approximate、
+/// 指定すれば 1 回だけ解いて guarantee=exact を標準エラーに出す。全体 1 ブロックは nucleolus と同じ手順。
+#[test]
+fn structure_and_variants_report_guarantee() {
+    let cli = Cli::new("structure_and_variants_report_guarantee");
+    cli.file("v.txt", "0\n0\n4\n0\n6\n8\n12\n");
+    let run = cli.run(&["structure", "v.txt", "--blocks", "0,1|2"]);
+    assert!(run.success, "{}", run.stderr);
+    assert!(
+        run.stderr.contains("guarantee=approximate"),
+        "{}",
+        run.stderr
+    );
+    let run = cli.run(&[
+        "structure",
+        "v.txt",
+        "--blocks",
+        "0,1|2",
+        "--rel-tolerance",
+        "1e-7",
+    ]);
+    assert!(run.stderr.contains("guarantee=exact"), "{}", run.stderr);
+    let run = cli.run(&["structure", "v.txt", "--blocks", "0,1,2"]);
+    assert!(run.stderr.contains("guarantee=exact"), "{}", run.stderr);
+    for command in ["per-capita", "proportional", "modiclus", "disruption"] {
+        let run = cli.run(&[command, "v.txt"]);
+        assert!(
+            run.stderr.contains("guarantee=approximate"),
+            "{command}: {}",
+            run.stderr
+        );
+        let fixed = cli.run(&[command, "v.txt", "--tolerance", "1e-6"]);
+        assert!(
+            fixed.stderr.contains("guarantee=exact"),
+            "{command}: {}",
+            fixed.stderr
+        );
+        assert!(
+            fixed.stderr.contains("tolerance=1e-6"),
+            "{command}: {}",
+            fixed.stderr
+        );
+        assert_eq!(run.values(), fixed.values(), "{command}");
+    }
+}

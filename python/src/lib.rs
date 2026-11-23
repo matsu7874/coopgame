@@ -343,11 +343,22 @@ fn with_set_function<T>(
     ))
 }
 
+/// 領域の名前 (`parse_domain` が受け付ける文字列)。
+fn domain_name(domain: Domain) -> &'static str {
+    match domain {
+        Domain::Imputation => "imputation",
+        Domain::Preimputation => "preimputation",
+    }
+}
+
+/// 仁の結果の辞書。`domain` は解を探した範囲 (`"imputation"` か `"preimputation"`)。
 fn nucleolus_dict<'py>(
     py: Python<'py>,
     result: nucleolus_core::NucleolusResult,
+    domain: Domain,
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
+    dict.set_item("domain", domain_name(domain))?;
     dict.set_item("allocation", result.allocation())?;
     dict.set_item("levels", result.levels())?;
     dict.set_item("lp_solves", result.lp_solves())?;
@@ -449,7 +460,7 @@ fn nucleolus<'py>(
         }
     };
     let result = nucleolus_core::nucleolus_with(&game.inner, options).map_err(to_py_err)?;
-    nucleolus_dict(py, result)
+    nucleolus_dict(py, result, options.domain)
 }
 
 /// プレ仁 (`nucleolus(game, "preimputation")` と同じ)。
@@ -1072,7 +1083,7 @@ fn partial_nucleolus<'py>(
     let result = data
         .partial_nucleolus_with(domain, tolerance)
         .map_err(to_py_err)?;
-    let dict = nucleolus_dict(py, result.solved)?;
+    let dict = nucleolus_dict(py, result.solved, domain)?;
     dict.set_item("allocation", result.allocation)?;
     dict.set_item("kind", data.kind.as_str())?;
     dict.set_item("known", data.known.len())?;
@@ -1100,19 +1111,27 @@ fn owen(game: &Game, unions: Vec<Vec<usize>>) -> PyResult<Vec<f64>> {
     partition::owen(&game.inner, &structure).map_err(to_py_err)
 }
 
-/// 提携構造 `blocks` のもとでの仁 (各ブロックで x(B) = v(B))。
+/// 提携構造 `blocks` のもとでの仁 (各ブロックで x(B) = v(B))。戻り値は `nucleolus` と同じ形の辞書。
+///
+/// `tolerance` (値の単位) か `rel_tolerance` (`max|v(S)|` に対する比) を指定すると、その許容誤差で 1 回だけ解き、
+/// `guarantee` は `"exact"` (許容誤差の範囲で成り立つ)。どちらも指定しなければ (`tolerance="auto"` と同じ)、
+/// 全体 1 ブロックなら `nucleolus` の既定の手順で求め、全員が単独なら `x_i = v({i})` で `"exact"`、
+/// それ以外は比 `1e-7` で 1 回だけ解き、確かめていないので `"approximate"`。
 #[pyfunction]
-#[pyo3(signature = (game, blocks, domain = "imputation"))]
+#[pyo3(signature = (game, blocks, domain = "imputation", tolerance = None, rel_tolerance = None))]
 fn structured_nucleolus<'py>(
     py: Python<'py>,
     game: &Game,
     blocks: Vec<Vec<usize>>,
     domain: &str,
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<f64>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let structure = coalition_structure(game, blocks)?;
-    let result =
-        partition::nucleolus(&game.inner, &structure, parse_domain(domain)?).map_err(to_py_err)?;
-    nucleolus_dict(py, result)
+    let mut options = Options::new(parse_domain(domain)?);
+    options.tolerance = parse_tolerance(tolerance, rel_tolerance)?.unwrap_or(Tolerance::Auto);
+    let result = partition::nucleolus_with(&game.inner, &structure, options).map_err(to_py_err)?;
+    nucleolus_dict(py, result, options.domain)
 }
 
 /// 3-4 人のゲームの配分集合の図 (SVG)。コア・カーネル・仁・Shapley 値と `points` (配分のリスト) の点を描く。
@@ -1229,10 +1248,21 @@ fn power_indices<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDic
 }
 
 /// disruption nucleolus (Littlechild & Vaidya 1976)。コアが空なら ValueError (16 人まで)。
-/// 戻り値は `per_capita_nucleolus` と同じ形の辞書。
+/// 戻り値と `tolerance`・`rel_tolerance`・保証の規則は `per_capita_nucleolus` と同じ
+/// (コアが空かどうかの判定は、指定によらず `has_nonempty_core` で行う)。
 #[pyfunction]
-fn disruption_nucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
-    let result = variants::disruption_nucleolus(&game.inner).map_err(to_py_err)?;
+#[pyo3(signature = (game, tolerance = None, rel_tolerance = None))]
+fn disruption_nucleolus<'py>(
+    py: Python<'py>,
+    game: &Game,
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<f64>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let result = variants::disruption_nucleolus_with(
+        &game.inner,
+        variant_tolerance(tolerance, rel_tolerance)?,
+    )
+    .map_err(to_py_err)?;
     lexicographic_dict(py, result)
 }
 
@@ -1241,7 +1271,7 @@ fn disruption_nucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py
 #[pyfunction]
 fn anti_prenucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
     let result = variants::anti_prenucleolus(&game.inner).map_err(to_py_err)?;
-    nucleolus_dict(py, result)
+    nucleolus_dict(py, result, Domain::Preimputation)
 }
 
 /// anti-nucleolus (双対ゲームの仁)。anti-imputation の集合が空なら ValueError。
@@ -1249,7 +1279,7 @@ fn anti_prenucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, P
 #[pyfunction]
 fn anti_nucleolus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
     let result = variants::anti_nucleolus(&game.inner).map_err(to_py_err)?;
-    nucleolus_dict(py, result)
+    nucleolus_dict(py, result, Domain::Imputation)
 }
 
 /// 双対ゲーム `v*(S) = v(N) - v(N \ S)`。値が有限でない提携があれば ValueError。
@@ -1371,42 +1401,77 @@ fn lexicographic_dict<'py>(
     dict.set_item("levels", result.levels())?;
     dict.set_item("lp_solves", result.lp_solves())?;
     dict.set_item("guarantee", result.guarantee().to_string())?;
+    dict.set_item("tolerance", result.tolerance())?;
     Ok(dict)
+}
+
+/// 仁の変種の許容誤差。指定しなければ `Tolerance::Auto` (既定の許容誤差で 1 回だけ解き、保証は `"approximate"`)。
+fn variant_tolerance(
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<f64>,
+) -> PyResult<Tolerance> {
+    Ok(parse_tolerance(tolerance, rel_tolerance)?.unwrap_or(Tolerance::Auto))
 }
 
 /// per capita 仁: `e(S, x) / |S|` を辞書式に最小化する (17 人まで)。
 /// 原典 (weak nucleolus) の定義は `domain="preimputation"`。
+///
+/// 戻り値は辞書 (`allocation`・`levels`・`lp_solves`・`guarantee`・`tolerance`)。仁の変種は、`tolerance` (値の単位) か
+/// `rel_tolerance` (`max|v(S)|` に対する比) を指定するとその許容誤差で 1 回だけ解き、`guarantee` は `"exact"`
+/// (許容誤差の範囲で成り立つ)。指定しなければ (`tolerance="auto"` と同じ) 比 `1e-7` で 1 回だけ解き、
+/// 確かめていないので `"approximate"` (配分の集合が 1 点に決まるゲームは `"exact"`)。
 #[pyfunction]
-#[pyo3(signature = (game, domain = "imputation"))]
+#[pyo3(signature = (game, domain = "imputation", tolerance = None, rel_tolerance = None))]
 fn per_capita_nucleolus<'py>(
     py: Python<'py>,
     game: &Game,
     domain: &str,
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<f64>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let result =
-        variants::per_capita_nucleolus(&game.inner, parse_domain(domain)?).map_err(to_py_err)?;
+    let result = variants::per_capita_nucleolus_with(
+        &game.inner,
+        parse_domain(domain)?,
+        variant_tolerance(tolerance, rel_tolerance)?,
+    )
+    .map_err(to_py_err)?;
     lexicographic_dict(py, result)
 }
 
 /// 比例仁: `e(S, x) / v(S)` を辞書式に最小化する (非負のゲーム、17 人まで)。
 /// `v(S) = 0` の提携は、その後に `-x(S)` で順序づける。原典の定義は `domain="preimputation"`。
+/// 戻り値と `tolerance`・`rel_tolerance`・保証の規則は `per_capita_nucleolus` と同じ。
 #[pyfunction]
-#[pyo3(signature = (game, domain = "imputation"))]
+#[pyo3(signature = (game, domain = "imputation", tolerance = None, rel_tolerance = None))]
 fn proportional_nucleolus<'py>(
     py: Python<'py>,
     game: &Game,
     domain: &str,
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<f64>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let result =
-        variants::proportional_nucleolus(&game.inner, parse_domain(domain)?).map_err(to_py_err)?;
+    let result = variants::proportional_nucleolus_with(
+        &game.inner,
+        parse_domain(domain)?,
+        variant_tolerance(tolerance, rel_tolerance)?,
+    )
+    .map_err(to_py_err)?;
     lexicographic_dict(py, result)
 }
 
 /// modiclus: 空提携と全体提携を含む全ての提携の組の超過の差 `e(S, x) - e(T, x)` を
 /// 辞書式に最小化する準配分 (7 人まで)。
+/// 戻り値と `tolerance`・`rel_tolerance`・保証の規則は `per_capita_nucleolus` と同じ。
 #[pyfunction]
-fn modiclus<'py>(py: Python<'py>, game: &Game) -> PyResult<Bound<'py, PyDict>> {
-    let result = variants::modiclus(&game.inner).map_err(to_py_err)?;
+#[pyo3(signature = (game, tolerance = None, rel_tolerance = None))]
+fn modiclus<'py>(
+    py: Python<'py>,
+    game: &Game,
+    tolerance: Option<&Bound<'_, PyAny>>,
+    rel_tolerance: Option<f64>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let result = variants::modiclus_with(&game.inner, variant_tolerance(tolerance, rel_tolerance)?)
+        .map_err(to_py_err)?;
     lexicographic_dict(py, result)
 }
 

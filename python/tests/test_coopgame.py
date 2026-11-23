@@ -331,6 +331,21 @@ def test_variants_documented_examples():
     assert close(coopgame.modiclus(game)["allocation"], [13 / 3, 16 / 3, 17 / 3, 17 / 3])
     young = coopgame.Game([0, 0, 0, 0, 9, 10, 12], order="lex")
     assert close(coopgame.per_capita_nucleolus(young)["allocation"], [2 / 3, 7 / 6, 61 / 6])
+    # 仁の変種は、許容誤差を指定しなければ確かめていないので approximate、指定すれば exact。
+    for solve in (
+        lambda **kw: coopgame.per_capita_nucleolus(young, **kw),
+        lambda **kw: coopgame.proportional_nucleolus(young, **kw),
+        lambda **kw: coopgame.modiclus(young, **kw),
+        lambda **kw: coopgame.disruption_nucleolus(young, **kw),
+    ):
+        default = solve()
+        assert default["guarantee"] == "approximate"
+        fixed = solve(rel_tolerance=1e-7)
+        assert fixed["guarantee"] == "exact" and fixed["allocation"] == default["allocation"]
+        assert fixed["tolerance"] == default["tolerance"]
+        assert solve(tolerance=1e-6)["tolerance"] == 1e-6
+        with pytest.raises(ValueError):
+            solve(tolerance=1e-6, rel_tolerance=1e-7)
     with pytest.raises(ValueError):
         coopgame.proportional_nucleolus(coopgame.Game([-1, 0, 1, 3, 4, 2, 5], order="lex"))
 
@@ -656,6 +671,13 @@ def test_coalition_structures():
     assert close(coopgame.aumann_dreze(game, [[0, 1], [2, 3]]), [2.5, 2.5, 4, 4])
     result = coopgame.structured_nucleolus(game, [[0, 1], [2, 3]])
     assert math.isclose(result["allocation"][0] + result["allocation"][1], 5, abs_tol=1e-9)
+    # 2 つ以上のブロックは確かめていないので approximate。許容誤差を明示すれば 1 回だけ解いて exact。
+    assert result["guarantee"] == "approximate" and result["domain"] == "imputation"
+    fixed = coopgame.structured_nucleolus(game, [[0, 1], [2, 3]], rel_tolerance=1e-7)
+    assert fixed["guarantee"] == "exact" and fixed["allocation"] == result["allocation"]
+    # 全体 1 ブロックは仁そのものなので、nucleolus の既定と同じ。
+    grand = coopgame.structured_nucleolus(game, [[0, 1, 2, 3]])
+    assert grand == coopgame.nucleolus(game)
     with pytest.raises(ValueError):
         coopgame.owen(game, [[0, 1], [1, 2, 3]])
 

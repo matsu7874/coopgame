@@ -50,6 +50,13 @@
 //! (`M_i = v(N) - v(N \ {i})`、双対ゲームの配分集合。Meinhardt "On the Replication of the Pre-Kernel and
 //! Related Solutions" の式 (7.1)) の上で行った配分で、双対ゲームの仁に一致する。
 //!
+//! 許容誤差を指定しない既定 (`per_capita_nucleolus` など) は、既定の許容誤差で 1 回だけ解き、確かめていないので
+//! 保証を [`Guarantee::Approximate`] にする。許容誤差を指定する入口 (`*_with` に [`Tolerance::Absolute`]・
+//! [`Tolerance::Relative`] を渡す) は、1 回だけ解いて [`Guarantee::Exact`] にする ([`LexicographicResult::guarantee`])。
+//! per capita 仁・比例仁・disruption nucleolus は、Kohlberg 基準に当たる特徴づけを原典の本文で確認できていないので、
+//! 解いた配分を確かめない。modiclus には bi-excess の族の平衡性による特徴づけ (Rosenmüller & Sudhölter,
+//! Working Paper 320 の Theorem 2.4) があるが、既定の確認にはまだ使っていない (`tests/modiclus.rs` の基準として使う)。
+//!
 //! 不満の数は per capita 仁・比例仁で `2^n`、modiclus で約 `4^n` なので、明示的に全ての行を LP に入れる。
 //! LP の時間とメモリが人数に対して指数的に増えるので、関数ごとにプレイヤー数の上限
 //! ([`MAX_PER_CAPITA_PLAYERS`]・[`MAX_PROPORTIONAL_PLAYERS`]・[`MAX_DISRUPTION_PLAYERS`]・[`MAX_MODICLUS_PLAYERS`]) を設け、
@@ -66,6 +73,7 @@ use crate::game::scale::{check_tolerance, normalized_tolerance, normalizer, roun
 use crate::game::{Coalition, ExplicitGame, PlayerSet, default_tolerance};
 use crate::linalg::{Span, indicator};
 use crate::lp::{self, Cmp, Counter};
+use crate::nucleolus::Tolerance;
 use crate::solution::Guarantee;
 
 /// [`modiclus`] が扱うプレイヤー数の上限 (不満の数は `4^n - 2^n - 2`)。
@@ -111,6 +119,7 @@ pub struct LexicographicResult {
     pub(crate) levels: Vec<f64>,
     pub(crate) lp_solves: usize,
     pub(crate) guarantee: Guarantee,
+    pub(crate) tolerance: f64,
 }
 
 impl LexicographicResult {
@@ -132,9 +141,21 @@ impl LexicographicResult {
         self.lp_solves
     }
 
-    /// 逐次 LP では [`Guarantee::Exact`]。
+    /// 許容誤差を指定して 1 回だけ解いた結果 ([`lexicographic_minimum`]、変種の `*_with` に
+    /// [`Tolerance::Absolute`]・[`Tolerance::Relative`] を渡した場合) は [`Guarantee::Exact`] (許容誤差の範囲で成り立つ)。
+    ///
+    /// 許容誤差を指定しない既定 ([`per_capita_nucleolus`] など、`*_with` に [`Tolerance::Auto`] を渡した場合) は、
+    /// 既定の許容誤差で 1 回だけ解き、確かめていないので [`Guarantee::Approximate`]。
+    /// 超過の差が許容誤差より小さい別の段があるゲーム (値が大きい整数のゲームなど) では、別の段を同じ段として確定し、
+    /// 辞書式最小からずれることがある。解いた配分を確かめる特徴づけを使っていないので (モジュールの説明)、
+    /// ずれを見分けられない。LP を解かずに決まった配分 (配分の集合が 1 点) は [`Guarantee::Exact`]。
     pub fn guarantee(&self) -> Guarantee {
         self.guarantee
+    }
+
+    /// この結果を求めた逐次 LP の許容誤差 (ゲームの値と同じ単位)。
+    pub fn tolerance(&self) -> f64 {
+        self.tolerance
     }
 }
 
@@ -235,6 +256,7 @@ fn lexicographic_minimum_in_order(
     solver.span.insert(&vec![1.0; players]);
     solver.drop_determined();
     let (mut result, level_groups) = solver.run()?;
+    result.tolerance = tolerance;
     for value in &mut result.allocation {
         *value *= value_divisor;
     }
@@ -327,6 +349,7 @@ impl Lexicographic<'_> {
                 levels: Vec::new(),
                 lp_solves: 0,
                 guarantee: Guarantee::Exact,
+                tolerance: self.tolerance,
             };
             return Ok((result, Vec::new()));
         }
@@ -367,6 +390,7 @@ impl Lexicographic<'_> {
             levels,
             lp_solves: self.counter.solves,
             guarantee: Guarantee::Exact,
+            tolerance: self.tolerance,
         };
         Ok((result, level_groups))
     }
@@ -599,15 +623,32 @@ fn proper_coalitions(game: &ExplicitGame) -> impl Iterator<Item = Coalition> {
     (1..game.grand().0).map(Coalition)
 }
 
-/// 配分集合 (準配分集合)。配分集合が許容誤差を超えて空なら [`Error::EmptyImputationSet`]、
+/// 配分集合 (準配分集合)。配分集合が許容誤差 `tolerance` を超えて空なら [`Error::EmptyImputationSet`]、
 /// 許容誤差以内で空なら下限を下げる ([`crate::nucleolus::Options::tolerance`] と同じ扱い)。
-fn feasible_set(game: &ExplicitGame, domain: Domain) -> Result<Feasible> {
+fn feasible_set(game: &ExplicitGame, domain: Domain, tolerance: f64) -> Result<Feasible> {
     let grand = PlayerSet::grand(game.players());
     Ok(Feasible {
         total: game.value(game.grand()),
-        lower: lower_bounds(game, &[grand], domain, default_tolerance(game))?,
+        lower: lower_bounds(game, &[grand], domain, tolerance)?,
         constraints: Vec::new(),
     })
+}
+
+/// 変種の許容誤差の決め方 `tolerance` から、1 回だけ解く許容誤差 (ゲームの値の単位) を決める。
+/// [`Tolerance::Auto`] は既定の許容誤差 ([`default_tolerance`])。
+fn solving_tolerance(game: &ExplicitGame, tolerance: Tolerance) -> Result<f64> {
+    let value = tolerance.fixed(game)?;
+    check_tolerance(value)?;
+    Ok(value)
+}
+
+/// 許容誤差を指定しなかった ([`Tolerance::Auto`]) 結果は、確かめていないので保証を近似にする
+/// (LP を解かずに決まった配分は除く。[`LexicographicResult::guarantee`])。
+fn with_guarantee(mut result: LexicographicResult, tolerance: Tolerance) -> LexicographicResult {
+    if tolerance == Tolerance::Auto && result.lp_solves > 0 {
+        result.guarantee = Guarantee::Approximate;
+    }
+    result
 }
 
 /// 超過の complaint `e(S, x) / weight`。
@@ -622,7 +663,7 @@ fn excess_complaint(game: &ExplicitGame, coalition: Coalition, weight: f64) -> C
 /// 全ての空でない真部分提携の超過 (重み 1) を不満にした場合。仁 (プレ仁) に一致する。
 #[cfg(test)]
 fn nucleolus_by_complaints(game: &ExplicitGame, domain: Domain) -> Result<LexicographicResult> {
-    let feasible = feasible_set(game, domain)?;
+    let feasible = feasible_set(game, domain, default_tolerance(game))?;
     let complaints: Vec<Complaint> = proper_coalitions(game)
         .map(|s| excess_complaint(game, s, 1.0))
         .collect();
@@ -643,18 +684,32 @@ fn nucleolus_by_complaints(game: &ExplicitGame, domain: Domain) -> Result<Lexico
 ///   (Young, Okada & Hashimoto 1982 によれば Grotte 1970 の提案。Grotte の本文は未確認)。
 ///
 /// プレイヤー数は [`MAX_PER_CAPITA_PLAYERS`] 以下に限る。
+///
+/// 許容誤差を指定しない既定の設定で求める ([`per_capita_nucleolus_with`] に [`Tolerance::Auto`] を渡すのと同じ)。
+/// 既定の許容誤差で 1 回だけ解き、確かめていないので保証は [`Guarantee::Approximate`] ([`LexicographicResult::guarantee`])。
 pub fn per_capita_nucleolus(game: &ExplicitGame, domain: Domain) -> Result<LexicographicResult> {
+    per_capita_nucleolus_with(game, domain, Tolerance::Auto)
+}
+
+/// 許容誤差の決め方 `tolerance` を指定した [`per_capita_nucleolus`]。
+///
+/// [`Tolerance::Absolute`]・[`Tolerance::Relative`] は、その許容誤差で 1 回だけ解き、保証は [`Guarantee::Exact`]
+/// (許容誤差の範囲で成り立つ)。配分集合が空かどうかも、この許容誤差で判定する。
+/// [`Tolerance::Auto`] は既定の許容誤差 (`max|v(S)|` の `1e-7` 倍) で 1 回だけ解き、保証は [`Guarantee::Approximate`]。
+/// 指定した許容誤差が有限で 0 以上でなければ [`Error::InvalidArgument`]。
+pub fn per_capita_nucleolus_with(
+    game: &ExplicitGame,
+    domain: Domain,
+    tolerance: Tolerance,
+) -> Result<LexicographicResult> {
     check_players(game, MAX_PER_CAPITA_PLAYERS)?;
-    let feasible = feasible_set(game, domain)?;
+    let solving = solving_tolerance(game, tolerance)?;
+    let feasible = feasible_set(game, domain, solving)?;
     let complaints: Vec<Complaint> = proper_coalitions(game)
         .map(|s| excess_complaint(game, s, s.len() as f64))
         .collect();
-    lexicographic_minimum(
-        game.players(),
-        &feasible,
-        &complaints,
-        default_tolerance(game),
-    )
+    let result = lexicographic_minimum(game.players(), &feasible, &complaints, solving)?;
+    Ok(with_guarantee(result, tolerance))
 }
 
 /// disruption nucleolus (Littlechild & Vaidya 1976): 提携の抜ける傾向を辞書式に最小化するコアの点。
@@ -674,10 +729,27 @@ pub fn per_capita_nucleolus(game: &ExplicitGame, domain: Domain) -> Result<Lexic
 /// では、コアの制約を `epsilon` だけ緩めた最小コアになる。後者でも LP が実行可能になるようにするためである。
 ///
 /// プレイヤー数は [`MAX_DISRUPTION_PLAYERS`] 以下に限る。
+///
+/// 許容誤差を指定しない既定の設定で求める ([`disruption_nucleolus_with`] に [`Tolerance::Auto`] を渡すのと同じ)。
+/// 保証は [`Guarantee::Approximate`] ([`LexicographicResult::guarantee`])。
 pub fn disruption_nucleolus(game: &ExplicitGame) -> Result<LexicographicResult> {
+    disruption_nucleolus_with(game, Tolerance::Auto)
+}
+
+/// 許容誤差の決め方 `tolerance` を指定した [`disruption_nucleolus`]。
+///
+/// 許容誤差は、辞書式最小化の逐次 LP と、不満にする提携の判定 (`b(S)` が許容誤差より大きいか) に使う。
+/// コアが空でないかの判定と、コアの制約を緩める最小コアの `epsilon` は、指定によらず
+/// [`crate::nucleolus::has_nonempty_core`]・[`crate::nucleolus::least_core`] の判定で決める。
+/// 保証の規則は [`per_capita_nucleolus_with`] と同じ。
+pub fn disruption_nucleolus_with(
+    game: &ExplicitGame,
+    tolerance: Tolerance,
+) -> Result<LexicographicResult> {
     let n = game.players();
     check_players(game, MAX_DISRUPTION_PLAYERS)?;
-    let tolerance = default_tolerance(game);
+    let specified = tolerance;
+    let tolerance = solving_tolerance(game, specified)?;
     if !crate::nucleolus::has_nonempty_core(game)? {
         return Err(Error::InvalidArgument(
             "disruption nucleolus はコアが空でないゲームに限る".into(),
@@ -702,7 +774,8 @@ pub fn disruption_nucleolus(game: &ExplicitGame) -> Result<LexicographicResult> 
             complaints.push(excess_complaint(game, s, gap));
         }
     }
-    lexicographic_minimum(n, &feasible, &complaints, tolerance)
+    let result = lexicographic_minimum(n, &feasible, &complaints, tolerance)?;
+    Ok(with_guarantee(result, specified))
 }
 
 /// anti-prenucleolus: 超過を小さい順に並べたベクトルを準配分の上で辞書式に最大化した配分。
@@ -749,10 +822,26 @@ pub fn anti_nucleolus(game: &ExplicitGame) -> Result<crate::nucleolus::Nucleolus
 /// 費用から節約ゲームを作るときは [`crate::games::cost::CostGame::savings_game`] を使うと、和の丸めが 0 になる。
 ///
 /// プレイヤー数は [`MAX_PROPORTIONAL_PLAYERS`] 以下に限る。
+///
+/// 許容誤差を指定しない既定の設定で求める ([`proportional_nucleolus_with`] に [`Tolerance::Auto`] を渡すのと同じ)。
+/// 保証は [`Guarantee::Approximate`] ([`LexicographicResult::guarantee`])。
 pub fn proportional_nucleolus(game: &ExplicitGame, domain: Domain) -> Result<LexicographicResult> {
+    proportional_nucleolus_with(game, domain, Tolerance::Auto)
+}
+
+/// 許容誤差の決め方 `tolerance` を指定した [`proportional_nucleolus`]。
+///
+/// 許容誤差は、辞書式最小化の逐次 LP と配分集合が空かどうかの判定に使う (`v(S)` を 0 とみなすかは、指定によらず丸めの大きさで判定する)。
+/// 保証の規則は [`per_capita_nucleolus_with`] と同じ。
+pub fn proportional_nucleolus_with(
+    game: &ExplicitGame,
+    domain: Domain,
+    tolerance: Tolerance,
+) -> Result<LexicographicResult> {
     check_players(game, MAX_PROPORTIONAL_PLAYERS)?;
     let n = game.players();
-    let tolerance = default_tolerance(game);
+    let specified = tolerance;
+    let tolerance = solving_tolerance(game, specified)?;
     // 0 とみなすのは丸めの範囲だけにする (解の精度のための許容誤差では、小さい正の値を落としてしまう)。
     let zero = rounding_magnitude(n, game.max_abs_value());
     if let Some(mask) = game.values().iter().position(|v| *v < -zero) {
@@ -762,7 +851,7 @@ pub fn proportional_nucleolus(game: &ExplicitGame, domain: Domain) -> Result<Lex
             game.values()[mask]
         )));
     }
-    let mut feasible = feasible_set(game, domain)?;
+    let mut feasible = feasible_set(game, domain, tolerance)?;
     let mut positive = Vec::new();
     let mut without_value = Vec::new();
     for s in proper_coalitions(game) {
@@ -779,7 +868,9 @@ pub fn proportional_nucleolus(game: &ExplicitGame, domain: Domain) -> Result<Lex
             });
         }
     }
-    lexicographic_minimum_in_order(n, &feasible, &[&positive, &without_value], tolerance)
+    let result =
+        lexicographic_minimum_in_order(n, &feasible, &[&positive, &without_value], tolerance)?;
+    Ok(with_guarantee(result, specified))
 }
 
 /// modiclus (修正仁): 超過の差 (bi-excess) `e(S, x) - e(T, x)` のベクトルを辞書式に最小化する準配分。
@@ -801,9 +892,19 @@ pub fn proportional_nucleolus(game: &ExplicitGame, domain: Domain) -> Result<Lex
 /// CoopGame 0.2.2 の `modiclus` は組を空でない真部分提携に限るので、値が異なりうる。
 ///
 /// プレイヤー数は [`MAX_MODICLUS_PLAYERS`] 以下に限る。
+///
+/// 許容誤差を指定しない既定の設定で求める ([`modiclus_with`] に [`Tolerance::Auto`] を渡すのと同じ)。
+/// 保証は [`Guarantee::Approximate`] ([`LexicographicResult::guarantee`])。
 pub fn modiclus(game: &ExplicitGame) -> Result<LexicographicResult> {
+    modiclus_with(game, Tolerance::Auto)
+}
+
+/// 許容誤差の決め方 `tolerance` を指定した [`modiclus`]。保証の規則は [`per_capita_nucleolus_with`] と同じ。
+pub fn modiclus_with(game: &ExplicitGame, tolerance: Tolerance) -> Result<LexicographicResult> {
     let n = game.players();
     check_players(game, MAX_MODICLUS_PLAYERS)?;
+    let specified = tolerance;
+    let tolerance = solving_tolerance(game, specified)?;
     let grand = game.grand();
     let empty = Coalition(0);
     // 空提携と全体提携を含む全ての提携 (game.value(∅) = 0)。
@@ -827,12 +928,9 @@ pub fn modiclus(game: &ExplicitGame) -> Result<LexicographicResult> {
             });
         }
     }
-    lexicographic_minimum(
-        n,
-        &feasible_set(game, Domain::Preimputation)?,
-        &complaints,
-        default_tolerance(game),
-    )
+    let feasible = feasible_set(game, Domain::Preimputation, tolerance)?;
+    let result = lexicographic_minimum(n, &feasible, &complaints, tolerance)?;
+    Ok(with_guarantee(result, specified))
 }
 
 #[cfg(test)]
