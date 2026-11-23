@@ -185,7 +185,7 @@ Faigle, Kern & Kuipers (2001) の楕円体法に基づく手法は、論文の�
   - 1 個はプレカーネルの点だが仁ではなかった (voting、n = 10)。プレカーネルが 1 点でないゲームでは、
     「カーネル = 仁」の定理が成り立たないためである。
   - 7 個はプレカーネル条件も満たしていなかった (劣モジュラ最小化が最大余剰を見誤った)。
-- 検証に合格した結果は、全て LP の仁との差が 7.4e-10 以下だった。誤った配分が合格した例はない。
+- 検証に合格した結果は、全て LP の仁との差が 7.5e-10 以下だった。誤った配分が合格した例はない。
 
 ## 有理数で構築したゲーム
 
@@ -201,7 +201,7 @@ Faigle, Kern & Kuipers (2001) の楕円体法に基づく手法は、論文の�
 | `game::exact::parse_rational_values`、CLI の `certify --rational` | `0.1` を `1/10` のように 10 進数・分数の値どおりに読む |
 | Python の `certify_rational(values, x)` | 値を `Fraction`・`"8/3"`・`"0.1"` で渡す |
 
-実験の superadditive クラスを有理数で構築したゲームに替えると、浮動小数点数で構築したときに「未決」だった 6 個が全て合格した。
+実験の superadditive クラスは、以前は浮動小数点数で構築したゲームを使っており、「未決」が 6 個あった。有理数で構築したゲームに替えると、その 6 個は全て合格した (以前の版での一度の実行の結果で、出力は `data/` に保存していない)。
 
 ## 検証の範囲 (`coopgame::verify`)
 
@@ -211,7 +211,7 @@ Faigle, Kern & Kuipers (2001) の楕円体法に基づく手法は、論文の�
 | 21-26 人 | ランダムな組のカーネル条件を総当たり (1 組 `2^(n-2)` 回の評価) | 否定 / 未決 (合格にはできない) |
 | 27 人以上 | なし | 未決 |
 
-仁はカーネルに、プレ仁はプレカーネルに属する (Davis & Maschler 1965、Maschler, Peleg & Shapley 1979) ので、
+仁はカーネルに、プレ仁はプレカーネルに属する (仁については Maschler, Peleg & Shapley 1979 の Theorem 6.8 が Schmeidler 1969 の Theorem 3 として引用。プレ仁の主張の原典の箇所は未確認。[references.md](references.md)) ので、
 カーネル条件の破れは否定の根拠になる。
 
 20 人以下の結論は次のとおり。許容誤差 `T` は全提携の値の最大絶対値の `1e-6` 倍 (全て 0 なら `1e-6`) である。
@@ -259,7 +259,7 @@ LP の仁は、超過の段の間隔が小さいゲーム (値が `1e9` 以上�
 
 ```bash
 cargo build --release --examples
-target/release/examples/study_assumption 4,5,6,7,8,9,10 10 > data/analysis/assumption-study.csv   # 約 20 秒
+target/release/examples/study_assumption 4,5,6,7,8,9,10 10 > data/analysis/assumption-study.csv
 target/release/examples/bench_convex graph 10,16,24,32,48,64 3 > data/bench/convex-graph.csv
 target/release/examples/bench_convex bankruptcy 10,20,30,40 3 > data/bench/convex-bankruptcy.csv
 target/release/examples/bench_auto_threshold 8,10,12,14,16,18,20 3 > data/bench/auto-threshold.csv

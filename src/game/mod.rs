@@ -21,7 +21,7 @@ pub use player_set::{PlayerSet, SetFunction, value_scale};
 
 use crate::error::{Error, Result};
 
-/// 明示ベクトルで扱えるプレイヤー数の上限。`2^30` 個の `f64` で約 8GB になる。
+/// 明示ベクトルで扱えるプレイヤー数の上限。`2^30` 個の `f64` (8 バイト) で約 8.6 GB になる。
 pub const MAX_PLAYERS: usize = 30;
 
 /// 特性関数をビット順のベクトルで保持する TU ゲーム。

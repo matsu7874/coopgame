@@ -85,12 +85,12 @@ coopgame-rs の速さは LP ソルバーではなく、制約生成で行数を 
 
 | 実装 | 合格 | 不合格 | 厳密な仁 x* からの距離 |
 |---|---|---|---|
-| coopgame-rs (2 方式) | 576 | 0 | 2.9e-11 以下 |
-| CoopGame | 284 | 4 | 合格は 8.3e-7 以下、不合格はタイプ 1 の n = 17, 18 で 2.17 と 0.10 |
-| TUGLab | 252 | 8 | 合格は 8.3e-7 以下、不合格は 0.025-67.5 |
+| coopgame-rs (2 方式) | 576 | 0 | 3.0e-11 以下 |
+| CoopGame | 284 | 4 | 合格は 6.5e-11 以下、不合格はタイプ 1 の n = 17, 18 で 2.17 と 0.10 |
+| TUGLab | 252 | 8 | 合格は 8.4e-7 以下、不合格は 0.025-67.5 |
 
 x* は、同じインスタンスで coopgame-rs の配分から復元し、合格した厳密な仁である。
-仁は一意なので、x* が仁そのものである。不合格の 12 配分は x* から 0.025 以上離れており、仁ではない。
+仁は一意なので、x* が仁そのものである。不合格の 12 配分は x* から 0.02 以上離れており、仁ではない。
 浮動小数点で「誤り」と判定した 12 件と、有理数で不合格になった 12 件は一致した。
 
 ## 仁の変種 (per capita 仁・比例仁・modiclus)
@@ -101,8 +101,8 @@ x* は、同じインスタンスで coopgame-rs の配分から復元し、合�
 - ゲーム: BNF タイプ 1, 2, 4 の n = 3, 4, 5、seed 0-3 (36 個) と、CoopGame のヘルプの例など 5 個。
 - 結果: per capita 仁は 41 ゲーム全てで一致した。比例仁は 40 ゲームで一致し、残る 1 個は両方とも計算しなかった
   (負の値を持つゲームで、比例仁を定義しない)。差は相対 9.1e-14 以下。
-- 最後に実行したのは 2026-11-21 (macOS、R 4.6.2) で、比例仁の `v(S) = 0` の提携の順序づけと、
-  逐次 LP の確定値の変更を入れた後の実装である。
+- 最後に実行したのは 2026-11-23 (macOS 27.2.1、Apple M4 Pro、R 4.6.2、CoopGame 0.2.2) で、
+  ゲームと解ごとの結果を `data/compare/variants.csv` に保存した (`check_variants.py --csv`)。
 
 modiclus は CoopGame と一致しない。
 CoopGame の `modiclus` は超過の差 `e(S, x) - e(T, x)` の組を空でない真部分提携に限るが、
@@ -139,3 +139,5 @@ python3 scripts/compare/check_variants.py     # 仁の変種
 - `tuglab-retry-tol1e-8.csv`: small で TUGLab が失敗・誤ったインスタンスの許容誤差 1e-8 での再実行
 - `large.csv`: large の全実装の結果 (TUGLab は許容誤差 1e-8)
 - `certified.csv`: small・large で計算に成功した全配分の有理数による検証結果
+- `variants.csv`: per capita 仁・比例仁の CoopGame との照合 (`check_variants.py --csv`)
+- `values.csv`: Shapley 値・Banzhaf 値の CoopGame との照合 (`check_values.py --csv`)

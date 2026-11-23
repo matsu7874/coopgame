@@ -10,8 +10,10 @@ sha256sum -c data/SHA256SUMS                # 保存したデータが改変さ�
 python3 scripts/verify_claims.py            # ドキュメントの数値を CSV から再計算して照合
 ```
 
-`verify_claims.py` は `docs/comparison.md`、`docs/guarantees.md`、`docs/performance.md` の数値を
-1 つずつ CSV から再計算し、食い違えば終了コード 1 を返す。
+`verify_claims.py` は `docs/comparison.md`、`docs/guarantees.md`、`docs/performance.md`、`docs/reproducibility.md`、
+`docs/references.md` の数値を 1 つずつ CSV から再計算し、食い違えば終了コード 1 を返す。
+主要な表と数値は文書の本文から読み取って CSV と比べるので、文書の数値を書き換えると照合の対象も変わる。
+上界として書いた数 (「X 以下」「X 以内」) はデータを表示の桁で切り上げた値、それ以外は四捨五入した値として照合する。
 インスタンスを作ってから `--instances` を付けると、配分そのものも検証する。
 
 ```bash
@@ -46,6 +48,9 @@ CoopGame の誤りと判定した 4 件について、超過を降順に並べ�
 | `data/bench/variant-limits.csv` | 仁の変種と交渉集合の判定の時間と最大メモリ (`docs/performance.md` の上限の根拠) | 上限を追加したコミット。上限より 1 人多い人数は `MAX_*_PLAYERS` を一時的に大きくしたビルド | `cargo run --release --example bench_limits > data/bench/variant-limits.csv` (Apple M4 Pro・macOS・rustc 1.99.1 で計測。最大メモリは `/usr/bin/time -l`) |
 | `data/analysis/tolerance-study.csv` | 仁の許容誤差の決め方の比較 ([performance.md](performance.md)) | 許容誤差の決め方を追加したコミット | `cargo run --release --example study_tolerance > data/analysis/tolerance-study.csv` (Apple M4 Pro・macOS・rustc 1.99.1 で計測。秒の列は実行ごとに変わる) |
 | `data/analysis/refinement-rows.csv` | 許容誤差を下げて解き直すときに追加する行の数 (同上) | 解き直しの行の上限を追加したコミット | `cargo run --release --example study_tolerance -- rows > data/analysis/refinement-rows.csv` (同じ環境で計測。秒の列は実行ごとに変わる) |
+| `data/analysis/prekernel-study.csv` | プレカーネル・カーネルの形とゲームの性質 ([references.md](references.md) の凸ゲーム・0-単調なゲームの確認、[performance.md](performance.md) のカーネル全体の時間) | コミット `42cf889` のライブラリ | `target/release/examples/study_prekernel 5 20 3` と `study_prekernel 6 2 6` の出力を続けたもの (2 つ目の見出しの行は除く。Apple M4 Pro・macOS・rustc 1.99.1 で計測。秒の列は実行ごとに変わる) |
+| `data/compare/variants.csv` | per capita 仁・比例仁の CoopGame 0.2.2 との照合 ([comparison.md](comparison.md) の仁の変種) | コミット `42cf889` の CLI | `python3 scripts/compare/check_variants.py --csv data/compare/variants.csv` (2026-11-23、下の 2026-11-21 の節と同じ macOS の環境) |
+| `data/compare/values.csv` | Shapley 値・Banzhaf 値の CoopGame 0.2.2 との照合 | 同上 | `python3 scripts/compare/check_values.py --csv data/compare/values.csv` (同上) |
 | `data/analysis/counterexamples.txt` | 反例の探索と縮小の実例 | 反例探索を追加したコミット | `cargo run --release --example study_counterexamples` (約 1 分) |
 | `data/compare/small.csv` | 既存実装との比較 (n = 4-12) | coopgame-rs はコミット `3f85dc1` の CLI | `python3 scripts/compare/run.py work/small` |
 | `data/compare/tuglab-retry-tol1e-8.csv` | TUGLab の再実行 | 同上 | `IMPLS=TUGLab python3 scripts/compare/run.py <失敗したインスタンス> 1e-8` |
@@ -89,6 +94,10 @@ python3 scripts/compare/diff_results.py data/compare/large.csv large.csv
 
 ## 再現の確認結果 (2026-10-01、上の環境)
 
+この節と次の節の数値 (件数、相対差、TUGLab の秒など) は、その時の実行の記録である。
+出力は `data/` に保存していないので、`verify_claims.py` の照合の対象ではない。
+保存したデータで照合できる現在の値は、「データの出所」の表のファイルと、それを引用する文書にある。
+
 | 対象 | 方法 | 結果 |
 |---|---|---|
 | ドキュメントの数値 | `scripts/verify_claims.py --instances scripts/compare/work` | 104 項目全てが一致 (当時の項目数) |
@@ -122,8 +131,17 @@ TUGLab の large で状態が変わった 3 件は、いずれもタイプ 4 の
 |---|---|---|
 | インスタンス | `make_instances.sh` で再生成し、`instances.sha256` と照合 | 144 個全てが一致 |
 | 比較: coopgame-rs の仁・プレ仁 | `IMPLS=coopgame-rs,coopgame-rs-full` で `run.py` を再実行し、`diff_results.py` で `data/compare/` と照合 | small 504 件、large 72 件の状態と配分 (相対 1e-9) が全て一致 |
-| Shapley 値・Banzhaf 値 | `scripts/compare/check_values.py` | 12 ゲーム 24 件が相対 2.3e-15 以内で一致 |
-| per capita 仁・比例仁 | `scripts/compare/check_variants.py` | per capita 仁は 41 ゲームで一致。比例仁は 40 ゲームで一致し、1 件は両方とも計算しない。相対 9.1e-14 以内 |
+| Shapley 値・Banzhaf 値 | `scripts/compare/check_values.py` | 12 ゲーム 24 件が相対 2.3e-15 程度で一致 (2026-11-23 に再実行して保存した結果は下の節) |
+| per capita 仁・比例仁 | `scripts/compare/check_variants.py` | per capita 仁は 41 ゲームで一致。比例仁は 40 ゲームで一致し、1 件は両方とも計算しない。相対 9.1e-14 以内 (同上) |
 | modiclus | CoopGame の `modiclus` を直接実行 | 本実装と一致しない (値は [comparison.md](comparison.md#仁の変種-per-capita-仁比例仁modiclus)) |
 
 CoopGame と TUGLab の仁 (`run.py` の残りの実装) は再実行していない。
+
+## 再実行の結果 (2026-11-23、macOS)
+
+2026-11-21 と同じ環境で、CoopGame との照合を `--csv` を付けて再実行し、結果を `data/compare/` に保存した。
+
+| 対象 | 方法 | 結果 |
+|---|---|---|
+| Shapley 値・Banzhaf 値 | `check_values.py --csv` (`data/compare/values.csv`) | 12 ゲーム 24 件が相対 2.4e-15 以内で一致 |
+| per capita 仁・比例仁 | `check_variants.py --csv` (`data/compare/variants.csv`) | per capita 仁は 41 ゲームで一致。比例仁は 40 ゲームで一致し、1 件は両方とも計算しない。相対 9.1e-14 以内 |

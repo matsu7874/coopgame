@@ -128,7 +128,7 @@ impl ExactGameData {
     /// 値が分からない (空でない) 提携の一覧 (提携の番号順)。
     ///
     /// 一覧を作れるのは [`MAX_PLAYERS`] 人まで (超えれば [`Error::TooManyPlayers`])。
-    /// 一覧は分からない提携の数に比例するメモリを使う (30 人で値がほとんどなければ約 8.6 GB)。
+    /// 一覧は分からない提携の数に比例するメモリを使う (30 人で値がほとんどなければ、8 バイトの提携 `2^30` 個で約 8.6 GB)。
     /// 分からない提携があるかだけを知るには [`ExactGameData::has_missing`] を使う。
     pub fn missing(&self) -> Result<Vec<Coalition>> {
         missing_coalitions(self.players, self.known.iter().map(|(c, _)| *c))
@@ -679,7 +679,7 @@ impl GameData {
     /// 値が分からない (空でない) 提携の一覧 (提携の番号順)。
     ///
     /// 一覧を作れるのは [`MAX_PLAYERS`] 人まで (超えれば [`Error::TooManyPlayers`])。
-    /// 一覧は分からない提携の数に比例するメモリを使う (30 人で値がほとんどなければ約 8.6 GB)。
+    /// 一覧は分からない提携の数に比例するメモリを使う (30 人で値がほとんどなければ、8 バイトの提携 `2^30` 個で約 8.6 GB)。
     /// 分からない提携があるかだけを知るには [`GameData::has_missing`] を使う。
     pub fn missing(&self) -> Result<Vec<Coalition>> {
         missing_coalitions(self.players, self.known.iter().map(|(c, _)| *c))
