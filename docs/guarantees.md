@@ -19,7 +19,7 @@
 | `proven(性質)` | 性質が分かっているゲームに、その性質のもとで正しい専用手法を使った | 破産ゲームのタルムード則 (`proven(bankruptcy)`)、凸ゲームの手法 (`proven(convex)`) |
 | `assumed(性質)` | 利用者が宣言した性質のもとで専用手法を使った。性質が成り立たなければ誤りうる | `nucleolus::convex::nucleolus(&Assume::convex(game))` |
 | `certified` | 求めた後に有理数による厳密な検証に合格した | `Unverified::verify` の結果 |
-| `approximate` | サンプリングなどの近似、または反復が収束しなかった | Shapley 値の推定、サンプルした仁、一部の提携だけを扱うオラクルでのオラクル版の仁、既定の設定の `nucleolus::nucleolus` で、許容誤差を下げても解いた配分が Kohlberg 基準を満たさず、有理数の逐次 LP でも求められなかった仁 (有理数に切り替えない 9-20 人のゲームなど) と、Kohlberg 基準を確かめない 21 人以上のゲームの仁 |
+| `approximate` | サンプリングなどの近似、反復が収束しなかった、または既定の仁で解いた配分を Kohlberg 基準で確かめられなかった | Shapley 値の推定、サンプルした仁、一部の提携だけを扱うオラクルでのオラクル版の仁、既定の設定の `nucleolus::nucleolus` で、許容誤差を下げても解いた配分が Kohlberg 基準を満たさず、有理数の逐次 LP でも求められなかった仁 (有理数に切り替えない 9-20 人のゲームなど) と、Kohlberg 基準を確かめない 21 人以上のゲームの仁 |
 
 許容誤差を指定できる関数 (`nucleolus::Options::tolerance` の `Tolerance::Absolute`・`Relative`、`nucleolus::oracle::nucleolus_with` の `tolerance`、
 `nucleolus::convex::ConvexOptions::tolerance`) は、有限で 0 以上でない値 (NaN・負の値・無限大) を `InvalidArgument` として拒む。
