@@ -12,102 +12,164 @@
 //!   これが配分 (`x_i >= v({i})`) になるのは、`v(N) > sum v({j})` で、`M_i - v({i})` の符号が全員でそろう
 //!   (0 を含んでよいが全員 0 ではない) 場合である (Staudacher & Anwander 2019)。それ以外はエラーを返す。
 
+use num_traits::{ToPrimitive, Zero};
+
 use crate::error::{Error, Result};
-use crate::game::scale::positive_scale;
+use crate::game::exact::Rational;
+use crate::game::exact_sum::DyadicScale;
 use crate::game::{Coalition, ExplicitGame};
 
-/// 理想の支払い `M_i = v(N) - v(N \ {i})`。
-pub fn utopia_payoffs(game: &ExplicitGame) -> Vec<f64> {
-    let n = game.players();
-    let total = game.value(game.grand());
-    (0..n)
-        .map(|i| total - game.value(Coalition::singleton(i).complement(n)))
-        .collect()
-}
+/// 理想の支払い `M` と最小の権利 `m` の計算に使う、値の和の桁の余裕 (`M_j` の差で 1 ビット、
+/// 30 人分の和で 5 ビット、`v(S)` との差と `M_i` を足して 2 ビット、`Σ m` で 5 ビット、`v(N) - Σ m` で 1 ビット)。
+const HEADROOM: u32 = 16;
 
-/// 最小の権利 `m_i = max_{S containing i} (v(S) - sum_{j in S \ {i}} M_j)`。
-pub fn minimal_rights(game: &ExplicitGame) -> Vec<f64> {
+/// 値を有理数として計算するための数。`i128` (値が共通の 2 のべきの整数倍で桁に収まるとき) か、
+/// 収まらないときの有理数 ([`Rational`])。どちらも値どおりで丸めない。
+trait Exact: Clone + Ord + std::ops::Add<Output = Self> + std::ops::Sub<Output = Self> {}
+
+impl Exact for i128 {}
+
+impl Exact for Rational {}
+
+/// `M` と `m` を値どおりに計算する (`value` は提携の値を `T` にする関数)。
+fn bounds<T: Exact>(game: &ExplicitGame, value: impl Fn(f64) -> T) -> (Vec<T>, Vec<T>) {
     let n = game.players();
-    let utopia = utopia_payoffs(game);
-    let mut rights = vec![f64::NEG_INFINITY; n];
+    let total = value(game.value(game.grand()));
+    let utopia: Vec<T> = (0..n)
+        .map(|i| total.clone() - value(game.value(Coalition::singleton(i).complement(n))))
+        .collect();
+    // m_i = M_i + max_{S containing i} r(S)、r(S) = v(S) - Σ_{j in S} M_j。
+    let mut best: Vec<Option<T>> = vec![None; n];
     for mask in 1..1u64 << n {
         let coalition = Coalition(mask);
-        let value = game.value(coalition);
-        let utopia_sum: f64 = coalition.members().map(|j| utopia[j]).sum();
+        let remainder = coalition
+            .members()
+            .fold(value(game.value(coalition)), |r, j| r - utopia[j].clone());
         for i in coalition.members() {
-            let remainder = value - (utopia_sum - utopia[i]);
-            if remainder > rights[i] {
-                rights[i] = remainder;
+            if best[i].as_ref().is_none_or(|b| &remainder > b) {
+                best[i] = Some(remainder.clone());
             }
         }
     }
-    rights
+    let rights = best
+        .into_iter()
+        .zip(&utopia)
+        .map(|(b, m)| m.clone() + b.expect("どのプレイヤーも 1 人提携に含まれる"))
+        .collect();
+    (utopia, rights)
 }
 
-fn tolerance(game: &ExplicitGame) -> f64 {
-    1e-9 * positive_scale(game.max_abs_value())
+/// `M` と `m` を有理数で厳密に求める。値の桁の幅が `i128` に収まれば整数で、収まらなければ有理数で計算する。
+fn exact_bounds(game: &ExplicitGame) -> (Vec<Rational>, Vec<Rational>) {
+    match DyadicScale::new(game.values().iter().copied(), HEADROOM) {
+        Some(scale) => {
+            let (utopia, rights) = bounds(game, |v| scale.integer(v));
+            let convert =
+                |values: Vec<i128>| values.into_iter().map(|v| scale.rational(v)).collect();
+            (convert(utopia), convert(rights))
+        }
+        None => bounds(game, |v| Rational::from_float(v).expect("ゲームの値は有限")),
+    }
+}
+
+fn to_f64(values: &[Rational]) -> Vec<f64> {
+    values
+        .iter()
+        .map(|v| v.to_f64().unwrap_or(f64::NAN))
+        .collect()
+}
+
+/// 理想の支払い `M_i = v(N) - v(N \ {i})`。有理数で求めた値を最も近い f64 にして返す。
+pub fn utopia_payoffs(game: &ExplicitGame) -> Vec<f64> {
+    let n = game.players();
+    let total = Rational::from_float(game.value(game.grand())).expect("ゲームの値は有限");
+    let utopia: Vec<Rational> = (0..n)
+        .map(|i| {
+            &total
+                - Rational::from_float(game.value(Coalition::singleton(i).complement(n)))
+                    .expect("ゲームの値は有限")
+        })
+        .collect();
+    to_f64(&utopia)
+}
+
+/// 最小の権利 `m_i = max_{S containing i} (v(S) - sum_{j in S \ {i}} M_j)`。
+/// 有理数で求めた値を最も近い f64 にして返す。
+pub fn minimal_rights(game: &ExplicitGame) -> Vec<f64> {
+    to_f64(&exact_bounds(game).1)
 }
 
 /// tau 値 (Tijs 1981)。準平衡でないゲームでは定義されないのでエラーを返す。
+///
+/// 準平衡 (`m <= M` かつ `Σ m <= v(N) <= Σ M`) の判定と tau 値の計算は、ゲームの値を f64 の 2 進数の値どおりの
+/// 有理数として読み、丸めなしに行う。返す値は有理数の tau 値 (和はちょうど `v(N)`) を最も近い f64 にしたもの。
+/// 10 進数の値を浮動小数点数の和で作ったゲームは、10 進数では準平衡でも、丸めで準平衡でなくなることがある。
 pub fn tau_value(game: &ExplicitGame) -> Result<Vec<f64>> {
-    let utopia = utopia_payoffs(game);
-    let rights = minimal_rights(game);
-    let tol = tolerance(game);
-    let total = game.value(game.grand());
-    if let Some(i) = (0..game.players()).find(|&i| rights[i] > utopia[i] + tol) {
+    let (utopia, rights) = exact_bounds(game);
+    let total = Rational::from_float(game.value(game.grand())).expect("ゲームの値は有限");
+    if let Some(i) = (0..game.players()).find(|&i| rights[i] > utopia[i]) {
         return Err(Error::InvalidArgument(format!(
             "準平衡でない: プレイヤー {i} の最小の権利 {} が理想の支払い {} を超える",
-            rights[i], utopia[i]
+            rights[i].to_f64().unwrap_or(f64::NAN),
+            utopia[i].to_f64().unwrap_or(f64::NAN)
         )));
     }
-    let (low, high): (f64, f64) = (rights.iter().sum(), utopia.iter().sum());
-    if total < low - tol || total > high + tol {
+    let low: Rational = rights.iter().sum();
+    let high: Rational = utopia.iter().sum();
+    if total < low || total > high {
         return Err(Error::InvalidArgument(format!(
-            "準平衡でない: v(N) = {total} が最小の権利の和 {low} と理想の支払いの和 {high} の間にない"
+            "準平衡でない: v(N) = {} が最小の権利の和 {} と理想の支払いの和 {} の間にない",
+            game.value(game.grand()),
+            low.to_f64().unwrap_or(f64::NAN),
+            high.to_f64().unwrap_or(f64::NAN)
         )));
     }
-    if high - low <= tol {
-        // m = M なので線分は 1 点。
-        return Ok(rights);
+    if high == low {
+        // m <= M で和が等しいので m = M (= tau)、和は v(N)。
+        return Ok(to_f64(&rights));
     }
-    let alpha = (total - low) / (high - low);
-    Ok(rights
+    let alpha = (&total - &low) / (&high - &low);
+    let tau: Vec<Rational> = rights
         .iter()
         .zip(&utopia)
-        .map(|(m, big_m)| m + alpha * (big_m - m))
-        .collect())
+        .map(|(m, big_m)| m + &alpha * (big_m - m))
+        .collect();
+    Ok(to_f64(&tau))
 }
 
 /// Gately 点 (Gately 1974)。次の場合は抜ける傾向を等しくする配分がないか一意でないので、エラーを返す。
 ///
 /// - `v(N) <= sum v({i})` (本質的でない)。
 /// - `M_i - v({i})` の符号が人によって異なるか、全員 0。
+///
+/// 条件の判定と配分の計算は、ゲームの値を f64 の 2 進数の値どおりの有理数として読み、丸めなしに行う。
 pub fn gately_point(game: &ExplicitGame) -> Result<Vec<f64>> {
-    let utopia = utopia_payoffs(game);
-    let singles = game.singleton_values();
-    let total = game.value(game.grand());
-    let tol = tolerance(game);
-    let surplus = total - singles.iter().sum::<f64>();
-    if surplus <= tol {
+    let n = game.players();
+    let exact = |v: f64| Rational::from_float(v).expect("ゲームの値は有限");
+    let total = exact(game.value(game.grand()));
+    let singles: Vec<Rational> = game.singleton_values().into_iter().map(exact).collect();
+    let utopia: Vec<Rational> = (0..n)
+        .map(|i| &total - exact(game.value(Coalition::singleton(i).complement(n))))
+        .collect();
+    let surplus = &total - singles.iter().sum::<Rational>();
+    if surplus <= Rational::zero() {
         return Err(Error::InvalidArgument(
             "v(N) <= sum v({i}) (本質的でない) ため Gately 点が定まらない".into(),
         ));
     }
-    let gaps: Vec<f64> = utopia.iter().zip(&singles).map(|(m, s)| m - s).collect();
-    let spread: f64 = gaps.iter().sum();
-    let mixed = gaps.iter().any(|&g| g > tol) && gaps.iter().any(|&g| g < -tol);
-    if mixed || spread.abs() <= tol {
+    let gaps: Vec<Rational> = utopia.iter().zip(&singles).map(|(m, s)| m - s).collect();
+    let spread: Rational = gaps.iter().sum();
+    let zero = Rational::zero();
+    let mixed = gaps.iter().any(|g| g > &zero) && gaps.iter().any(|g| g < &zero);
+    if mixed || spread.is_zero() {
         return Err(Error::InvalidArgument(
             "M_i - v({i}) の符号が人によって異なるか全員 0 のため、Gately 点が配分として定まらない"
                 .into(),
         ));
     }
     let t = surplus / spread;
-    Ok(singles
-        .iter()
-        .zip(&utopia)
-        .map(|(s, m)| s + t * (m - s))
-        .collect())
+    let x: Vec<Rational> = singles.iter().zip(&gaps).map(|(s, g)| s + &t * g).collect();
+    Ok(to_f64(&x))
 }
 
 #[cfg(test)]
@@ -146,6 +208,38 @@ mod tests {
         // コアが空の対称ゲーム v(ij) = 80, v(N) = 90: M = 10 だが m = 80 - 10 = 70 > M。
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 80.0, 80.0, 80.0, 90.0]).unwrap();
         assert!(tau_value(&game).is_err());
+    }
+
+    #[test]
+    fn tau_value_checks_quasi_balance_on_exact_values() {
+        // 2 人ゲーム v({0}) = v({1}) = 5e11、v(N) = 1e12 - 500。M_i = 5e11 - 500 < m_i = 5e11 なので準平衡でない。
+        // 以前は許容誤差 1e-9 max|v| = 1000 の範囲で受け付け、m = M とみなして和が v(N) より 500 大きい m を返していた。
+        let game = ExplicitGame::from_binary(&[5e11, 5e11, 1e12 - 500.0]).unwrap();
+        assert!(tau_value(&game).is_err());
+        // m = M のゲーム (加法的): tau = m で、和は v(N)。
+        let additive = ExplicitGame::from_binary(&[1.5, 2.25, 3.75]).unwrap();
+        let tau = tau_value(&additive).unwrap();
+        assert_eq!(tau, vec![1.5, 2.25]);
+        // 10 進数では加法的でも、2 進数の値どおりでは 0.1 + 0.2 > 0.3 なので Σ m > v(N) になり準平衡でない。
+        let decimal = ExplicitGame::from_binary(&[0.1, 0.2, 0.3]).unwrap();
+        assert!(tau_value(&decimal).is_err());
+        // 返す値の和は、有理数の tau 値を丸めた分しか v(N) からずれない。
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 1.0, 2.0, 1.0, 3.0]).unwrap();
+        let tau = tau_value(&game).unwrap();
+        assert!((tau.iter().sum::<f64>() - 3.0).abs() <= 4.0 * f64::EPSILON * 3.0);
+    }
+
+    #[test]
+    fn exact_bounds_agree_on_integer_and_rational_paths() {
+        // 桁の幅が i128 に収まらないゲーム (1e30 と 1e-30) は有理数で計算する。
+        let game = ExplicitGame::from_lex(&[1e-30, 0.0, 0.0, 1e30, 1e30, 0.5, 2e30]).unwrap();
+        let rational = bounds(&game, |v| Rational::from_float(v).unwrap());
+        assert_eq!(exact_bounds(&game), rational);
+        let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 6.0, 8.0, 12.0]).unwrap();
+        assert_eq!(
+            exact_bounds(&game),
+            bounds(&game, |v| Rational::from_float(v).unwrap())
+        );
     }
 
     #[test]
