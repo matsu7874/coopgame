@@ -22,7 +22,7 @@ pub use player_set::{PlayerSet, SetFunction, value_scale};
 
 use crate::error::{Error, Result};
 
-/// 明示ベクトルで扱えるプレイヤー数の上限。`2^30` 個の `f64` で約 8GB になる。
+/// 明示ベクトルで扱えるプレイヤー数の上限。`2^30` 個の `f64` (8 バイト) で約 8.6 GB になる。
 pub const MAX_PLAYERS: usize = 30;
 
 /// 特性関数をビット順のベクトルで保持する TU ゲーム。
@@ -148,9 +148,14 @@ impl ExplicitGame {
         self.values[coalition.index()]
     }
 
-    /// 空提携を含むビット順の全値 (長さ `2^n`)。
+    /// 空提携を含むビット順の全値 (長さ `2^n`)。[`ExplicitGame::from_binary`] に渡す形は [`ExplicitGame::binary_values`]。
     pub fn values(&self) -> &[f64] {
         &self.values
+    }
+
+    /// 空提携を除くビット順の値 (長さ `2^n - 1`)。[`ExplicitGame::from_binary`] と往復できる。
+    pub fn binary_values(&self) -> &[f64] {
+        &self.values[1..]
     }
 
     /// `v({i})` の列。

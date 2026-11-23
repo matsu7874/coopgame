@@ -126,7 +126,9 @@ fn main() {
                 };
                 let (in_prekernel, d_nucleolus, d_pre) = match &allocation {
                     Some(x) => (
-                        (kernel::kernel_violation(&game, x, Domain::Preimputation) <= 1e-6 * scale)
+                        (kernel::kernel_violation(&game, x, Domain::Preimputation)
+                            .expect("配分は人数分の有限な値")
+                            <= 1e-6 * scale)
                             .to_string(),
                         distance(x, reference.as_ref(), scale),
                         distance(x, pre.as_ref(), scale),

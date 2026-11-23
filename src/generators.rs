@@ -93,11 +93,29 @@ pub fn bnf(kind: u8, n: usize, seed: u64) -> Result<ExplicitGame> {
 /// 整数の重みと基準に直して渡す (`[0.7, 0.1, 0.2]` と基準 `0.8` なら `[7, 1, 2]` と `8`)。
 ///
 /// 重みと基準は有限の値 (NaN は比較が常に偽になり、勝利提携のないゲームを黙って作るため拒否する)。
+/// 重みは 1 つ以上で非負、基準は 0 より大きく重みの和以下
+/// ([`crate::games::voting::WeightedVotingGame::new`] と同じ検査)。
+/// 基準の範囲は、単純ゲームの定義の「空提携は負ける (`v(∅) = 0`)」と「全体提携は勝つ (`v(N) = 1`)」から導いた検査である。
+/// 基準が 0 以下だと空提携も勝利提携になり、重みの和を超えると全ての提携の値が 0 になる。
 pub fn weighted_voting(weights: &[f64], quota: f64) -> Result<ExplicitGame> {
     if !quota.is_finite() || !weights.iter().all(|w| w.is_finite()) {
         return Err(Error::InvalidArgument("重みと基準は有限の値".into()));
     }
-    ExplicitGame::from_fn(weights.len(), |coalition| {
+    if weights.is_empty() {
+        return Err(Error::InvalidArgument("重みが 1 つもない".into()));
+    }
+    if let Some(i) = weights.iter().position(|&w| w < 0.0) {
+        return Err(Error::InvalidArgument(format!(
+            "重み {} (プレイヤー {i}) が負",
+            weights[i]
+        )));
+    }
+    if quota <= 0.0 {
+        return Err(Error::InvalidArgument(format!(
+            "基準 {quota} は 0 より大きい値 (0 以下だと空提携が勝利提携になる)"
+        )));
+    }
+    let game = ExplicitGame::from_fn(weights.len(), |coalition| {
         let mut terms: Vec<f64> = coalition.members().map(|i| weights[i]).collect();
         terms.push(-quota);
         if sum_sign(&terms) != Ordering::Less {
@@ -105,19 +123,49 @@ pub fn weighted_voting(weights: &[f64], quota: f64) -> Result<ExplicitGame> {
         } else {
             0.0
         }
-    })
+    })?;
+    // 全体提携が勝てるか (基準が重みの和以下か) は、各提携と同じ和の比較で判定する。
+    if game.value(game.grand()) == 0.0 {
+        return Err(Error::InvalidArgument(format!(
+            "基準 {quota} が重みの和を超える (全体提携も勝てず、全ての提携の値が 0 になる)"
+        )));
+    }
+    Ok(game)
 }
 
 /// 重みと基準を有理数で与える重み付き投票ゲーム: 重みの和が `quota` 以上なら 1、そうでなければ 0。
 ///
 /// 10 進数の重みを [`crate::game::exact::parse_rational`] で値どおりに読んで渡すと、10 進数どおりに勝敗が決まる
-/// (`[7/10, 1/10, 1/5]` と基準 `4/5` では `{0, 1}` が勝つ)。
+/// (`[7/10, 1/10, 1/5]` と基準 `4/5` では `{0, 1}` が勝つ)。入力の検査は [`weighted_voting`] と同じ。
 pub fn weighted_voting_exact(
     weights: &[crate::game::exact::Rational],
     quota: &crate::game::exact::Rational,
 ) -> Result<ExplicitGame> {
+    use crate::game::exact::{Rational, format_rational};
+    use num_traits::Zero;
+    if weights.is_empty() {
+        return Err(Error::InvalidArgument("重みが 1 つもない".into()));
+    }
+    if let Some(i) = weights.iter().position(|w| w < &Rational::zero()) {
+        return Err(Error::InvalidArgument(format!(
+            "重み {} (プレイヤー {i}) が負",
+            format_rational(&weights[i])
+        )));
+    }
+    if quota <= &Rational::zero() {
+        return Err(Error::InvalidArgument(format!(
+            "基準 {} は 0 より大きい値 (0 以下だと空提携が勝利提携になる)",
+            format_rational(quota)
+        )));
+    }
+    if &weights.iter().sum::<Rational>() < quota {
+        return Err(Error::InvalidArgument(format!(
+            "基準 {} が重みの和を超える (全体提携も勝てず、全ての提携の値が 0 になる)",
+            format_rational(quota)
+        )));
+    }
     ExplicitGame::from_fn(weights.len(), |coalition| {
-        let weight: crate::game::exact::Rational = coalition.members().map(|i| &weights[i]).sum();
+        let weight: Rational = coalition.members().map(|i| &weights[i]).sum();
         if &weight >= quota { 1.0 } else { 0.0 }
     })
 }

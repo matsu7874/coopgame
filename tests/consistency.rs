@@ -50,7 +50,7 @@ fn nucleoli_satisfy_kohlberg_and_lie_in_kernel() {
             assert!(
                 kernel::is_in_kernel(&game, x, domain, tolerance).unwrap(),
                 "{name} {domain:?}: violation {}",
-                kernel::kernel_violation(&game, x, domain)
+                kernel::kernel_violation(&game, x, domain).unwrap()
             );
             assert!(
                 result.levels().windows(2).all(|w| w[1] <= w[0] + 1e-9),

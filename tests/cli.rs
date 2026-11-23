@@ -174,8 +174,10 @@ fn missing_ignore_honors_cost_and_rejects_full() {
         "{}",
         run.stderr
     );
+    // 見出しで価値と明示した CSV は、--cost で費用として読まない (明示した種類と食い違う)。
     let run = cli.run(&["nucleolus", "pval.csv", "--missing", "ignore", "--cost"]);
-    assert_close(&run.values(), &expected);
+    assert!(!run.success);
+    assert!(run.stderr.contains("--cost"), "{}", run.stderr);
     let run = cli.run(&["nucleolus", "pcost.csv", "--missing", "ignore", "--full"]);
     assert!(!run.success);
     assert!(run.stderr.contains("--full"), "{}", run.stderr);
@@ -281,7 +283,14 @@ fn rejects_empty_samples_and_ranges() {
     for args in [
         &["shapley", "pair.txt", "--samples", "0"][..],
         &["banzhaf", "pair.txt", "--samples", "0"],
-        &["uncertainty", "pair.txt", "--samples", "0"],
+        &[
+            "uncertainty",
+            "pair.txt",
+            "--relative",
+            "0.1",
+            "--samples",
+            "0",
+        ],
         &["bench", "--n", "10..4"],
     ] {
         let run = cli.run(args);
@@ -291,5 +300,51 @@ fn rejects_empty_samples_and_ranges() {
             "{args:?}: {}",
             run.stderr
         );
+    }
+}
+
+/// 提携構造つきの仁と仁の変種は、許容誤差を指定しなければ確かめていないので guarantee=approximate、
+/// 指定すれば 1 回だけ解いて guarantee=exact を標準エラーに出す。全体 1 ブロックは nucleolus と同じ手順。
+#[test]
+fn structure_and_variants_report_guarantee() {
+    let cli = Cli::new("structure_and_variants_report_guarantee");
+    cli.file("v.txt", "0\n0\n4\n0\n6\n8\n12\n");
+    let run = cli.run(&["structure", "v.txt", "--blocks", "0,1|2"]);
+    assert!(run.success, "{}", run.stderr);
+    assert!(
+        run.stderr.contains("guarantee=approximate"),
+        "{}",
+        run.stderr
+    );
+    let run = cli.run(&[
+        "structure",
+        "v.txt",
+        "--blocks",
+        "0,1|2",
+        "--rel-tolerance",
+        "1e-7",
+    ]);
+    assert!(run.stderr.contains("guarantee=exact"), "{}", run.stderr);
+    let run = cli.run(&["structure", "v.txt", "--blocks", "0,1,2"]);
+    assert!(run.stderr.contains("guarantee=exact"), "{}", run.stderr);
+    for command in ["per-capita", "proportional", "modiclus", "disruption"] {
+        let run = cli.run(&[command, "v.txt"]);
+        assert!(
+            run.stderr.contains("guarantee=approximate"),
+            "{command}: {}",
+            run.stderr
+        );
+        let fixed = cli.run(&[command, "v.txt", "--tolerance", "1e-6"]);
+        assert!(
+            fixed.stderr.contains("guarantee=exact"),
+            "{command}: {}",
+            fixed.stderr
+        );
+        assert!(
+            fixed.stderr.contains("tolerance=1e-6"),
+            "{command}: {}",
+            fixed.stderr
+        );
+        assert_eq!(run.values(), fixed.values(), "{command}");
     }
 }

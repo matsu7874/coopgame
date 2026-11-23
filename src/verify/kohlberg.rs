@@ -1,7 +1,8 @@
 //! Kohlberg 基準による検証 (説明は [`super::kohlberg`])。
 
 use crate::Domain;
-use crate::error::{Error, Result};
+use crate::error::Result;
+use crate::game::allocation::require_allocation;
 use crate::game::scale::check_tolerance;
 use crate::game::{ExplicitGame, verification_tolerance};
 use crate::levels::kohlberg_at;
@@ -39,13 +40,20 @@ pub struct KohlbergReport {
 /// そのため `satisfied` は「許容誤差の範囲で Kohlberg 基準を満たす」ことを意味し、仁であることの証明ではない。
 /// 仁であることを確かめるには、厳密な配分を復元して有理数で判定する [`crate::verify::certify`]
 /// (CLI の `certify`・`check`) を使う。
+///
+/// # Errors
+///
+/// `x` の長さがプレイヤー数と異なるか、有限でない成分があれば [`crate::Error::InvalidArgument`]。
 pub fn kohlberg(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<KohlbergReport> {
     kohlberg_within(game, x, domain, verification_tolerance(game))
 }
 
 /// 許容誤差 `tolerance` (値の単位) を指定した [`kohlberg`]。
 ///
-/// `tolerance` が有限で 0 以上でないとき、`x` の長さがプレイヤー数と異なるときは [`Error::InvalidArgument`]。
+/// # Errors
+///
+/// `tolerance` が有限で 0 以上でないとき、`x` の長さがプレイヤー数と異なるか有限でない成分があるときは
+/// [`crate::Error::InvalidArgument`]。
 pub fn kohlberg_within(
     game: &ExplicitGame,
     x: &[f64],
@@ -53,13 +61,7 @@ pub fn kohlberg_within(
     tolerance: f64,
 ) -> Result<KohlbergReport> {
     check_tolerance(tolerance)?;
-    let n = game.players();
-    if x.len() != n {
-        return Err(Error::InvalidArgument(format!(
-            "配分の長さ {} がプレイヤー数 {n} と異なる",
-            x.len()
-        )));
-    }
+    require_allocation(game.players(), x)?;
     let check = kohlberg_at(game, x, domain, tolerance)?;
     Ok(KohlbergReport {
         satisfied: check.satisfied,

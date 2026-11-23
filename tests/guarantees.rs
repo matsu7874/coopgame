@@ -282,7 +282,9 @@ fn pair_checks_refute_but_do_not_certify_large_games() {
 fn approximate_results_say_so() {
     let game = generators::bnf(1, 8, 2).unwrap();
     assert_eq!(
-        coopgame::values::shapley_sampling(&game, 10, 0).guarantee(),
+        coopgame::values::shapley_sampling(&game, 10, 0)
+            .unwrap()
+            .guarantee(),
         Guarantee::Approximate
     );
     assert_eq!(

@@ -292,8 +292,8 @@ fn normalized_banzhaf_index_of_weighted_voting() {
 fn sampling_on_large_majority_game() {
     let n = 101;
     let game = WeightedVotingGame::new(vec![1; n], 51).unwrap();
-    let shapley = values::shapley_sampling(&game, 4_000, 3);
-    let banzhaf = values::banzhaf_sampling(&game, 4_000, 4);
+    let shapley = values::shapley_sampling(&game, 4_000, 3).unwrap();
+    let banzhaf = values::banzhaf_sampling(&game, 4_000, 4).unwrap();
     let mut log_binomial = 0.0;
     for k in 0..50 {
         log_binomial += ((100 - k) as f64).ln() - ((k + 1) as f64).ln();

@@ -24,22 +24,23 @@ const USAGE: &str = "\
                       --cost: v.txt を費用として読み、費用の分担を出す (下の --cost)
                       --exact: 値を 10 進数・分数の値どおりの有理数として読み、有理数だけで解いて分数で出す (10 人まで)。
                                JSON・CSV の数も字面どおりに読む。--full とは併用できない
-  coopgame airport    --costs c1,c2,...   空港ゲームの費用分担 (Shapley 値と仁)
+  coopgame airport    --costs c1,c2,...   空港ゲームの費用分担 (Shapley 値と仁)。仁の手法と保証は標準エラーに出す
   coopgame plot       <v.txt> [--lex] [--no-kernel] > figure.svg
                       3-4 人の配分集合・コア・カーネル・仁・Shapley 値の図 (SVG)。頂点の表は標準エラーに出す
-  coopgame structure  <v.txt> --blocks 0,1,2|3,4|5 [--lex] [--pre]
+  coopgame structure  <v.txt> --blocks 0,1,2|3,4|5 [--lex] [--pre] [--tolerance T|auto | --rel-tolerance R]
                       提携構造 (ブロックはプレイヤーの番号を , でつなぎ | で区切る) の Aumann-Drèze 値・
-                      提携構造つきの仁、事前の連合とみなした Owen 値
+                      提携構造つきの仁、事前の連合とみなした Owen 値。提携構造つきの仁の許容誤差と保証は標準エラーに出す
   coopgame least-core <v.txt> [--pre] [--lex] [--cost]
-  coopgame per-capita   <v.txt> [--pre] [--lex]   per capita 仁
-  coopgame proportional <v.txt> [--pre] [--lex]   比例仁 (非負のゲーム)
-  coopgame modiclus     <v.txt> [--lex]           modiclus (準配分)
-  coopgame disruption   <v.txt> [--lex]           disruption nucleolus (コアが空でないゲーム)
+  coopgame per-capita   <v.txt> [--pre] [--lex] [--tolerance T|auto | --rel-tolerance R]   per capita 仁
+  coopgame proportional <v.txt> [--pre] [--lex] [--tolerance T|auto | --rel-tolerance R]   比例仁 (非負のゲーム)
+  coopgame modiclus     <v.txt> [--lex] [--tolerance T|auto | --rel-tolerance R]           modiclus (準配分)
+  coopgame disruption   <v.txt> [--lex] [--tolerance T|auto | --rel-tolerance R]
+                        disruption nucleolus (コアが空でないゲーム)
   coopgame anti-nucleolus <v.txt> [--pre] [--lex] anti-nucleolus (--pre で anti-prenucleolus)。双対ゲームの仁 (プレ仁)
   coopgame convex-nucleolus <v.txt> [--lex] [--assume [--reference auto|exact|lp]]
                       凸ゲームの手法で仁 (--assume は凸と仮定して試し、事後検証する)
-  coopgame shapley    <v.txt> [--lex] [--samples N] [--seed S] [--cost]
-  coopgame banzhaf    <v.txt> [--lex] [--samples N] [--seed S] [--normalize] [--cost]
+  coopgame shapley    <v.txt> [--lex] [--samples N [--seed S]] [--cost]
+  coopgame banzhaf    <v.txt> [--lex] [--samples N [--seed S]] [--normalize] [--cost]
   coopgame solidarity <v.txt> [--lex]   solidarity 値 (Nowak & Radzik 1994)
   coopgame tau        <v.txt> [--lex]   tau 値 (Tijs 1981)。理想の支払いと最小の権利は標準エラーに出す
   coopgame gately     <v.txt> [--lex]   Gately 点 (Gately 1974)
@@ -58,13 +59,16 @@ const USAGE: &str = "\
                       配分の説明 (不満の大きい提携、安定性)
   coopgame compare    <v.txt> [--lex] [--cost] [--tolerance T|auto | --rel-tolerance R] [--core-tolerance T]
                       仁・プレ仁・Shapley 値などを安定性で比べる
-  coopgame uncertainty <v.txt> [--lex] [--relative 0.1] [--samples 200] [--seed S]
+  coopgame uncertainty <v.txt> --relative R [--lex] [--samples 200] [--seed S]
                       [--solver nucleolus|prenucleolus|shapley]
                       [--tolerance T|auto | --rel-tolerance R]
-                      各値が ±relative の一様な誤差を持つときの配分の分布 (平均・標準偏差・5%/95% 点)
+                      各値が ±R (比。0.1 で ±10%) の一様な誤差を持つときの配分の分布 (平均・標準偏差・5%/95% 点)。
+                      標準エラーに標本の保証の内訳 (guarantees=exact:198,approximate:2 など) を出す。
+                      解の許容誤差が最も狭い区間の幅の半分以上ならエラー (揺れが許容誤差に埋もれる)
   coopgame influence  <v.txt> [--lex] [--solver nucleolus|prenucleolus|shapley] [--levels 2] [--delta D]
                       [--tolerance T|auto | --rel-tolerance R]
-                      配分を決めている提携の値に対する配分の感度 dx/dv(S)
+                      配分を決めている提携の値に対する配分の感度 dx/dv(S) と、差分に使った解の保証の内訳。
+                      解の許容誤差が --delta 以上ならエラー (変化が許容誤差に埋もれる)
   coopgame talmud     --estate E --claims d1,d2,... [--exact]
   coopgame generate   --type T --n N [--seed S]
   coopgame bench      [--types 1,2,3,4,5] [--n 4..10] [--seeds 3] [--methods nucleolus,nucleolus-full,kernel]
@@ -79,11 +83,12 @@ const USAGE: &str = "\
   --cost   値を費用 c(S) として読み、節約ゲーム s(S) = sum c({i}) - c(S) で解いて費用の分担を出す
            (nucleolus・least-core・kernel・shapley・banzhaf・compare)。compare の不満は y(S) - c(S)。
            JSON・CSV の type が cost (CSV の見出しが coalition,cost) なら --cost なしでも費用として読み、
-           他のコマンドはエラーにする
+           他のコマンドはエラーにする。type が value (CSV の見出しが coalition,value) のファイルに --cost は付けられない
   sol.txt  検証する配分を 1 行 1 値で書いたファイル
   --pre    プレ仁・プレカーネル(個人合理性を課さない)
   --full   仁の LP に全提携の行を最初から入れる(既定は制約生成)
-  --tolerance T      仁の逐次 LP の許容誤差を値の単位で指定し、1 回だけ解く (nucleolus・compare・uncertainty・influence)
+  --tolerance T      仁の逐次 LP の許容誤差を値の単位で指定し、1 回だけ解く (nucleolus・compare・uncertainty・influence・
+                     structure・per-capita・proportional・modiclus・disruption)
   --rel-tolerance R  同じ許容誤差を max|v(S)| に対する比で指定する (--tolerance とはどちらか一方)。
            nucleolus と compare は、どちらも指定しなければ仁を正しく求めることを優先する: 比 1e-7 で解いた配分が
            Kohlberg 基準を細かい許容誤差でも満たすかを確かめ、満たさなければ許容誤差を下げて解き直し、
@@ -91,9 +96,13 @@ const USAGE: &str = "\
            9 人以上で満たさないままなら guarantee=approximate で返す (確認は 20 人まで。
            21 人以上は確かめないので approximate。確かめずに 1 回だけ解くなら --rel-tolerance 1e-7)。
            値が 1e12 程度のゲームを 1 単位まで正しく求めるには --exact を使う。
-           uncertainty と influence は何度も解くので、指定しなければ比 1e-7 で 1 回だけ解く。
-           --tolerance auto は、この既定の手順を明示して選ぶ (uncertainty と influence でも既定の手順で解く。
-           有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)
+           uncertainty と influence も、標本・差分ごとにこの既定の手順で解く (有理数の逐次 LP に切り替わる
+           ゲームでは、解く回数の分だけ時間が延びる。速さを優先するなら --rel-tolerance 1e-7 などで 1 回だけ解く)。
+           structure (提携構造つきの仁) は、指定しなければ全体 1 ブロックのとき nucleolus と同じ手順で解き、
+           全員が単独なら guarantee=exact、それ以外は比 1e-7 で 1 回だけ解いて guarantee=approximate (確かめない)。
+           per-capita・proportional・modiclus・disruption は、指定しなければ比 1e-7 で 1 回だけ解き、
+           確かめないので guarantee=approximate。許容誤差を指定すると、どれも 1 回だけ解いて guarantee=exact
+           --tolerance auto は、この既定の手順を明示して選ぶ
   --check-tolerance T  verify・bargaining の判定の許容誤差 (値の単位)。既定は max|v(S)| の 1e-11 倍
            (仁の既定の手順が確かめる幅以上)。使った値を tolerance= で出す
   --core-tolerance T   explain・compare のコアの判定で、和の差と超過を 0 とみなす幅 (値の単位)。
@@ -132,29 +141,39 @@ fn main() -> ExitCode {
 
 /// CLI のエラー (標準エラーに出す文章)。ライブラリのエラーは `?` でそのまま変換する。
 #[derive(Debug)]
-struct CliError(String);
+struct CliError {
+    message: String,
+    /// 配分集合が空 (`sum v({i}) > v(N)`) のエラーか (run が --cost の案内を添える)。
+    empty_imputation_set: bool,
+}
 
 impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 
 impl From<String> for CliError {
     fn from(message: String) -> CliError {
-        CliError(message)
+        CliError {
+            message,
+            empty_imputation_set: false,
+        }
     }
 }
 
 impl From<&str> for CliError {
     fn from(message: &str) -> CliError {
-        CliError(message.to_string())
+        message.to_string().into()
     }
 }
 
 impl From<coopgame::Error> for CliError {
     fn from(error: coopgame::Error) -> CliError {
-        CliError(error.to_string())
+        CliError {
+            message: error.to_string(),
+            empty_imputation_set: matches!(error, coopgame::Error::EmptyImputationSet),
+        }
     }
 }
 
@@ -260,16 +279,36 @@ impl Args {
         }
     }
 
-    /// コマンドが受け付けるオプションだけが指定されているかを確かめる。各コマンドの最初に呼ぶ。
+    /// コマンドが受け付ける位置引数とオプションだけが指定されているかを確かめる。各コマンドの最初に呼ぶ。
     ///
+    /// `positional` はコマンドが受け付ける位置引数の名前 (`<v.txt>` など) で、数はちょうどこれだけ。
+    /// 余分な位置引数は効果がないので、黙って無視せずエラーにする。`-` で始まる位置引数 (`-pre` など) は
+    /// オプションの書き間違いなので、未知のオプションとしてエラーにする。
     /// `known` はコマンドが受け付けるオプション。それ以外は効果がないので、黙って無視せずエラーにする。
     /// ゲームのファイルを読むコマンドは、入力についての `--lex`・`--missing` を並べる。
     /// `--missing` の値 `ignore` (値が分かる提携だけで解く) は浮動小数点数の `nucleolus` だけで使えるので、ここで確かめる。
-    fn check_options(&self, known: &[&str]) -> CliResult<()> {
+    fn check_options(&self, positional: &[&str], known: &[&str]) -> CliResult<()> {
+        for arg in &self.positional {
+            if arg.starts_with('-') && arg.len() > 1 {
+                return Err(format!("未知のオプション {arg}\n\n{USAGE}").into());
+            }
+        }
         for (flag, _) in &self.flags {
             if !known.contains(&flag.as_str()) {
                 return Err(format!("未知のオプション {flag}\n\n{USAGE}").into());
             }
+        }
+        if let Some(extra) = self.positional.get(positional.len()) {
+            let command = &self.command;
+            let accepted = if positional.is_empty() {
+                format!("{command} は位置引数を受け付けない")
+            } else {
+                format!("{command} の位置引数は {}", positional.join(" "))
+            };
+            return Err(format!("余分な引数 {extra:?} ({accepted})\n\n{USAGE}").into());
+        }
+        if let Some(name) = positional.get(self.positional.len()) {
+            return Err(format!("入力ファイル {name} が指定されていない\n\n{USAGE}").into());
         }
         if self.missing == MissingPolicy::Ignore && self.command != "nucleolus" {
             return Err(format!(
@@ -309,18 +348,48 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
         return Err(USAGE.into());
     };
     let args = Args::parse(command, rest)?;
-    match command.as_str() {
+    let read_as_value = !args.has("--cost");
+    let input = args.positional.first().cloned();
+    run_command(command, args).map_err(|mut error| {
+        // 費用のゲームを価値として読むと、多くは sum c({i}) > c(N) で配分集合が空になる。
+        // 値を費用として読んでいない (--cost も type が cost の入力もない) ときは、--cost を案内する。
+        if error.empty_imputation_set && read_as_value && !declares_cost(input.as_deref()) {
+            error.message.push_str(&format!(
+                "\n値が費用 c(S) なら --cost で費用として読む (--cost を扱えるのは {COST_COMMANDS})"
+            ));
+        }
+        error
+    })
+}
+
+/// ゲームのファイル (最初の位置引数) が JSON の type・CSV の見出しで費用と明示しているか。
+fn declares_cost(path: Option<&str>) -> bool {
+    let Some(path) = path.filter(|path| is_table(path)) else {
+        return false;
+    };
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| io::declared_kind_by_extension(path, &text).ok())
+        .flatten()
+        == Some(io::Kind::Cost)
+}
+
+fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
+    match command {
         "nucleolus" => {
-            args.check_options(&[
-                "--pre",
-                "--lex",
-                "--missing",
-                "--full",
-                "--cost",
-                "--exact",
-                "--tolerance",
-                "--rel-tolerance",
-            ])?;
+            args.check_options(
+                &["<v.txt>"],
+                &[
+                    "--pre",
+                    "--lex",
+                    "--missing",
+                    "--full",
+                    "--cost",
+                    "--exact",
+                    "--tolerance",
+                    "--rel-tolerance",
+                ],
+            )?;
             let specified = tolerance(&args)?;
             let tolerance = specified.unwrap_or(Tolerance::Auto);
             if args.has("--exact") {
@@ -345,9 +414,8 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
                 }
                 // 値を有理数として読み、有理数だけの逐次 LP で解く。分数で出す。
                 let input = read_exact_input(&args, 0)?;
-                // --cost (または JSON・CSV の type が cost): 節約ゲームで解いて費用の分担に直す。
-                let is_cost = args.has("--cost") || input.kind == io::Kind::Cost;
-                let (game, standalone) = if is_cost {
+                // 費用 (--cost か、JSON・CSV の type が cost): 節約ゲームで解いて費用の分担に直す。
+                let (game, standalone) = if input.kind == io::Kind::Cost {
                     let (savings, standalone) = exact_savings(&input.game)?;
                     (savings, Some(standalone))
                 } else {
@@ -400,7 +468,7 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print_allocation(&prepared.output(result.allocation()));
         }
         "plot" => {
-            args.check_options(&["--lex", "--missing", "--no-kernel"])?;
+            args.check_options(&["<v.txt>"], &["--lex", "--missing", "--no-kernel"])?;
             let game = read_game(&args, 0)?;
             let mut options = plot::PlotOptions::default();
             options.kernel = !args.has("--no-kernel");
@@ -425,7 +493,17 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "structure" => {
-            args.check_options(&["--blocks", "--lex", "--missing", "--pre"])?;
+            args.check_options(
+                &["<v.txt>"],
+                &[
+                    "--blocks",
+                    "--lex",
+                    "--missing",
+                    "--pre",
+                    "--tolerance",
+                    "--rel-tolerance",
+                ],
+            )?;
             let game = read_game(&args, 0)?;
             let text = args.value("--blocks")?.ok_or("--blocks が必要")?;
             let blocks: Vec<Vec<usize>> = text
@@ -435,33 +513,54 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             let structure = partition::CoalitionStructure::new(game.players(), &blocks)?;
             let ad = partition::aumann_dreze(&game, &structure)?;
             let owen = partition::owen(&game, &structure)?;
-            let nucleolus = partition::nucleolus(&game, &structure, args.domain())?;
+            let mut options = Options::new(args.domain());
+            options.tolerance = tolerance(&args)?.unwrap_or(Tolerance::Auto);
+            let nucleolus = partition::nucleolus_with(&game, &structure, options)?;
+            eprintln!(
+                "structured_nucleolus: tolerance={:e} guarantee={}",
+                nucleolus.tolerance(),
+                nucleolus.guarantee()
+            );
             println!("player\taumann_dreze\tstructured_nucleolus\towen");
             for i in 0..game.players() {
                 println!("{i}\t{}\t{}\t{}", ad[i], nucleolus.allocation()[i], owen[i]);
             }
         }
         "airport" => {
-            args.check_options(&["--costs"])?;
+            args.check_options(&[], &["--costs"])?;
             let costs: Vec<f64> =
                 parse_list(args.value("--costs")?.ok_or("--costs が必要")?, "--costs")?;
             let game = AirportGame::new(costs)?;
             let shapley = game.shapley_costs();
             let nucleolus = game.nucleolus_costs()?;
+            eprintln!(
+                "nucleolus: method={} guarantee={}",
+                nucleolus.method(),
+                nucleolus.guarantee()
+            );
             println!("player\tcost\tshapley\tnucleolus");
             for (i, c) in game.costs().iter().enumerate() {
-                println!("{i}\t{c}\t{}\t{}", shapley[i], nucleolus[i]);
+                println!("{i}\t{c}\t{}\t{}", shapley[i], nucleolus.allocation()[i]);
             }
         }
         "shapley" | "banzhaf" => {
-            args.check_options(&[
-                "--lex",
-                "--missing",
-                "--samples",
-                "--seed",
-                "--normalize",
-                "--cost",
-            ])?;
+            args.check_options(
+                &["<v.txt>"],
+                &[
+                    "--lex",
+                    "--missing",
+                    "--samples",
+                    "--seed",
+                    "--normalize",
+                    "--cost",
+                ],
+            )?;
+            if args.has("--seed") && !args.has("--samples") {
+                return Err(
+                    "--seed はサンプリングの乱数の種で、--samples と併用する (--samples を省くと厳密計算で乱数を使わない)"
+                        .into(),
+                );
+            }
             // 費用のゲームは節約ゲームの値を費用の分担に戻す (線形なので費用ゲームの値そのもの)。
             let prepared = read_prepared(&args, 0)?;
             let game = &prepared.game;
@@ -481,9 +580,9 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
                     let samples = samples(&args, 1)?;
                     let seed: u64 = args.number("--seed", 0)?;
                     let estimate = if shapley {
-                        values::shapley_sampling(game, samples, seed)
+                        values::shapley_sampling(game, samples, seed)?
                     } else {
-                        values::banzhaf_sampling(game, samples, seed)
+                        values::banzhaf_sampling(game, samples, seed)?
                     };
                     eprintln!(
                         "time={:.6}s evaluations={} standard_errors={:?}",
@@ -502,25 +601,31 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "least-core" => {
-            args.check_options(&["--pre", "--lex", "--missing", "--cost"])?;
+            args.check_options(&["<v.txt>"], &["--pre", "--lex", "--missing", "--cost"])?;
             let prepared = read_prepared(&args, 0)?;
             let result = nucleolus::least_core(&prepared.game, args.domain())?;
             eprintln!("epsilon={}", result.epsilon());
             print_allocation(&prepared.output(result.allocation()));
         }
         "disruption" => {
-            args.check_options(&["--lex", "--missing"])?;
+            args.check_options(
+                &["<v.txt>"],
+                &["--lex", "--missing", "--tolerance", "--rel-tolerance"],
+            )?;
             let game = read_game(&args, 0)?;
-            let result = variants::disruption_nucleolus(&game)?;
+            let specified = tolerance(&args)?.unwrap_or(Tolerance::Auto);
+            let result = variants::disruption_nucleolus_with(&game, specified)?;
             eprintln!(
-                "lp_solves={} levels={:?}",
+                "lp_solves={} tolerance={:e} guarantee={} levels={:?}",
                 result.lp_solves(),
+                result.tolerance(),
+                result.guarantee(),
                 result.levels()
             );
             print_allocation(result.allocation());
         }
         "anti-nucleolus" => {
-            args.check_options(&["--pre", "--lex", "--missing"])?;
+            args.check_options(&["<v.txt>"], &["--pre", "--lex", "--missing"])?;
             let game = read_game(&args, 0)?;
             let result = if args.has("--pre") {
                 variants::anti_prenucleolus(&game)?
@@ -530,9 +635,9 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print_allocation(result.allocation());
         }
         "solidarity" | "tau" | "gately" => {
-            args.check_options(&["--lex", "--missing"])?;
+            args.check_options(&["<v.txt>"], &["--lex", "--missing"])?;
             let game = read_game(&args, 0)?;
-            let allocation = match command.as_str() {
+            let allocation = match command {
                 "solidarity" => values::solidarity(&game),
                 "tau" => {
                     eprintln!(
@@ -547,13 +652,21 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print_allocation(&allocation);
         }
         "myerson" => {
-            args.check_options(&["--edges", "--lex", "--missing"])?;
+            args.check_options(&["<v.txt>"], &["--edges", "--lex", "--missing"])?;
             let game = read_game(&args, 0)?;
             let text = args.value("--edges")?.ok_or("--edges が必要")?;
-            let edges: Vec<(usize, usize)> = text
-                .split(',')
-                .filter(|edge| !edge.trim().is_empty())
+            // 辺のない空のグラフは "" で書く。それ以外の空の要素 ("0-1,,1-2" など) は書き間違いなのでエラーにする。
+            let items: Vec<&str> = if text.trim().is_empty() {
+                Vec::new()
+            } else {
+                text.split(',').collect()
+            };
+            let edges: Vec<(usize, usize)> = items
+                .into_iter()
                 .map(|edge| {
+                    if edge.trim().is_empty() {
+                        return Err(format!("--edges に空の要素がある: {text:?}").into());
+                    }
                     let ends = parse_list::<usize>(&edge.replace('-', ","), "--edges")?;
                     match ends[..] {
                         [a, b] => Ok((a, b)),
@@ -564,36 +677,36 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print_allocation(&communication::myerson(&game, &edges)?);
         }
         "power" => {
-            args.check_options(&["--lex", "--missing"])?;
+            args.check_options(&["<v.txt>"], &["--lex", "--missing"])?;
             let game = read_game(&args, 0)?;
             let simple = power::SimpleGame::new(&game)?;
             let n = game.players();
-            let missing = || vec![f64::NAN; n];
-            let columns = [
-                ("shapley_shubik", values::shapley(&game)),
-                ("banzhaf", values::normalize(&values::banzhaf(&game))),
-                ("johnston", simple.johnston().unwrap_or_else(|_| missing())),
-                (
-                    "deegan_packel",
-                    simple.deegan_packel().unwrap_or_else(|_| missing()),
-                ),
-                (
-                    "public_good",
-                    simple.public_good().unwrap_or_else(|_| missing()),
-                ),
-                (
-                    "coleman_prevent",
-                    simple.coleman_prevent().unwrap_or_else(|_| missing()),
-                ),
-                (
-                    "coleman_initiative",
-                    simple.coleman_initiative().unwrap_or_else(|_| missing()),
-                ),
+            // 定義されない指数 (勝利提携がないなど) は値を出さず、空欄にして理由を標準エラーに出す
+            // (Python の power_indices の None と同じ)。
+            let columns: [(&str, coopgame::Result<Vec<f64>>); 7] = [
+                ("shapley_shubik", Ok(values::shapley(&game))),
+                ("banzhaf", Ok(values::normalize(&values::banzhaf(&game)))),
+                ("johnston", simple.johnston()),
+                ("deegan_packel", simple.deegan_packel()),
+                ("public_good", simple.public_good()),
+                ("coleman_prevent", simple.coleman_prevent()),
+                ("coleman_initiative", simple.coleman_initiative()),
             ];
+            for (name, column) in &columns {
+                if let Err(error) = column {
+                    eprintln!("{name} は定義されない: {error}");
+                }
+            }
             let header: Vec<&str> = columns.iter().map(|(name, _)| *name).collect();
             println!("player\t{}\tswings", header.join("\t"));
             for i in 0..n {
-                let row: Vec<String> = columns.iter().map(|(_, v)| v[i].to_string()).collect();
+                let row: Vec<String> = columns
+                    .iter()
+                    .map(|(_, column)| match column {
+                        Ok(v) => v[i].to_string(),
+                        Err(_) => String::new(),
+                    })
+                    .collect();
                 println!("{i}\t{}\t{}", row.join("\t"), simple.swings[i]);
             }
             eprintln!(
@@ -605,28 +718,44 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
         }
         "per-capita" | "proportional" | "modiclus" => {
             let known: &[&str] = if command == "modiclus" {
-                &["--lex", "--missing"]
+                &["--lex", "--missing", "--tolerance", "--rel-tolerance"]
             } else {
-                &["--pre", "--lex", "--missing"]
+                &[
+                    "--pre",
+                    "--lex",
+                    "--missing",
+                    "--tolerance",
+                    "--rel-tolerance",
+                ]
             };
-            args.check_options(known)?;
+            args.check_options(&["<v.txt>"], known)?;
             let game = read_game(&args, 0)?;
+            let specified = tolerance(&args)?.unwrap_or(Tolerance::Auto);
             let started = Instant::now();
-            let result = match command.as_str() {
-                "per-capita" => variants::per_capita_nucleolus(&game, args.domain()),
-                "proportional" => variants::proportional_nucleolus(&game, args.domain()),
-                _ => variants::modiclus(&game),
+            let result = match command {
+                "per-capita" => {
+                    variants::per_capita_nucleolus_with(&game, args.domain(), specified)
+                }
+                "proportional" => {
+                    variants::proportional_nucleolus_with(&game, args.domain(), specified)
+                }
+                _ => variants::modiclus_with(&game, specified),
             }?;
             eprintln!(
-                "time={:.6}s lp_solves={} levels={:?}",
+                "time={:.6}s lp_solves={} tolerance={:e} guarantee={} levels={:?}",
                 started.elapsed().as_secs_f64(),
                 result.lp_solves(),
+                result.tolerance(),
+                result.guarantee(),
                 result.levels()
             );
             print_allocation(result.allocation());
         }
         "convex-nucleolus" => {
-            args.check_options(&["--lex", "--missing", "--assume", "--reference"])?;
+            args.check_options(
+                &["<v.txt>"],
+                &["--lex", "--missing", "--assume", "--reference"],
+            )?;
             if args.has("--reference") && !args.has("--assume") {
                 return Err(
                     "--reference は --assume と併用する (仮定して求めた結果の検証に使う)".into(),
@@ -679,7 +808,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "kernel" => {
-            args.check_options(&["--pre", "--lex", "--missing", "--max-iter", "--cost"])?;
+            args.check_options(
+                &["<v.txt>"],
+                &["--pre", "--lex", "--missing", "--max-iter", "--cost"],
+            )?;
             let prepared = read_prepared(&args, 0)?;
             let game = &prepared.game;
             let mut options = TransferOptions::for_game(game);
@@ -696,7 +828,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print_allocation(&prepared.output(result.allocation()));
         }
         "kernel-set" => {
-            args.check_options(&["--pre", "--lex", "--missing", "--max-nodes", "--merge"])?;
+            args.check_options(
+                &["<v.txt>"],
+                &["--pre", "--lex", "--missing", "--max-nodes", "--merge"],
+            )?;
             let game = read_game(&args, 0)?;
             let mut options = SetOptions::for_game(&game);
             options.max_nodes = args.number("--max-nodes", options.max_nodes)?;
@@ -725,7 +860,7 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "talmud" => {
-            args.check_options(&["--estate", "--claims", "--exact"])?;
+            args.check_options(&[], &["--estate", "--claims", "--exact"])?;
             let estate = args.value("--estate")?.ok_or("--estate がない")?;
             let claims = args.value("--claims")?.ok_or("--claims がない")?;
             if args.has("--exact") {
@@ -748,7 +883,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "certify" => {
-            args.check_options(&["--pre", "--lex", "--missing", "--rational"])?;
+            args.check_options(
+                &["<v.txt>", "<sol.txt>"],
+                &["--pre", "--lex", "--missing", "--rational"],
+            )?;
             let x = read_values(args.file(1)?)?;
             let started = Instant::now();
             let report = if args.has("--rational") {
@@ -782,7 +920,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "check" => {
-            args.check_options(&["--pre", "--lex", "--missing", "--rational", "--reference"])?;
+            args.check_options(
+                &["<v.txt>", "<sol.txt>"],
+                &["--pre", "--lex", "--missing", "--rational", "--reference"],
+            )?;
             let x = read_values(args.file(1)?)?;
             let options = verify_options(&args)?;
             let started = Instant::now();
@@ -813,7 +954,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "verify" => {
-            args.check_options(&["--pre", "--lex", "--missing", "--check-tolerance"])?;
+            args.check_options(
+                &["<v.txt>", "<sol.txt>"],
+                &["--pre", "--lex", "--missing", "--check-tolerance"],
+            )?;
             let game = read_game(&args, 0)?;
             let x = read_values(args.file(1)?)?;
             let domain = args.domain();
@@ -832,11 +976,14 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             println!(
                 "kernel={} (violation={:e})",
                 in_kernel,
-                kernel::kernel_violation(&game, &x, domain)
+                kernel::kernel_violation(&game, &x, domain)?
             );
         }
         "bargaining" => {
-            args.check_options(&["--pre", "--lex", "--missing", "--check-tolerance"])?;
+            args.check_options(
+                &["<v.txt>", "<sol.txt>"],
+                &["--pre", "--lex", "--missing", "--check-tolerance"],
+            )?;
             let game = read_game(&args, 0)?;
             let x = read_values(args.file(1)?)?;
             let tolerance = args.number("--check-tolerance", verification_tolerance(&game))?;
@@ -861,7 +1008,10 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "explain" => {
-            args.check_options(&["--lex", "--missing", "--levels", "--core-tolerance"])?;
+            args.check_options(
+                &["<v.txt>", "<sol.txt>"],
+                &["--lex", "--missing", "--levels", "--core-tolerance"],
+            )?;
             let game = read_game(&args, 0)?;
             let x = read_values(args.file(1)?)?;
             let mut options = explain::ExplainOptions::default();
@@ -871,14 +1021,17 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print!("{}", explain::render(&report));
         }
         "compare" => {
-            args.check_options(&[
-                "--lex",
-                "--missing",
-                "--cost",
-                "--tolerance",
-                "--rel-tolerance",
-                "--core-tolerance",
-            ])?;
+            args.check_options(
+                &["<v.txt>"],
+                &[
+                    "--lex",
+                    "--missing",
+                    "--cost",
+                    "--tolerance",
+                    "--rel-tolerance",
+                    "--core-tolerance",
+                ],
+            )?;
             let core_tolerance = args.number("--core-tolerance", 0.0)?;
             // 仁・プレ仁は nucleolus コマンドと同じ手順で求める (指定がなければ既定の手順)。
             let tolerance = tolerance(&args)?.unwrap_or(Tolerance::Auto);
@@ -933,70 +1086,96 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             }
         }
         "uncertainty" => {
-            args.check_options(&[
-                "--lex",
-                "--missing",
-                "--relative",
-                "--samples",
-                "--seed",
-                "--solver",
-                "--tolerance",
-                "--rel-tolerance",
-            ])?;
+            args.check_options(
+                &["<v.txt>"],
+                &[
+                    "--lex",
+                    "--missing",
+                    "--relative",
+                    "--samples",
+                    "--seed",
+                    "--solver",
+                    "--tolerance",
+                    "--rel-tolerance",
+                ],
+            )?;
             let game = read_game(&args, 0)?;
-            let relative: f64 = args.number("--relative", 0.1)?;
+            // 誤差の幅は結果を左右するので、黙って既定の幅を使わない。
+            let Some(relative) = args.value("--relative")? else {
+                return Err(
+                    "--relative で各値の誤差の幅を指定する (例: --relative 0.1 で各値 ±10%)".into(),
+                );
+            };
+            let relative: f64 = relative
+                .parse()
+                .map_err(|_| format!("--relative の値 {relative:?} が不正"))?;
             let samples = samples(&args, 200)?;
             let seed: u64 = args.number("--seed", 0)?;
             let solve = solver(&args)?;
             let interval = uncertainty::IntervalGame::around(&game, relative)?;
             let d = uncertainty::interval_monte_carlo(&interval, samples, seed, solve)?;
+            let quantiles = d.quantiles();
             println!("player\tmean\tstd\tq05\tq50\tq95");
             for i in 0..game.players() {
                 println!(
                     "{i}\t{:.6}\t{:.6}\t{:.6}\t{:.6}\t{:.6}",
-                    d.mean[i],
-                    d.std[i],
-                    d.quantiles[0].1[i],
-                    d.quantiles[1].1[i],
-                    d.quantiles[2].1[i]
+                    d.mean()[i],
+                    d.std()[i],
+                    quantiles[0].1[i],
+                    quantiles[1].1[i],
+                    quantiles[2].1[i]
                 );
             }
-            eprintln!("samples={} failures={}", d.samples, d.failures);
+            // guarantees: 解けた標本の保証の内訳 (approximate は正しいと言えない解)。
+            eprintln!(
+                "samples={} failures={} guarantees={}",
+                d.samples(),
+                d.failures(),
+                d.guarantees()
+            );
         }
         "influence" => {
-            args.check_options(&[
-                "--lex",
-                "--missing",
-                "--solver",
-                "--levels",
-                "--delta",
-                "--tolerance",
-                "--rel-tolerance",
-            ])?;
+            args.check_options(
+                &["<v.txt>"],
+                &[
+                    "--lex",
+                    "--missing",
+                    "--solver",
+                    "--levels",
+                    "--delta",
+                    "--tolerance",
+                    "--rel-tolerance",
+                ],
+            )?;
             let game = read_game(&args, 0)?;
             let mut solve = solver(&args)?;
             let x = solve(&game)?;
             let levels: usize = args.number("--levels", 2)?;
             let delta: f64 = args.number("--delta", 1e-4 * game.max_abs_value().max(1.0))?;
-            let key = uncertainty::key_coalitions(&game, &x, levels)?;
+            let key = uncertainty::key_coalitions(&game, x.allocation(), levels)?;
             let mut rows = uncertainty::influence(&game, &key, delta, solve)?;
             rows.sort_by(|a, b| b.magnitude().total_cmp(&a.magnitude()));
             // difference: central (中心差分)、forward・backward (片側のゲームが解けないときの片側差分)。
-            println!("coalition\tmax|dx/dv|\tdx/dv (プレイヤー順)\tdifference");
+            // guarantees: 差分に使った 2 つの解の保証の内訳。
+            println!("coalition\tmax|dx/dv|\tdx/dv (プレイヤー順)\tdifference\tguarantees");
             for row in rows {
-                let values: Vec<String> =
-                    row.sensitivity.iter().map(|v| format!("{v:.4}")).collect();
+                let values: Vec<String> = row
+                    .sensitivity()
+                    .iter()
+                    .map(|v| format!("{v:.4}"))
+                    .collect();
                 println!(
-                    "{}\t{:.4}\t{}\t{}",
-                    row.coalition,
+                    "{}\t{:.4}\t{}\t{}\t{}",
+                    row.coalition(),
                     row.magnitude(),
                     values.join(" "),
-                    row.difference
+                    row.difference(),
+                    row.guarantees()
                 );
             }
         }
         "generate" => {
-            args.check_options(&["--type", "--n", "--seed"])?;
+            args.check_options(&[], &["--type", "--n", "--seed"])?;
             let kind: u8 = args.number("--type", 0)?;
             let n: usize = args.number("--n", 0)?;
             let seed: u64 = args.number("--seed", 0)?;
@@ -1004,7 +1183,7 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
             print!("{}", game.to_lines());
         }
         "bench" => {
-            args.check_options(&["--types", "--n", "--seeds", "--methods"])?;
+            args.check_options(&[], &["--types", "--n", "--seeds", "--methods"])?;
             bench(&args)?;
         }
         "help" | "--help" | "-h" => println!("{USAGE}"),
@@ -1135,10 +1314,30 @@ fn is_table_input(args: &Args, path: &str) -> CliResult<bool> {
     Ok(true)
 }
 
-/// 読んだゲームと値の種類。v.txt は価値として読む (費用として読むかは --cost で決める)。
+/// 読んだゲームと値の種類。
 struct Input<G> {
     game: G,
+    /// 値の種類。--cost なら費用、なければ JSON・CSV に書いた種類 (v.txt と type を省いた JSON は価値)。
     kind: io::Kind,
+}
+
+/// 値の種類を決める。--cost は値を費用として読む指定なので、JSON の type・CSV の見出しで価値 (value) と
+/// 明示した入力に付けると、どちらの種類で読むかが食い違う。黙ってどちらかを選ばずにエラーにする。
+fn input_kind(args: &Args, path: &str, text: &str, kind: io::Kind) -> CliResult<io::Kind> {
+    if !args.has("--cost") {
+        return Ok(kind);
+    }
+    if is_table(path)
+        && io::declared_kind_by_extension(path, text).map_err(|e| format!("{path}: {e}"))?
+            == Some(io::Kind::Value)
+    {
+        return Err(format!(
+            "{path}: 値の種類が value (価値) と書かれているので、--cost で費用として読めない \
+             (費用なら JSON の type を cost に、CSV の見出しを coalition,cost にする。価値なら --cost を外す)"
+        )
+        .into());
+    }
+    Ok(io::Kind::Cost)
 }
 
 /// ゲームを読む (JSON・CSV は値の種類も読む)。
@@ -1152,7 +1351,7 @@ fn read_input(args: &Args, position: usize) -> CliResult<Input<ExplicitGame>> {
             .map_err(|e| table_error(args, path, data.has_missing(), e))?;
         return Ok(Input {
             game,
-            kind: data.kind,
+            kind: input_kind(args, path, &text, data.kind)?,
         });
     }
     let values = coopgame::game::parse_values(&text).map_err(|e| format!("{path}: {e}"))?;
@@ -1163,7 +1362,7 @@ fn read_input(args: &Args, position: usize) -> CliResult<Input<ExplicitGame>> {
     };
     Ok(Input {
         game: game.map_err(|e| format!("{path}: {e}"))?,
-        kind: io::Kind::Value,
+        kind: input_kind(args, path, &text, io::Kind::Value)?,
     })
 }
 
@@ -1204,12 +1403,12 @@ impl Prepared {
     }
 }
 
-/// 費用のゲームも扱うコマンドでゲームを読む。--cost か、JSON・CSV の type が cost なら費用 c(S) として読み、
+/// 費用のゲームも扱うコマンドでゲームを読む。値の種類が費用 (--cost か、JSON・CSV の type が cost) なら費用 c(S) として読み、
 /// 節約ゲームに直す。節約ゲームの超過 `s(S) - x(S)` は費用の分担での `y(S) - c(S)` に等しいので、
 /// 超過に基づく解 (仁・最小コア・カーネル) と線形な値 (Shapley 値・Banzhaf 値) はそのまま費用の分担に戻せる。
 fn read_prepared(args: &Args, position: usize) -> CliResult<Prepared> {
     let input = read_input(args, position)?;
-    if args.has("--cost") || input.kind == io::Kind::Cost {
+    if input.kind == io::Kind::Cost {
         let cost = cost::CostGame::new(input.game);
         Ok(Prepared {
             game: cost.savings_game()?,
@@ -1234,7 +1433,7 @@ fn read_exact_input(args: &Args, position: usize) -> CliResult<Input<exact::Exac
             .map_err(|e| table_error(args, path, data.has_missing(), e))?;
         return Ok(Input {
             game,
-            kind: data.kind,
+            kind: input_kind(args, path, &text, data.kind)?,
         });
     }
     let values = exact::parse_rational_values(&text).map_err(|e| format!("{path}: {e}"))?;
@@ -1245,7 +1444,7 @@ fn read_exact_input(args: &Args, position: usize) -> CliResult<Input<exact::Exac
     };
     Ok(Input {
         game: game.map_err(|e| format!("{path}: {e}"))?,
-        kind: io::Kind::Value,
+        kind: input_kind(args, path, &text, io::Kind::Value)?,
     })
 }
 
@@ -1270,8 +1469,8 @@ fn nucleolus_known_only(args: &Args, tolerance: Tolerance) -> CliResult<bool> {
     if !is_table_input(args, path)? {
         return Ok(false);
     }
-    let mut data =
-        io::parse_by_extension(path, &read_text(path)?).map_err(|e| format!("{path}: {e}"))?;
+    let text = read_text(path)?;
+    let mut data = io::parse_by_extension(path, &text).map_err(|e| format!("{path}: {e}"))?;
     if !data.has_missing() {
         return Ok(false);
     }
@@ -1281,9 +1480,7 @@ fn nucleolus_known_only(args: &Args, tolerance: Tolerance) -> CliResult<bool> {
                 .into(),
         );
     }
-    if args.has("--cost") {
-        data.kind = io::Kind::Cost;
-    }
+    data.kind = input_kind(args, path, &text, data.kind)?;
     // 費用なら節約ゲームで解き、費用の分担で出す (io::GameData::partial_nucleolus)。
     let result = data
         .partial_nucleolus_with(args.domain(), tolerance)
@@ -1309,13 +1506,12 @@ fn samples(args: &Args, default: usize) -> CliResult<usize> {
 
 /// uncertainty・influence の解き方 (`--solver`。既定は nucleolus)。
 ///
-/// 仁・プレ仁は、指定がなければ max|v(S)| の 1e-7 倍の許容誤差で 1 回だけ解く (標本や差分のために何度も解くので、
-/// 既定の手順の解き直しはしない)。`--tolerance`・`--rel-tolerance` で許容誤差を指定でき、`--tolerance auto` で
-/// 既定の手順を選べる。
+/// 仁・プレ仁は、指定がなければ nucleolus と同じ既定の手順で解く。`--tolerance`・`--rel-tolerance` で許容誤差を
+/// 指定すると、確かめずに 1 回だけ解く (速いが、値の大きいゲームでは仁と異なりうる)。
 fn solver(args: &Args) -> CliResult<uncertainty::Solver> {
     let name = args.value("--solver")?.unwrap_or("nucleolus");
     let tolerance = match tolerance(args)? {
-        None => Tolerance::Relative(1e-7),
+        None => Tolerance::Auto,
         Some(specified) => {
             if name == "shapley" {
                 return Err(
@@ -1375,26 +1571,61 @@ fn parse_range(text: &str) -> CliResult<Vec<usize>> {
     }
 }
 
+/// bench の手法。
+const BENCH_METHODS: [&str; 6] = [
+    "nucleolus",
+    "nucleolus-full",
+    "prenucleolus",
+    "prenucleolus-full",
+    "kernel",
+    "prekernel",
+];
+
 /// ゲームタイプ・人数・seed ごとに各手法を実行し、CSV を標準出力に出す。
+///
+/// 未知のタイプ・手法、2 人未満の人数、0 個の seed は、計測する組がないか効果がないのでエラーにする。
+/// タイプと人数の組で作れないゲーム (タイプ 5 の n < 7 など) は、その組の各手法の行の error 列に理由を書く
+/// (既定の --types 1..5 --n 4..10 にも作れない組が含まれるので、全体をエラーにしない)。
 fn bench(args: &Args) -> CliResult<()> {
     let types: Vec<u8> = parse_list(args.value("--types")?.unwrap_or("1,2,3,4,5"), "--types")?;
+    if let Some(kind) = types.iter().find(|&&kind| !(1..=5).contains(&kind)) {
+        return Err(format!("--types の要素 {kind} は未知のタイプ (1 から 5)").into());
+    }
     let sizes = parse_range(args.value("--n")?.unwrap_or("4..10"))?;
+    if let Some(n) = sizes.iter().find(|&&n| n < 2) {
+        return Err(format!("--n の人数 {n} ではゲームを作れない (2 以上)").into());
+    }
     let seeds: u64 = args.number("--seeds", 3)?;
+    if seeds == 0 {
+        return Err("--seeds は 1 以上 (0 では計測する組がない)".into());
+    }
     let methods: Vec<String> = parse_list(
         args.value("--methods")?
             .unwrap_or("nucleolus,prenucleolus,kernel,prekernel"),
         "--methods",
     )?;
+    if let Some(method) = methods
+        .iter()
+        .find(|method| !BENCH_METHODS.contains(&method.as_str()))
+    {
+        return Err(format!("未知の手法 {method:?} ({})", BENCH_METHODS.join(", ")).into());
+    }
     println!("type,n,seed,method,seconds,lp_solves,rows_added,iterations,verified,violation,error");
     for &kind in &types {
         for &n in &sizes {
             for seed in 0..seeds {
-                let game = match generators::bnf(kind, n, seed) {
-                    Ok(game) => game,
-                    Err(_) => continue,
-                };
-                for method in &methods {
-                    println!("{kind},{n},{seed},{method},{}", bench_one(&game, method)?);
+                match generators::bnf(kind, n, seed) {
+                    Ok(game) => {
+                        for method in &methods {
+                            println!("{kind},{n},{seed},{method},{}", bench_one(&game, method)?);
+                        }
+                    }
+                    Err(error) => {
+                        let reason = format!("ゲームを作れない: {error}").replace(',', ";");
+                        for method in &methods {
+                            println!("{kind},{n},{seed},{method},,,,,,,{reason}");
+                        }
+                    }
                 }
             }
         }
@@ -1428,18 +1659,18 @@ fn bench_one(game: &ExplicitGame, method: &str) -> CliResult<String> {
             )
         })
     } else {
-        nucleolus::nucleolus_with(game, options).map(|r| {
+        nucleolus::nucleolus_with(game, options).and_then(|r| {
             let seconds = started.elapsed().as_secs_f64();
             let verified = verify::kohlberg(game, r.allocation(), domain)
                 .map(|report| report.satisfied)
                 .unwrap_or(false);
-            format!(
+            Ok(format!(
                 "{seconds:.6},{},{},{},{verified},{:e},",
                 r.lp_solves(),
                 r.rows_added(),
                 r.levels().len(),
-                kernel::kernel_violation(game, r.allocation(), domain)
-            )
+                kernel::kernel_violation(game, r.allocation(), domain)?
+            ))
         })
     };
     Ok(row.unwrap_or_else(|err| {

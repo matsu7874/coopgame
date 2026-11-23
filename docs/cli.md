@@ -71,19 +71,21 @@ coopgame nucleolus v.txt > sol.txt          # 仁 (オプションは下の表)
 coopgame least-core v.txt                   # 最小コア
 coopgame kernel v.txt                       # カーネルの 1 点 (--pre でプレカーネル)
 coopgame kernel-set v.txt                   # カーネル全体を多面体ごとの頂点で出す (--merge で線分をまとめる)
-coopgame shapley v.txt                      # Shapley 値 (--samples N でサンプリング推定)
+coopgame shapley v.txt                      # Shapley 値 (--samples N でサンプリング推定。--seed S は --samples と併用する)
 coopgame banzhaf v.txt --normalize          # 正規化 Banzhaf 指数
 coopgame disruption v.txt                   # disruption nucleolus (コアが空でないゲーム)
 coopgame anti-nucleolus v.txt               # anti-nucleolus (--pre で anti-prenucleolus)
 coopgame solidarity v.txt                   # solidarity 値
 coopgame tau v.txt                          # tau 値 (準平衡でなければエラー)
 coopgame gately v.txt                       # Gately 点
-coopgame myerson v.txt --edges 0-1,1-2      # 通信グラフ (プレイヤーの番号の組) のもとでの Myerson 値
+coopgame myerson v.txt --edges 0-1,1-2      # 通信グラフ (プレイヤーの番号の組) のもとでの Myerson 値 (辺のないグラフは --edges "")
 coopgame power v.txt                        # 単純ゲームの投票力指数の表 (Shapley–Shubik・Banzhaf・Johnston・Deegan–Packel・Public Good・Coleman)
 coopgame per-capita v.txt                   # per capita 仁 (proportional で比例仁、modiclus で modiclus)
 coopgame structure v.txt --blocks "0,1|2"   # 提携構造の Aumann–Drèze 値・提携構造つきの仁・Owen 値
 coopgame convex-nucleolus v.txt             # 凸ゲームの手法で仁 (凸でなければエラー。--assume で凸と仮定して試し、事後検証する)
 ```
+
+`power` は、定義されない指数 (勝利提携がないゲームの Johnston 指数など) の列を空欄にし、理由を標準エラーに出す (Python の `power_indices` の `None` に当たる)。
 
 `nucleolus` の主なオプション:
 
@@ -122,14 +124,23 @@ time=0.000167s lp_solves=3 rows_added=0 solver=lp tolerance=6e-7 refinements=0 g
 | `refinements` | 許容誤差を下げて解き直しを試みた回数 (失敗した試行を含む) |
 | `guarantee` | `exact`、または Kohlberg 基準を細かい許容誤差では満たさないまま返した `approximate` (既定の手順で確かめない 21 人以上も `approximate`) |
 
+`structure` (提携構造つきの仁) と、仁の変種 (`per-capita`・`proportional`・`modiclus`・`disruption`) も `--tolerance`・`--rel-tolerance` を受け付け、標準エラーに `tolerance` と `guarantee` を出す。
+指定しなければ、`structure` は全体 1 ブロックなら `nucleolus` と同じ既定の手順で解き、全員が単独なら `exact`、それ以外は比 `1e-7` で 1 回だけ解いて、確かめていないので `approximate` にする。
+仁の変種は比 `1e-7` で 1 回だけ解き、確かめていないので `approximate` にする。
+許容誤差を指定すると、どれも 1 回だけ解いて `exact` にする (指定した許容誤差の範囲で成り立つ。[保証の設計](guarantees.md#既定の経路ごとの保証))。
+
 `least-core`・`kernel`・`shapley`・`banzhaf`・`compare` も `--cost` で費用ゲームを扱う ([費用ゲーム](input-format.md#費用ゲーム))。
 他のコマンドに費用のゲーム (`type` が `cost`) を渡すとエラーにする。
+JSON の `type`・CSV の見出しで価値 (`value`) と明示したファイルに `--cost` を付けると、どちらの種類で読むかが食い違うのでエラーにする (`type` を省いた JSON と 1 行 1 値のファイルには付けられる)。
+価値として読んだゲームで配分集合が空になると (`sum v({i}) > v(N)`)、エラーに `--cost` の案内を添える (費用を価値として読んだときに起きやすいため)。
 費用のゲームで `--missing zero` を使うと、値が分からない提携の費用を 0 とみなす ([入力形式](input-format.md#値が分からない提携))。
 
 同じオプションを 2 回書くとエラーにする (どちらの値を使うかが曖昧になるため)。
 `--lex` は 1 行 1 値のファイル (`v.txt`) の並び順の指定なので、JSON・CSV の入力に付けるとエラーにする (どのコマンドでも同じ)。
 `--missing` は JSON・CSV で値が分からない提携の扱いの指定なので、1 行 1 値のファイルに付けるとエラーにする (既定と同じ `--missing error` も同じ。どのコマンドでも同じ)。
 コマンドが受け付けないオプションは、効果がないので未知のオプションとしてエラーにする。
+位置引数 (`v.txt`・`sol.txt`) の数はコマンドごとに決まっていて、余分な位置引数はエラーにする。
+`-` で始まる位置引数 (`-pre` など) は、オプションの書き間違いとして未知のオプションのエラーにする。
 ゲームのファイルを読まないコマンド (`talmud`・`airport`・`generate`・`bench`) に `--lex`・`--missing` を付けた場合も同じである。
 
 ## 特定のゲームを解く
@@ -141,6 +152,7 @@ coopgame airport --costs 1,2,3,6                            # 空港ゲームの
 
 ```console
 $ coopgame airport --costs 1,2,3,6
+nucleolus: method=convex-transfer guarantee=proven(convex)
 player	cost	shapley	nucleolus
 0	1	0.25	0.5
 1	2	0.5833333333333333	0.75
@@ -200,7 +212,7 @@ kernel=true (violation=0e0)
 coopgame explain v.txt sol.txt              # 不満の大きい提携、安定性、プレイヤーごとの不満
 coopgame compare v.txt                      # 仁・プレ仁・Shapley 値・per capita 仁・modiclus を安定性で比べる
 coopgame influence v.txt                    # 配分を決めている提携と、その値に対する感度
-coopgame uncertainty v.txt --relative 0.1 --samples 200   # 各値 ±10% の誤差での配分の分布
+coopgame uncertainty v.txt --relative 0.1 --samples 200   # 各値 ±10% の誤差での配分の分布 (--relative は必須)
 coopgame plot v.txt > figure.svg            # 3-4 人の配分集合の図 (SVG)。頂点などの表を標準エラーに出す
 ```
 
@@ -224,13 +236,13 @@ $ coopgame compare v.txt
 3	per capita 仁
 4	modiclus
 $ coopgame influence v.txt
-coalition	max|dx/dv|	dx/dv (プレイヤー順)	difference
-{0, 1}	0.5833	0.2917 0.2917 -0.5833	central
-{0, 2}	0.5833	0.4167 -0.5833 0.1667	central
-{1, 2}	0.5833	-0.5833 0.4167 0.1667	central
-{0, 1, 2}	0.4167	0.2917 0.2917 0.4167	central
-{2}	0.2500	-0.1250 -0.1250 0.2500	central
-{1}	0.0000	0.0000 0.0000 -0.0000	central
+coalition	max|dx/dv|	dx/dv (プレイヤー順)	difference	guarantees
+{0, 1}	0.5833	0.2917 0.2917 -0.5833	central	exact:2
+{0, 2}	0.5833	0.4167 -0.5833 0.1667	central	exact:2
+{1, 2}	0.5833	-0.5833 0.4167 0.1667	central	exact:2
+{0, 1, 2}	0.4167	0.2917 0.2917 0.4167	central	exact:2
+{2}	0.2500	-0.1250 -0.1250 0.2500	central	exact:2
+{1}	0.0000	0.0000 0.0000 -0.0000	central	exact:2
 ```
 
 `explain` と `compare` のコアの判定は、ゲームの値と配分を 2 進数の値どおりの有理数として読んだ厳密な判定である。
@@ -242,10 +254,28 @@ coalition	max|dx/dv|	dx/dv (プレイヤー順)	difference
 (人数の上限は [性能と制約](performance.md))。解の番号は、省いた解を詰めて振る。
 
 仁・プレ仁の許容誤差は、`compare`・`influence`・`uncertainty` でも `--tolerance`・`--rel-tolerance` で指定できる。
-指定しない場合、`compare` は `nucleolus` と同じ既定の手順 (正しさを優先) で仁を求める。
-`influence` と `uncertainty` は仁を何度も解くので、比 `1e-7` の許容誤差で 1 回だけ解く。
-`--tolerance auto` を付けると、`influence` と `uncertainty` も既定の手順で解く
-(有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
+指定しない場合は、どれも `nucleolus` と同じ既定の手順 (正しさを優先) で仁を求める。
+`influence` と `uncertainty` は標本・差分の数だけ仁を解くので、解き直しや有理数の逐次 LP に切り替わるゲームでは時間が延びる
+(実測は [性能と制約](performance.md#値の不確かさの分析の時間))。
+速さを優先するなら、`--rel-tolerance 1e-7` などで許容誤差を指定し、確かめずに 1 回だけ解く
+(値の大きい整数のゲームなどでは、仁と異なる配分が混ざりうる)。
+
+`uncertainty` は誤差の幅 `--relative` (各値の前後の比。`0.1` で ±10%) が必須である。
+標準エラーの `guarantees=` は解けた標本の保証の内訳 (`exact:198,approximate:2` など) で、
+`approximate` は正しいと言えない解 (仁の既定の手順で Kohlberg 基準を確かめられなかった解など) である。
+平均などは、保証によらず解けた標本を全て使って求める。
+標本の解の許容誤差が、幅が正の区間のうち最も狭いものの幅の半分以上なら、その提携の揺れが許容誤差に埋もれるのでエラーにする
+(`influence` の `--delta` と同じ判定。値が 0 の提携は幅が 0 なので比べない)。
+そのため、値が丸め誤差程度の非 0 の提携 (`0.1 + 0.2 - 0.3` を計算した値など) を持つゲームや、値の桁が `1e6` 倍以上離れた提携を持つゲームでは、
+小さい値の提携の幅が許容誤差 (既定は `max|v(S)|` の `1e-7` 倍) より狭くなり、エラーになりやすい。
+その提携の揺れは許容誤差に埋もれて分布に現れないからである。値を 0 に丸めるか、より小さい許容誤差 (`--rel-tolerance`) で解く。
+許容誤差は、LP を解かずに決まった厳密な解 (1 人ゲーム、`sum v({i}) = v(N)` のゲーム) と有理数の逐次 LP の解では 0 として比べる。
+
+`influence` の `guarantees` の列は、差分に使った 2 つの解の保証の内訳である。
+差分に使った解の許容誤差 (返した配分を求めた逐次 LP の許容誤差。有理数の逐次 LP で求めた解は 0) が `--delta` 以上なら、
+配分の変化が許容誤差に埋もれるので、エラーにする。`--delta` を大きくするか、より小さい許容誤差で解く。
+既定の手順で Kohlberg 基準を確かめた解も、最初に解いた許容誤差 (比 `1e-7`) で比べる。
+確かめた解でも、値が `1e12` 程度のゲームでは仁と数単位ずれることがあるためである。
 
 `influence` は提携の値を `±delta` 動かしたゲームを解き、`difference` の列に差分の取り方を書く。
 `central` は中心差分 `(x(v(S) + δ) - x(v(S) - δ)) / 2δ` である。
@@ -256,14 +286,14 @@ coalition	max|dx/dv|	dx/dv (プレイヤー順)	difference
 ```console
 $ printf '1\n1\n2\n1\n2\n2\n3\n' > additive.txt
 $ coopgame influence additive.txt
-coalition	max|dx/dv|	dx/dv (プレイヤー順)	difference
-{0, 1, 2}	0.3333	0.3333 0.3333 0.3333	forward
-{0}	0.0000	0.0000 0.0000 0.0000	backward
-{1}	0.0000	0.0000 0.0000 0.0000	backward
-{0, 1}	0.0000	0.0000 0.0000 0.0000	central
-{2}	0.0000	0.0000 0.0000 0.0000	backward
-{0, 2}	0.0000	0.0000 0.0000 0.0000	central
-{1, 2}	0.0000	0.0000 0.0000 0.0000	central
+coalition	max|dx/dv|	dx/dv (プレイヤー順)	difference	guarantees
+{0, 1, 2}	0.3333	0.3333 0.3333 0.3333	forward	exact:2
+{0}	0.0000	0.0000 0.0000 0.0000	backward	exact:2
+{1}	0.0000	0.0000 0.0000 0.0000	backward	exact:2
+{0, 1}	0.0000	0.0000 0.0000 0.0000	central	exact:2
+{2}	0.0000	0.0000 0.0000 0.0000	backward	exact:2
+{0, 2}	0.0000	0.0000 0.0000 0.0000	central	exact:2
+{1, 2}	0.0000	0.0000 0.0000 0.0000	central	exact:2
 ```
 
 両側とも解けない提携があれば、その提携を示してエラーにする。
@@ -292,3 +322,5 @@ coopgame bench --types 1,2,3,4,5 --n 4..12 --seeds 3 > bench.csv
 `bench` は `type,n,seed,method,seconds,lp_solves,rows_added,iterations,verified,violation,error` の CSV を出す。
 `--methods` には `nucleolus`, `nucleolus-full`, `prenucleolus`, `prenucleolus-full`, `kernel`, `prekernel` を指定できる。
 仁の `verified` は Kohlberg 基準、カーネルの `verified` は収束したかどうか。
+`--types` は 1 から 5、`--n` は 2 以上、`--seeds` は 1 以上で、未知の手法とともにエラーにする。
+タイプと人数の組でゲームを作れない場合 (タイプ 5 の `n < 7` など) は、その組の各手法の行の `error` 列に理由を書く。

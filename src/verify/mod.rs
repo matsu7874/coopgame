@@ -38,8 +38,8 @@ pub use kohlberg::{KohlbergReport, kohlberg, kohlberg_within};
 use num_traits::{Signed, Zero};
 
 use crate::Domain;
-use crate::error::{Error, Result};
-use crate::game::allocation::{check_imputation_set, feasibility_violation};
+use crate::error::Result;
+use crate::game::allocation::{check_imputation_set, feasibility_violation, require_allocation};
 use crate::game::exact::{ExactGame, Rational, to_f64};
 use crate::game::{
     Coalition, ExplicitGame, PlayerSet, SetFunction, default_tolerance, value_scale,
@@ -202,7 +202,7 @@ impl Unverified<Solution> {
 ///   (各成分の差の絶対値の最大を有理数で測る) が `T` 以下。`x*` は、`x` から復元したもの ([`certify`])、
 ///   または `x` が [`certify`] に合格しないときの基準の仁 (逐次 LP で求めた仁から復元したもの。復元できなければ、
 ///   `options.reference` ([`Reference`]) に応じて有理数の逐次 LP で求めたもの)。仁は一意なので、どれも同じ仁である。
-/// - `Refuted`: 和や個人合理性が `T` を超えて破れている、`x` に有限でない成分がある、仁で配分集合が空である、
+/// - `Refuted`: 和や個人合理性が `T` を超えて破れている、仁で配分集合が空である、
 ///   または基準の仁から離れている。配分集合は、逐次 LP ([`nucleolus::nucleolus`]) と同じく、`sum v({i})` が
 ///   `v(N)` を既定の許容誤差 ([`default_tolerance`]) を超えて上回るときに空とする。基準の仁が厳密に検証できれば
 ///   差が `T` を超えるとき、浮動小数点でしか検証できなければ差が `100 T` を超えるときに否定する。
@@ -216,8 +216,8 @@ impl Unverified<Solution> {
 ///
 /// # Errors
 ///
-/// 入力が不正なときだけエラーを返す: `x` の長さがプレイヤー数と異なれば [`Error::InvalidArgument`]、
-/// [`MAX_CERTIFY_PLAYERS`] 人以下で全提携の値の表を作れない (有限でない値がある) 場合はその表を作るときのエラー。
+/// 入力が不正なときだけエラーを返す: `x` の長さがプレイヤー数と異なるか、有限でない成分があれば
+/// [`crate::Error::InvalidArgument`]、[`MAX_CERTIFY_PLAYERS`] 人以下で全提携の値の表を作れない (有限でない値がある) 場合はその表を作るときのエラー。
 pub fn check<G: SetFunction + ?Sized>(
     game: &G,
     x: &[f64],
@@ -225,7 +225,7 @@ pub fn check<G: SetFunction + ?Sized>(
     options: VerifyOptions,
 ) -> Result<Check> {
     let n = game.players();
-    check_length(n, x)?;
+    require_allocation(n, x)?;
     if n <= MAX_CERTIFY_PLAYERS {
         let explicit = ExplicitGame::tabulate(game)?;
         let exact = ExactGame::from_explicit(&explicit)?;
@@ -258,8 +258,8 @@ pub fn check<G: SetFunction + ?Sized>(
 ///
 /// # Errors
 ///
-/// 入力が不正なときだけエラーを返す: `x` の長さがプレイヤー数と異なれば [`Error::InvalidArgument`]、
-/// `exact` の値を浮動小数点数にできない (範囲を超える) 場合はその変換のエラー。
+/// 入力が不正なときだけエラーを返す: `x` の長さがプレイヤー数と異なるか、有限でない成分があれば
+/// [`crate::Error::InvalidArgument`]、`exact` の値を浮動小数点数にできない (範囲を超える) 場合はその変換のエラー。
 pub fn check_exact(
     exact: &ExactGame,
     x: &[f64],
@@ -267,7 +267,7 @@ pub fn check_exact(
     options: VerifyOptions,
 ) -> Result<Check> {
     let explicit = exact.to_explicit()?;
-    check_length(explicit.players(), x)?;
+    require_allocation(explicit.players(), x)?;
     Ok(check_small(
         &explicit,
         exact,
@@ -399,7 +399,8 @@ fn certify_small(
     // 基準 2: 有理数の逐次 LP の仁 (求め方が許す人数まで)。有理数の Kohlberg 判定に合格したものだけを使う。
     if explicit.players() <= reference.exact_players()
         && let Ok(solved) = nucleolus::exact::nucleolus(exact_game, domain)
-        && kohlberg_exact(exact_game, &solved.allocation, domain).satisfied
+        && kohlberg_exact(exact_game, &solved.allocation, domain)
+            .is_ok_and(|report| report.satisfied)
     {
         return against_exact(solved.allocation);
     }
@@ -416,16 +417,6 @@ fn certify_small(
         )),
         (Ok(_), _) => Check::Undecided(format!("候補も基準の仁も検証に合格しない ({reason})")),
     }
-}
-
-fn check_length(n: usize, x: &[f64]) -> Result<()> {
-    if x.len() != n {
-        return Err(Error::InvalidArgument(format!(
-            "配分の長さ {} がプレイヤー数 {n} と異なる",
-            x.len()
-        )));
-    }
-    Ok(())
 }
 
 /// 和が `v(N)` か、仁なら個人合理性を満たすかを確かめる。満たさなければ否定の結論を返す。

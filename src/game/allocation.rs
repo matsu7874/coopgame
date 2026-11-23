@@ -134,6 +134,17 @@ pub(crate) fn allocation_defect(n: usize, x: &[f64]) -> Option<String> {
         .map(|i| format!("x_{i} = {} は有限でない", x[i]))
 }
 
+/// 配分の長さがプレイヤー数 `n` と等しく、全ての成分が有限であることを確かめる。
+///
+/// 配分を受け取る判定・検証の関数は、これを満たさない配分を「属さない」「不成立」とは答えず、
+/// [`Error::InvalidArgument`] にする (入力の誤りを判定の結果に紛れさせない)。
+pub(crate) fn require_allocation(n: usize, x: &[f64]) -> Result<()> {
+    match allocation_defect(n, x) {
+        Some(defect) => Err(Error::InvalidArgument(defect)),
+        None => Ok(()),
+    }
+}
+
 /// 長さ・有限性・効率性・領域条件の違反を調べる。違反があればその説明を返す。
 ///
 /// ゲームの値や許容誤差に NaN があれば違反として扱う。

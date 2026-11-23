@@ -7,9 +7,11 @@
 //! 仁・カーネルなど超過に基づく解は、加法的な項を足しても (戦略的に同値な変換で) 対応が保たれるので、
 //! 節約ゲームで求めて費用に戻せばよい。Shapley 値は線形なので費用ゲームで直接求める。
 
+use crate::Domain;
 use crate::error::Result;
 use crate::game::ExplicitGame;
 use crate::game::scale::difference_or_zero;
+use crate::nucleolus::{NucleolusResult, Options};
 use crate::{nucleolus, values};
 
 /// 全提携の費用を持つ費用ゲーム。
@@ -59,9 +61,23 @@ impl CostGame {
     }
 
     /// 仁による費用の分担 (誰も単独より多くは払わない範囲で、最も不満な提携の不満を辞書式に最小化)。
-    pub fn nucleolus(&self) -> Result<Vec<f64>> {
+    /// 許容誤差を指定しない既定の設定 ([`Options::new`]) で求める。
+    ///
+    /// 節約ゲームの仁 ([`nucleolus::nucleolus`]) を求め、配分 ([`NucleolusResult::allocation`]) を費用の分担
+    /// `y_i = c({i}) - x_i` に直して返す。費用ゲームの超過 `y(S) - c(S)` は節約ゲームの超過 `s(S) - x(S)` に等しいので、
+    /// 段 ([`NucleolusResult::levels`])・許容誤差・保証は節約ゲームの仁のものをそのまま使う。
+    /// 保証の規則も既定の仁と同じで、Kohlberg 基準を確かめない 21 人以上などでは [`crate::Guarantee::Approximate`]。
+    pub fn nucleolus(&self) -> Result<NucleolusResult> {
+        self.nucleolus_with(Options::new(Domain::Imputation))
+    }
+
+    /// 設定 `options` で、仁 (`Domain::Imputation`) またはプレ仁による費用の分担を求める ([`nucleolus::nucleolus_with`])。
+    /// 許容誤差は節約ゲームの値の単位 (比で指定するときは、節約ゲームの値の最大絶対値に対する比)。
+    pub fn nucleolus_with(&self, options: Options) -> Result<NucleolusResult> {
         let savings = self.savings_game()?;
-        Ok(self.to_costs(&nucleolus::nucleolus(&savings)?.allocation))
+        let standalone = self.standalone();
+        Ok(nucleolus::nucleolus_with(&savings, options)?
+            .map_allocation(|x| shares_from_savings(&standalone, x)))
     }
 
     /// Shapley 値による費用の分担 (費用ゲームの Shapley 値そのもの)。
@@ -89,7 +105,7 @@ mod tests {
         let savings = game.savings_game().unwrap();
         let expected = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 0.0, 9.0, 10.0, 12.0]).unwrap();
         assert_eq!(savings, expected);
-        let shares = game.nucleolus().unwrap();
+        let shares = game.nucleolus().unwrap().into_allocation();
         assert!((shares.iter().sum::<f64>() - 78.0).abs() < 1e-9);
         let back = game.to_savings(&shares);
         let nucleolus = nucleolus::nucleolus(&savings).unwrap().allocation;

@@ -10,8 +10,21 @@ sha256sum -c data/SHA256SUMS                # 保存したデータが改変さ�
 python3 scripts/verify_claims.py            # ドキュメントの数値を CSV から再計算して照合
 ```
 
-`verify_claims.py` は `docs/comparison.md`、`docs/guarantees.md`、`docs/performance.md` の数値を
-1 つずつ CSV から再計算し、食い違えば終了コード 1 を返す。
+`verify_claims.py` は `docs/comparison.md`、`docs/guarantees.md`、`docs/performance.md`、`docs/reproducibility.md`、
+`docs/references.md` の数値を 1 つずつ CSV から再計算し、食い違えば終了コード 1 を返す。
+次の表と記述は文書の本文から読み取って CSV と比べるので、文書の数値を書き換えると照合の対象も変わる。
+
+- `docs/comparison.md`: 実行時間の表、有理数による厳密な検証の表、仁の変種の比較の記述
+- `docs/performance.md`: 許容誤差の決め方の表とその下の記述、有理数の逐次 LP の時間の表、解き直しの行の記述、
+  オラクル版の許容誤差の記述、明示ベクトルの計測の表、オラクルの表、拒否権のある重み付き投票ゲームの表とその下の記述、
+  上限の表と 1 GB の件数、有理数の仁の時間、サンプリングした仁の誤差、カーネル全体の時間
+- `docs/guarantees.md`: 境目の表、凸ゲームの手法の表、仮定の実験の表とその下の記述
+- `docs/reproducibility.md` の CoopGame との照合 (2026-11-23)、`docs/references.md` の分析の数と素数の数、`docs/large-games.md` の拒否権のゲームの時間
+
+表は、期待する行 (先頭の列の値の並び) と列の数をスクリプトに持ち、行が消えた・足された・表の途中に空行がある・列の数が違う、のどれでも失敗する。
+照合した項目の数が下限 (`MIN_CHECKS`) を下回っても失敗する。`--self-test` は、これらの表を (ファイルを書き換えずに) 1 行消す・空行を入れる・列を消すと照合が失敗することを確かめる。
+それ以外の数値 (`docs/comparison.md` の結論と正しさの表、`docs/performance.md` の値の不確かさの分析の時間など) は、スクリプトに書いた期待値と比べる。
+上界として書いた数 (「X 以下」「X 以内」) はデータを表示の桁で切り上げた値、それ以外は四捨五入した値として照合する。
 インスタンスを作ってから `--instances` を付けると、配分そのものも検証する。
 
 ```bash
@@ -33,6 +46,7 @@ CoopGame の誤りと判定した 4 件について、超過を降順に並べ�
 | `data/bench/results-n17-22.csv` | 同上 | コミット `3f85dc1` | `coopgame bench --n 17..22 --seeds 1 --methods nucleolus,kernel` |
 | `data/bench/oracle-scaling.csv` | オラクル版の仁の計測 (`docs/performance.md` のオラクルの計測) | オラクル版の確定判定の LP で行を一律に緩めるのをやめたコミット | `bench_oracle bankruptcy 10,20,40,70,100 3`、`bankruptcy-wide 40,70,100 10`、`majority 9,13,17,19,21 1`、`voting 10,15,20,25 2` (`cargo run --release --example bench_oracle -- ...`。Apple M4 Pro・macOS・rustc 1.99.1 で、他の重い処理を止めて計測。秒の列は実行ごとに変わる) |
 | `data/bench/oracle-tolerance.csv` | オラクル版の仁の、許容誤差を変えたときの時間と追加した行 (`docs/performance.md` の「上限と既定値の根拠」) | オラクル版の確定判定の LP で行を一律に緩めるのをやめたコミット | `cargo run --release --example bench_oracle_tolerance > data/bench/oracle-tolerance.csv` (Apple M4 Pro・macOS・rustc 1.99.1 で計測。秒の列は実行ごとに変わる) |
+| `data/bench/uncertainty.csv` | 値の不確かさの分析で、仁を既定の手順で解く場合と 1 回だけ解く場合の時間 (`docs/performance.md` の「値の不確かさの分析の時間」) | 分析の既定を仁の既定の手順にしたコミット | `cargo run --release --example bench_uncertainty > data/bench/uncertainty.csv` (Apple M4 Pro・macOS・rustc 1.99.1 で計測。秒の列は実行ごとに変わる) |
 | `data/bench/voting-oracle-before.csv` | 重み付き投票ゲームのオラクル版の仁の時間と最大メモリ、修正前 (`docs/performance.md` の「拒否権のある重み付き投票ゲーム」) | コミット `a1c3d93` のライブラリに、`examples/bench_voting.rs` を加えてビルドしたもの | `cargo build --release --example bench_voting && target/release/examples/bench_voting > data/bench/voting-oracle-before.csv` (Apple M4 Pro・macOS・rustc 1.99.1 で、他の重い処理を止めて計測。最大メモリは `/usr/bin/time -l`。秒の列は実行ごとに変わる) |
 | `data/bench/voting-oracle-after.csv` | 同上、修正後 | 確定済みの空間を使った探索を加えたコミット | `target/release/examples/bench_voting > data/bench/voting-oracle-after.csv` (同じ環境) |
 | `data/bench/voting-budget.csv` | 確定済みの空間を使った探索の前に読む上限 (`ENUMERATION_BUDGET`) を変えたときの時間・最大メモリ・1 回の探索で読んだ提携の数 (同上) | 同じコミットで、`ENUMERATION_BUDGET` を 64・256・1024・4096 に変え、確定済みの提携のある探索ごとに読んだ数を標準エラーに出すようにした一時的なビルド | 各ビルドで `/usr/bin/time -l target/release/examples/bench_voting <ゲーム> <人数>` を実行し、`searches` (探索の回数)・`max_read` (1 回で読んだ最大の数)・`searches_over_budget` (上限まで読んだ探索の数) を数えた (同じ環境) |
@@ -46,6 +60,9 @@ CoopGame の誤りと判定した 4 件について、超過を降順に並べ�
 | `data/bench/variant-limits.csv` | 仁の変種と交渉集合の判定の時間と最大メモリ (`docs/performance.md` の上限の根拠) | 上限を追加したコミット。上限より 1 人多い人数は `MAX_*_PLAYERS` を一時的に大きくしたビルド。`convex` の 10 行は、コミット `82c75e4` (性質の判定と生成器を値どおりの有理数で正しくした変更) の上で再計測したコミットで、`MAX_*_PLAYERS` を一時的に大きくしたビルドを `/usr/bin/time -l target/release/examples/bench_limits <解> convex <人数>` で 1 件ずつ実行した | `cargo run --release --example bench_limits > data/bench/variant-limits.csv` (Apple M4 Pro・macOS・rustc 1.99.1 で計測。最大メモリは `/usr/bin/time -l`) |
 | `data/analysis/tolerance-study.csv` | 仁の許容誤差の決め方の比較 ([performance.md](performance.md)) | 許容誤差の決め方を追加したコミット。`superadditive`・`convex` の 4 行は、コミット `82c75e4` (性質の判定と生成器を値どおりの有理数で正しくした変更) の上で再計測したコミットで、全体を再実行した出力から取った (他の行は秒以外の列が全て同じだったので、元の計測のまま) | `cargo run --release --example study_tolerance > data/analysis/tolerance-study.csv` (Apple M4 Pro・macOS・rustc 1.99.1 で計測。秒の列は実行ごとに変わる) |
 | `data/analysis/refinement-rows.csv` | 許容誤差を下げて解き直すときに追加する行の数 (同上) | 解き直しの行の上限を追加したコミット | `cargo run --release --example study_tolerance -- rows > data/analysis/refinement-rows.csv` (同じ環境で計測。秒の列は実行ごとに変わる) |
+| `data/analysis/prekernel-study.csv` | プレカーネル・カーネルの形とゲームの性質 ([references.md](references.md) の凸ゲーム・0-単調なゲームの確認、[performance.md](performance.md) のカーネル全体の時間) | コミット `42cf889` のライブラリ | `cargo build --release --example study_prekernel` の後、`target/release/examples/study_prekernel 5 20 3` と `study_prekernel 6 2 6` の出力を続けたもの (2 つ目の見出しの行は除く。Apple M4 Pro・macOS・rustc 1.99.1 で計測。秒の列は実行ごとに変わる) |
+| `data/compare/variants.csv` | per capita 仁・比例仁の CoopGame 0.2.2 との照合 ([comparison.md](comparison.md) の仁の変種) | コミット `67a975b` の CLI (`cargo build --release --features cli`) | `python3 scripts/compare/check_variants.py --csv data/compare/variants.csv` (2026-11-23、下の 2026-11-21 の節と同じ macOS の環境。R の環境は `scripts/compare/setup.sh` で用意し、`R_LIBS` を設定する) |
+| `data/compare/values.csv` | Shapley 値・Banzhaf 値の CoopGame 0.2.2 との照合 | 同上 | `python3 scripts/compare/check_values.py --csv data/compare/values.csv` (同上) |
 | `data/analysis/counterexamples.txt` | 反例の探索と縮小の実例 | 反例探索を追加したコミット | `cargo run --release --example study_counterexamples` (約 1 分) |
 | `data/compare/small.csv` | 既存実装との比較 (n = 4-12) | coopgame-rs はコミット `3f85dc1` の CLI | `python3 scripts/compare/run.py work/small` |
 | `data/compare/tuglab-retry-tol1e-8.csv` | TUGLab の再実行 | 同上 | `IMPLS=TUGLab python3 scripts/compare/run.py <失敗したインスタンス> 1e-8` |
@@ -84,10 +101,27 @@ python3 scripts/compare/diff_results.py data/compare/large.csv large.csv
 ```
 
 `diff_results.py` は状態の種類 (ok, error, timeout, skipped) と配分 (相対 1e-9) を比べる。
+
+### Shapley 値・Banzhaf 値と仁の変種の、CoopGame との照合
+
+`target/release/coopgame` (`cargo build --release --features cli`) と、`scripts/compare/setup.sh` で用意した R の環境 (`R_LIBS`) が要る。
+
+```bash
+python3 scripts/compare/check_values.py --csv values.csv
+python3 scripts/compare/check_variants.py --csv variants.csv
+diff values.csv data/compare/values.csv       # 相対差の列は環境で末尾の桁が変わりうる
+diff variants.csv data/compare/variants.csv
+python3 scripts/verify_claims.py              # 文書の数値と照合 (data/ のファイルを置き換えた場合)
+```
+
 計算時間は環境で変わる。上限 300 秒に近いインスタンス (TUGLab の一部) は、
 速い環境では時間切れにならず、遅い環境では新たに時間切れになりうる。
 
 ## 再現の確認結果 (2026-10-01、上の環境)
+
+この節と次の節の数値 (件数、相対差、TUGLab の秒など) は、その時の実行の記録である。
+出力は `data/` に保存していないので、`verify_claims.py` の照合の対象ではない。
+保存したデータで照合できる現在の値は、「データの出所」の表のファイルと、それを引用する文書にある。
 
 | 対象 | 方法 | 結果 |
 |---|---|---|
@@ -122,8 +156,17 @@ TUGLab の large で状態が変わった 3 件は、いずれもタイプ 4 の
 |---|---|---|
 | インスタンス | `make_instances.sh` で再生成し、`instances.sha256` と照合 | 144 個全てが一致 |
 | 比較: coopgame-rs の仁・プレ仁 | `IMPLS=coopgame-rs,coopgame-rs-full` で `run.py` を再実行し、`diff_results.py` で `data/compare/` と照合 | small 504 件、large 72 件の状態と配分 (相対 1e-9) が全て一致 |
-| Shapley 値・Banzhaf 値 | `scripts/compare/check_values.py` | 12 ゲーム 24 件が相対 2.3e-15 以内で一致 |
-| per capita 仁・比例仁 | `scripts/compare/check_variants.py` | per capita 仁は 41 ゲームで一致。比例仁は 40 ゲームで一致し、1 件は両方とも計算しない。相対 9.1e-14 以内 |
+| Shapley 値・Banzhaf 値 | `scripts/compare/check_values.py` | 12 ゲーム 24 件が相対 2.3e-15 程度で一致 (2026-11-23 に再実行して保存した結果は下の節) |
+| per capita 仁・比例仁 | `scripts/compare/check_variants.py` | per capita 仁は 41 ゲームで一致。比例仁は 40 ゲームで一致し、1 件は両方とも計算しない。相対 9.1e-14 以内 (同上) |
 | modiclus | CoopGame の `modiclus` を直接実行 | 本実装と一致しない (値は [comparison.md](comparison.md#仁の変種-per-capita-仁比例仁modiclus)) |
 
 CoopGame と TUGLab の仁 (`run.py` の残りの実装) は再実行していない。
+
+## 再実行の結果 (2026-11-23、macOS)
+
+2026-11-21 と同じ環境で、CoopGame との照合を `--csv` を付けて再実行し、結果を `data/compare/` に保存した。
+
+| 対象 | 方法 | 結果 |
+|---|---|---|
+| Shapley 値・Banzhaf 値 | `check_values.py --csv` (`data/compare/values.csv`) | 12 ゲーム 24 件が相対 2.4e-15 以内で一致 |
+| per capita 仁・比例仁 | `check_variants.py --csv` (`data/compare/variants.csv`) | per capita 仁は 41 ゲームで一致。比例仁は 40 ゲームで一致し、1 件は両方とも計算しない。相対 9.1e-14 以内 |

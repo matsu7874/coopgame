@@ -15,17 +15,18 @@
 
 | 種類 | 意味 | 例 |
 |---|---|---|
-| `exact` | 定義どおりに計算した (全提携の LP・総当たり。浮動小数点の許容誤差の範囲で) | `nucleolus::nucleolus` (既定では、20 人以下で解いた配分が Kohlberg 基準を細かい許容誤差でも満たすことを確かめ、満たさなければ解き直すか有理数で解く。21 人以上は確かめないので `approximate`)、全提携について答えるオラクルでのオラクル版の仁 |
+| `exact` | 定義どおりに計算した (全提携の LP・総当たり。浮動小数点の許容誤差の範囲で) | `nucleolus::nucleolus` (既定では、20 人以下で解いた配分が Kohlberg 基準を細かい許容誤差でも満たすことを確かめ、満たさなければ解き直すか有理数で解く。21 人以上は確かめないので `approximate`)、全提携について答えるオラクルでのオラクル版の仁 (既定では同じ規則で 20 人以下を確かめる)、許容誤差を指定して 1 回だけ解いた仁・提携構造つきの仁・仁の変種 |
 | `proven(性質)` | 性質が分かっているゲームに、その性質のもとで正しい専用手法を使った | 破産ゲームのタルムード則 (`proven(bankruptcy)`)、凸ゲームの手法 (`proven(convex)`) |
 | `assumed(性質)` | 利用者が宣言した性質のもとで専用手法を使った。性質が成り立たなければ誤りうる | `nucleolus::convex::nucleolus(&Assume::convex(game))` |
 | `certified` | 求めた後に有理数による厳密な検証に合格した | `Unverified::verify` の結果 |
-| `approximate` | サンプリングなどの近似、反復が収束しなかった、または既定の仁で解いた配分を Kohlberg 基準で確かめられなかった | Shapley 値の推定、サンプルした仁、一部の提携だけを扱うオラクルでのオラクル版の仁、既定の設定の `nucleolus::nucleolus` で、許容誤差を下げても解いた配分が Kohlberg 基準を満たさず、有理数の逐次 LP でも求められなかった仁 (有理数に切り替えない 9-20 人のゲームなど) と、Kohlberg 基準を確かめない 21 人以上のゲームの仁 |
+| `approximate` | サンプリングなどの近似、反復が収束しなかった、または許容誤差を指定せずに解いた配分を確かめていない (確かめられなかった) | Shapley 値の推定、サンプルした仁、一部の提携だけを扱うオラクルでのオラクル版の仁、既定の設定の `nucleolus::nucleolus` で、許容誤差を下げても解いた配分が Kohlberg 基準を満たさず、有理数の逐次 LP でも求められなかった仁 (有理数に切り替えない 9-20 人のゲームなど) と、Kohlberg 基準を確かめない 21 人以上のゲームの仁 (オラクル版・費用分担の仁も同じ)、既定の設定の提携構造つきの仁 (2 ブロック以上) と仁の変種 |
 
 許容誤差を指定できる関数 (`nucleolus::Options::tolerance` の `Tolerance::Absolute`・`Relative`、`nucleolus::oracle::nucleolus_with` の `tolerance`、
 `nucleolus::convex::ConvexOptions::tolerance`) は、有限で 0 以上でない値 (NaN・負の値・無限大) を `InvalidArgument` として拒む。
 結果は指定した許容誤差の範囲で成り立つ。保証の種類は許容誤差の大きさを反映しないので、
 大きい許容誤差を指定すると、仁から離れた配分にも同じ保証が付く。
-許容誤差を指定しない `nucleolus::nucleolus` (`Tolerance::Auto`) だけは、解いた配分が Kohlberg 基準を細かい許容誤差でも満たすかを確かめた結果で保証を決める
+許容誤差を指定しない既定の経路は、確かめた結果だけを `exact` にし、確かめていない結果は `approximate` にする (下の「既定の経路ごとの保証」)。
+仁 (`nucleolus::nucleolus`、`Tolerance::Auto`) は、解いた配分が Kohlberg 基準を細かい許容誤差でも満たすかを確かめた結果で保証を決める
 ([性能と制約](performance.md) の「仁の許容誤差の決め方」)。
 この確認には 2 つの限界がある。
 
@@ -36,6 +37,33 @@
 - 超過の段の間隔が確認の許容誤差 (`max|v(S)|` の `1e-11` 倍、8 人以下では `1e-12` 倍) より小さいゲームでは、段を取り違えた配分を見分けられず、`exact` が付く。
   値が `1e12` 程度の整数のゲームでは、仁から数単位ずれた配分に `exact` が付いた。
   整数の値で 1 単位まで正しい仁が要るときは、有理数の逐次 LP (`nucleolus::exact::nucleolus`、10 人まで) を使う。
+
+### 既定の経路ごとの保証
+
+許容誤差を指定しない既定の経路の保証は、どれも次の規則で決める。
+許容誤差を指定する入口を使えば、逐次 LP の経路はその許容誤差で 1 回だけ解き、保証は `exact` になる (指定した許容誤差の範囲で成り立つ)。
+空港ゲームの仁は凸ゲームの手法で求めるので、どちらの入口でも `proven(convex)` である。
+LP を解かずに決まる配分 (1 人ゲーム、配分集合が 1 点、全員が単独の提携構造) は、どの経路でも `exact` である。
+ただし一部の提携だけに答えるオラクル (`io::PartialGame`・`nucleolus::sampled::SampledGame` など、`covers_all_coalitions` が `false`) では、元のゲームの仁とは限らないので `approximate` である。
+
+| 経路 | 既定 (許容誤差を指定しない) | 許容誤差を指定する入口 |
+|---|---|---|
+| 仁・プレ仁 (`nucleolus::nucleolus`・`prenucleolus`) | 20 人以下は Kohlberg 基準で確かめ、満たさなければ許容誤差を下げて解き直し、8 人以下は有理数の逐次 LP で求める。確かめられた結果だけ `exact`。21 人以上は `approximate` | `nucleolus::nucleolus_with` (`Options::tolerance`) |
+| オラクル版の仁・プレ仁 (`nucleolus::oracle::nucleolus`・`prenucleolus`) | 20 人以下は全提携の表を作り (値を `2^n - 1` 回評価する)、仁と同じ読みで Kohlberg 基準を確かめる。満たさなければ、その表を仁の既定の手順で求め直す。1 回目の逐次 LP が数値的に失敗したときも、表から同じ手順で求め直す。21 人以上は `approximate`。一部の提携だけに答えるオラクルは、人数によらず `approximate` | `nucleolus::oracle::nucleolus_with` |
+| 提携構造つきの仁 (`partition::nucleolus`) | 全体 1 ブロックは仁そのものなので、仁の既定の手順で求める。2 ブロック以上は比 `1e-7` で 1 回だけ解き、確かめていないので `approximate` | `partition::nucleolus_with` |
+| 仁の変種 (`nucleolus::variants` の per capita 仁・比例仁・disruption nucleolus・modiclus) | 比 `1e-7` で 1 回だけ解き、確かめていないので `approximate` | `per_capita_nucleolus_with`・`proportional_nucleolus_with`・`disruption_nucleolus_with`・`modiclus_with` |
+| 費用分担の仁 (`games::cost::CostGame::nucleolus`、`games::spanning_tree::SpanningTreeGame::nucleolus_costs`) | 節約ゲームの仁の既定の手順と同じ (保証つきの結果を返し、配分が費用の分担) | `CostGame::nucleolus_with`・`SpanningTreeGame::nucleolus_costs_with` |
+| 空港ゲームの仁 (`games::airport::AirportGame::nucleolus_costs`) | 凸ゲームの手法で求め、節約ゲームが凸であることは型で分かっているので `proven(convex)` (保証つきの `Solution` を返し、配分が費用の分担) | `AirportGame::nucleolus_costs_with` (`ConvexOptions`) |
+| anti-nucleolus・anti-prenucleolus | 双対ゲームの仁・プレ仁の既定の手順と同じ | なし |
+
+提携構造つきの仁と、per capita 仁・比例仁・disruption nucleolus を確かめないのは、Kohlberg 基準に当たる特徴づけ (超過の段の提携族の平衡性による判定) が
+これらの解について成り立つことを、原典の本文で確認できていないからである。
+modiclus には bi-excess の族の平衡性による特徴づけ (Rosenmüller & Sudhölter の Working Paper 320、Theorem 2.4) があるが、
+既定の確認にはまだ使っていない ([文献と根拠](references.md))。
+確認に使わずに `exact` と名乗ると、1 回だけ解いて仁からずれた配分にも `exact` が付く。
+値が `1e6` から `1e9` 程度の整数のゲーム (3-6 人、96 個。`tests/default_guarantees.rs` の `audit_games` と同じ) を比 `1e-7` で 1 回だけ解くと、
+全体 1 ブロックの提携構造つきの仁で 53 個、オラクル版の仁で 55 個が有理数の仁から外れた。
+per capita 仁では 30 個が、許容誤差を下げて解いた配分より辞書式に劣る配分になった (並べた不満が最初に異なる位置で大きい)。
 
 ### 能力の階層 (`coopgame::game`、`coopgame::game::oracle`)
 
@@ -93,13 +121,14 @@
 保証のある手法だけから選ぶ。`Assume` で包んだゲームは自動選択の対象にならない。
 逐次 LP は仁の既定の設定 (`Tolerance::Auto`。[性能と制約](performance.md) の「仁の許容誤差の決め方」) で解く。
 許容誤差を下げても解いた配分が Kohlberg 基準を満たさず、有理数の逐次 LP でも求められなかったとき (有理数に切り替えない 9-20 人のゲームなど) と、Kohlberg 基準を確かめない 21 人以上のゲームでは、保証が `approximate` になる。
+オラクルによる制約生成 (`WeightedVotingGame`) も、オラクル版の仁の既定の手順 (上の「既定の経路ごとの保証」) で解くので、21 人以上では `approximate` になる。
 
 | 型 | 選ぶ手法 | 保証 |
 |---|---|---|
 | `ExplicitGame` | 逐次 LP + 制約生成 (8 人以下は有理数の逐次 LP に切り替えることがある) | `exact` (上の場合と 21 人以上は `approximate`) |
 | `ConvexChecked` | 16 人以下は逐次 LP (同上)、それより多いと凸ゲームの手法 | `exact` (同上) / `proven(convex)` |
 | `BankruptcyGame` | タルムード則 | `proven(bankruptcy)` |
-| `WeightedVotingGame` | オラクルによる制約生成 | `exact` |
+| `WeightedVotingGame` | オラクルによる制約生成 (20 人以下は全提携の表で確かめる) | `exact` (21 人以上は `approximate`) |
 | `InducedSubgraphGame` | 凸ゲームの手法 | `proven(convex)` |
 
 16 人の境目は計測で決めた (`data/bench/auto-threshold.csv`、ランダムな凸ゲーム、各 3 ゲームの最大時間)。
@@ -118,7 +147,7 @@
 文献の 3 つの定理を組み合わせた。
 
 - 凸ゲームのカーネルは仁の 1 点である (Maschler, Peleg & Shapley 1971)。
-- 凸ゲームは 0-単調なので、カーネルとプレカーネルは一致する (Maschler, Peleg & Shapley 1979)。
+- 凸ゲームは優加法的で、優加法的なゲームは 0-単調なので、カーネルとプレカーネルは一致する (Maschler, Peleg & Shapley 1979 の §2.3 の脚注と Theorem 3.3)。
 - transfer scheme はプレカーネルの点に収束する (Stearns 1968)。
 
 手順:
@@ -185,7 +214,7 @@ Faigle, Kern & Kuipers (2001) の楕円体法に基づく手法は、論文の�
   - 1 個はプレカーネルの点だが仁ではなかった (voting、n = 10)。プレカーネルが 1 点でないゲームでは、
     「カーネル = 仁」の定理が成り立たないためである。
   - 7 個はプレカーネル条件も満たしていなかった (劣モジュラ最小化が最大余剰を見誤った)。
-- 検証に合格した結果は、全て LP の仁との差が 7.4e-10 以下だった。誤った配分が合格した例はない。
+- 検証に合格した結果は、全て LP の仁との差が 7.5e-10 以下だった。誤った配分が合格した例はない。
 
 ## 有理数で構築したゲーム
 
@@ -203,7 +232,7 @@ Faigle, Kern & Kuipers (2001) の楕円体法に基づく手法は、論文の�
 | `game::exact::parse_rational_values`、CLI の `certify --rational` | `0.1` を `1/10` のように 10 進数・分数の値どおりに読む |
 | Python の `certify_rational(values, x)` | 値を `Fraction`・`"8/3"`・`"0.1"` で渡す |
 
-実験の superadditive クラスを有理数で構築したゲームに替えると、生成器が浮動小数点数の和で包を計算していたときに「未決」だった 6 個が全て合格した。
+実験の superadditive クラスは、以前は浮動小数点数の和で包を計算した生成器のゲームを使っており、「未決」が 6 個あった。有理数で構築したゲームに替えると、その 6 個は全て合格した (以前の版での一度の実行の結果で、出力は `data/` に保存していない)。
 
 ## 検証の範囲 (`coopgame::verify`)
 
@@ -213,7 +242,7 @@ Faigle, Kern & Kuipers (2001) の楕円体法に基づく手法は、論文の�
 | 21-26 人 | ランダムな組のカーネル条件を総当たり (1 組 `2^(n-2)` 回の評価) | 否定 / 未決 (合格にはできない) |
 | 27 人以上 | なし | 未決 |
 
-仁はカーネルに、プレ仁はプレカーネルに属する (Davis & Maschler 1965、Maschler, Peleg & Shapley 1979) ので、
+仁はカーネルに、プレ仁はプレカーネルに属する (仁については Maschler, Peleg & Shapley 1979 の Theorem 6.8 が Schmeidler 1969 の Theorem 3 として引用。プレ仁の主張の原典の箇所は未確認。[references.md](references.md)) ので、
 カーネル条件の破れは否定の根拠になる。
 
 20 人以下の結論は次のとおり。許容誤差 `T` は全提携の値の最大絶対値の `1e-6` 倍 (全て 0 なら `1e-6`) である。
@@ -221,9 +250,9 @@ Faigle, Kern & Kuipers (2001) の楕円体法に基づく手法は、論文の�
 | 結論 | 条件 |
 |---|---|
 | 合格 | 有理数の Kohlberg 判定に合格した厳密な配分 `x*` があり、候補 `x` との差 (各成分の差の絶対値の最大を有理数で測る) が `T` 以下。`x*` は候補から復元し、それが合格しなければ基準の仁 (下の表) を使う。仁は一意なので、どれも同じ仁である |
-| 否定 | 和や個人合理性が `T` を超えて破れている、候補に有限でない成分がある、仁で配分集合が空、または基準の仁から離れている。基準の仁が有理数の Kohlberg 判定に合格すれば差が `T` を超えるとき、浮動小数点の Kohlberg 判定にだけ合格すれば差が `100 T` を超えるときに否定する |
+| 否定 | 和や個人合理性が `T` を超えて破れている、仁で配分集合が空、または基準の仁から離れている。基準の仁が有理数の Kohlberg 判定に合格すれば差が `T` を超えるとき、浮動小数点の Kohlberg 判定にだけ合格すれば差が `100 T` を超えるときに否定する |
 | 未決 | 基準の仁を求める LP が失敗した、基準の仁も検証に合格しない、浮動小数点でだけ検証した基準の仁との差が `100 T` 以下、仁で `sum v({i})` が `v(N)` を既定の許容誤差以内で上回るなど、検証自体が成り立たないとき |
-| エラー | 入力が不正なときだけ (配分の長さがプレイヤー数と異なる、ゲームの値が有限でない) |
+| エラー | 入力が不正なときだけ (配分の長さがプレイヤー数と異なる、配分かゲームの値が有限でない) |
 
 基準の仁の求め方は `VerifyOptions::reference` で選ぶ (CLI は `check --reference`、Python は `verify_solution(reference=)`)。
 どれも、まず LP の仁 (解いた配分が Kohlberg 基準を細かい許容誤差で満たさなければ、許容誤差を下げて解き直したもの) から厳密な配分を復元する。
@@ -261,7 +290,7 @@ LP の仁は、超過の段の間隔が小さいゲーム (値が `1e9` 以上�
 
 ```bash
 cargo build --release --examples
-target/release/examples/study_assumption 4,5,6,7,8,9,10 10 > data/analysis/assumption-study.csv   # 約 20 秒
+target/release/examples/study_assumption 4,5,6,7,8,9,10 10 > data/analysis/assumption-study.csv
 target/release/examples/bench_convex graph 10,16,24,32,48,64 3 > data/bench/convex-graph.csv
 target/release/examples/bench_convex bankruptcy 10,20,30,40 3 > data/bench/convex-bankruptcy.csv
 target/release/examples/bench_auto_threshold 8,10,12,14,16,18,20 3 > data/bench/auto-threshold.csv

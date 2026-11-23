@@ -429,7 +429,8 @@ mod tests {
             .fold(Rational::zero(), |acc, v| acc + v);
         assert_eq!(total, q(2, 1));
         let report =
-            crate::verify::kohlberg_exact(&game, &result.allocation, Domain::Preimputation);
+            crate::verify::kohlberg_exact(&game, &result.allocation, Domain::Preimputation)
+                .unwrap();
         assert!(report.satisfied, "{:?}", report.reason);
     }
 }

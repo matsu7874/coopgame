@@ -35,7 +35,7 @@ pub use proof::{Assume, Assumed, ConvexChecked, ConvexGame, Convexity, ProofKind
 use std::cmp::Ordering;
 
 use crate::error::Result;
-use crate::game::allocation::{ExactExcess, allocation_defect, efficient_within};
+use crate::game::allocation::{ExactExcess, efficient_within, require_allocation};
 use crate::game::exact_sum::sum_sign;
 use crate::game::scale::check_tolerance;
 use crate::game::{Coalition, ExplicitGame};
@@ -170,15 +170,14 @@ fn zero_monotonic_within(game: &ExplicitGame, tolerance: f64) -> bool {
 /// 浮動小数点数で表した配分 (`1/3` を丸めた値など) は、和が `v(N)` にちょうど一致しないことが多いので、
 /// そうした配分を「コアの点を丸めたもの」として扱うときは、その丸めの分の `tolerance` を明示する。
 ///
-/// 長さがプレイヤー数と異なる `x` や、有限でない成分 (NaN など) を含む `x` は属さない (`Ok(false)`)。
+/// # Errors
 ///
-/// `tolerance` が有限で 0 以上でないときは [`crate::Error::InvalidArgument`] を返す。
+/// `x` の長さがプレイヤー数と異なるか、有限でない成分 (NaN など) を含むときは [`crate::Error::InvalidArgument`]。
+/// `tolerance` が有限で 0 以上でないときも [`crate::Error::InvalidArgument`] を返す。
 /// 無限大ではどの配分も属することになり、負の値ではコアの点も属さないことになるためである。
 pub fn is_in_core(game: &ExplicitGame, x: &[f64], tolerance: f64) -> Result<bool> {
     check_tolerance(tolerance)?;
-    if allocation_defect(game.players(), x).is_some() {
-        return Ok(false);
-    }
+    require_allocation(game.players(), x)?;
     if !efficient_within(game.value(game.grand()), x, tolerance) {
         return Ok(false);
     }
@@ -207,8 +206,8 @@ mod tests {
         assert!(is_in_core(&game, &[2.0, 2.0, 0.0], 0.0).unwrap());
         assert!(!is_in_core(&game, &[0.0, 2.0, 2.0], 1e-9).unwrap());
         // 不正な配分は、許容誤差が正しければ「属さない」。
-        assert!(!is_in_core(&game, &[f64::NAN, 2.0, 0.0], 1e-9).unwrap());
-        assert!(!is_in_core(&game, &[2.0, 2.0], 1e-9).unwrap());
+        assert!(is_in_core(&game, &[f64::NAN, 2.0, 0.0], 1e-9).is_err());
+        assert!(is_in_core(&game, &[2.0, 2.0], 1e-9).is_err());
     }
 
     #[test]

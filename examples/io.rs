@@ -114,7 +114,7 @@ fn cost_game() -> coopgame::Result<()> {
     assert_eq!(data.kind, Kind::Cost);
     // 費用 c(S) の表を CostGame に渡す。仁は節約ゲームで求めて費用に戻す。
     let game = CostGame::new(data.to_explicit(Missing::Error)?);
-    let nucleolus = game.nucleolus()?;
+    let nucleolus = game.nucleolus()?.into_allocation();
     let shapley = game.shapley();
     println!("単独の費用: {:.4?}", game.standalone());
     println!("仁による分担: {nucleolus:.4?}");
