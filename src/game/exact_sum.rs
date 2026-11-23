@@ -18,6 +18,9 @@ use crate::game::exact::Rational;
 /// これより小さい `Σ|t_i|` では、誤差の上限の計算がアンダーフローしうるので、有理数で和を取る。
 const TINY: f64 = 1e-280;
 
+/// 整数の値の絶対値の和がこれ未満なら、浮動小数点数の和は丸めなしで厳密 (`2^53`)。
+const INTEGER_LIMIT: f64 = 9_007_199_254_740_992.0;
+
 /// 有限の値 `terms` の和の符号 (値どおりの有理数として厳密)。
 ///
 /// # Panics
@@ -35,6 +38,17 @@ pub(crate) fn sum_sign(terms: &[f64]) -> Ordering {
     }
     if let Some(sign) = filtered_sign(sum, magnitude, terms.len()) {
         return sign;
+    }
+    // 全ての値が整数で絶対値の和が 2^53 未満なら、途中の和も 2^53 未満の整数なので、浮動小数点数の和は丸めなしで厳密。
+    if magnitude < INTEGER_LIMIT && terms.iter().all(|t| t.fract() == 0.0) {
+        return sum.partial_cmp(&0.0).expect("有限の和");
+    }
+    // 符号が浮動小数点数の和で決まらない (等号に近い) とき、値の桁の幅が i128 に収まれば、共通の 2 のべきの
+    // 整数倍として整数で和を取る (整数ゲームや格子の上の値の等号はここで決まる)。収まらなければ有理数で和を取る。
+    let headroom = usize::BITS - terms.len().leading_zeros() + 1;
+    if let Some(scale) = DyadicScale::new(terms.iter().copied(), headroom) {
+        let total: i128 = terms.iter().map(|&t| scale.integer(t)).sum();
+        return total.cmp(&0);
     }
     sign_of(&exact_sum(terms))
 }
@@ -218,5 +232,25 @@ mod tests {
             }
             assert_eq!(sum_sign(&terms), sign_of(&exact_sum(&terms)), "{terms:?}");
         }
+    }
+
+    #[test]
+    fn equalities_are_decided_on_integers_or_rationals() {
+        // 等号 (和がちょうど 0) は浮動小数点数の和の誤差の上限で決まらないので、桁の幅が i128 に収まれば整数で、
+        // 収まらなければ有理数で決める。どちらも有理数の和と一致する。
+        let cases: [&[f64]; 6] = [
+            &[3.0, 5.0, -8.0],
+            &[1e9 + 7.0, 2e9 + 1.0, -(3e9 + 8.0), 0.0],
+            &[0.1, 0.2, -(0.1 + 0.2)],
+            &[2f64.powi(-60), 1.0, -1.0, -(2f64.powi(-60))],
+            // 桁の幅が 127 ビットを超える (有理数の和に落ちる)。
+            &[1e30, 1e-30, -1e30, -1e-30],
+            &[1e30, 1e-30, -1e30],
+        ];
+        for terms in cases {
+            assert_eq!(sum_sign(terms), sign_of(&exact_sum(terms)), "{terms:?}");
+        }
+        assert_eq!(sum_sign(&[1e30, 1e-30, -1e30, -1e-30]), Ordering::Equal);
+        assert_eq!(sum_sign(&[1e30, 1e-30, -1e30]), Ordering::Greater);
     }
 }
