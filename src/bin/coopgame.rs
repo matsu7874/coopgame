@@ -473,9 +473,9 @@ fn run(raw: &[String]) -> CliResult<ExitCode> {
                     let samples = samples(&args, 1)?;
                     let seed: u64 = args.number("--seed", 0)?;
                     let estimate = if shapley {
-                        values::shapley_sampling(game, samples, seed)
+                        values::shapley_sampling(game, samples, seed)?
                     } else {
-                        values::banzhaf_sampling(game, samples, seed)
+                        values::banzhaf_sampling(game, samples, seed)?
                     };
                     eprintln!(
                         "time={:.6}s evaluations={} standard_errors={:?}",

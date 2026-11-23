@@ -1271,14 +1271,6 @@ fn estimate_dict<'py>(py: Python<'py>, estimate: values::Estimate) -> PyResult<B
     Ok(dict)
 }
 
-/// 標本の数が 1 以上であることを確かめる (0 個では推定値も標準誤差も定まらない)。
-fn check_samples(name: &str, count: usize) -> PyResult<()> {
-    if count == 0 {
-        return Err(PyValueError::new_err(format!("{name} は 1 以上")));
-    }
-    Ok(())
-}
-
 /// ランダムな順列 `permutations` 個 (1 以上) で Shapley 値を推定する (Castro et al. 2009)。
 ///
 /// `evaluations` は関数を呼んだ回数 (`permutations * n`。空提携は呼ばない。全体提携は順列ごとに呼ぶ)。
@@ -1290,9 +1282,8 @@ fn shapley_sampling<'py>(
     permutations: usize,
     seed: u64,
 ) -> PyResult<Bound<'py, PyDict>> {
-    check_samples("permutations", permutations)?;
     let estimate = with_set_function(game, |g| {
-        Ok(values::shapley_sampling(g, permutations, seed))
+        values::shapley_sampling(g, permutations, seed).map_err(to_py_err)
     })?;
     estimate_dict(py, estimate)
 }
@@ -1308,8 +1299,9 @@ fn banzhaf_sampling<'py>(
     samples: usize,
     seed: u64,
 ) -> PyResult<Bound<'py, PyDict>> {
-    check_samples("samples", samples)?;
-    let estimate = with_set_function(game, |g| Ok(values::banzhaf_sampling(g, samples, seed)))?;
+    let estimate = with_set_function(game, |g| {
+        values::banzhaf_sampling(g, samples, seed).map_err(to_py_err)
+    })?;
     estimate_dict(py, estimate)
 }
 
