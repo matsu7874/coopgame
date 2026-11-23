@@ -3,6 +3,7 @@
 使い方 (リポジトリのルートで実行):
   python3 scripts/verify_claims.py
   python3 scripts/verify_claims.py --instances scripts/compare/work   # 配分の検証も行う
+  python3 scripts/verify_claims.py --self-test   # 表を壊すと照合が失敗することを確かめる
 
 --instances には `scripts/compare/make_instances.sh` で作ったディレクトリ (small/, large/) を渡す。
 渡すと、coopgame-rs の全配分の Kohlberg 判定と、誤りと判定した他実装の配分の再判定も行う
@@ -10,8 +11,10 @@
 
 照合する主張ごとに、どのドキュメントの記述かを示す。1 つでも食い違えば終了コード 1 を返す。
 
-主要な表と数値は、ドキュメントの本文から読み取って CSV と比べる (`doc_table`・`doc_match` と `agrees`)。
-ドキュメントの数値を書き換えれば、このスクリプトを変えなくても照合の対象が変わる。
+表と数値の多くは、ドキュメントの本文から読み取って CSV と比べる (`doc_table`・`doc_match` と `agrees`)。
+本文から読む範囲は docs/reproducibility.md の「すぐにできる照合」に挙げた。それ以外は、このスクリプトに書いた期待値と比べる。
+表は期待する行と列の数を持ち、行が消える・空行が入る・列が消えると失敗する (`--self-test` で確かめる)。
+照合した項目の数が MIN_CHECKS を下回っても失敗する。
 数値の書き方の約束 (`agrees` が確かめる):
 - 「X 以下」「X 以内」と上界として書く数は、データを表示の桁で切り上げた値 (X >= データ、X - データ < 表示の最小桁)。
 - それ以外の数は、データを表示の桁で四捨五入した値。
