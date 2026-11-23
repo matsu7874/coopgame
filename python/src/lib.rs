@@ -82,6 +82,11 @@ fn rational_of(value: &Bound<'_, PyAny>) -> PyResult<Rational> {
 /// - 数の列に str・bytes・bytearray を渡すと TypeError (`"007"` を `[0, 0, 7]`、`b"12"` を `[49, 50]` と読まない)。
 /// - 数の列は順序のある列 (list・tuple など。`collections.abc.Sequence`) に限る (集合は順序がないので受け付けない)。
 ///
+/// - numpy の配列 (`__array__` と `ndim`・`dtype` を持つもの。numpy は import しない) は、次元が引数の入れ子の深さ
+///   (数の列は 1、行列は 2) と等しく、dtype が整数か浮動小数点数のときだけ受け付ける。bool の dtype は bool と同じく
+///   TypeError、次元の違う配列も TypeError (`[[2], [2], [0]]` を `[2, 2, 0]` と読まない)。numpy の bool のスカラー
+///   (`numpy.bool_`) も bool と同じく TypeError。
+///
 /// 今後引数を足すときも `Vec<f64>` や `usize` を直接使わず、この型を通す。
 struct Arg<T>(T);
 
@@ -95,12 +100,24 @@ impl<T> std::ops::Deref for Arg<T> {
 
 /// [`Arg`] で受け取れる型と、その検査つきの読み方。
 trait Strict: Sized {
+    /// 列の入れ子の深さ (数は 0、数の列と組は 1、列の列は 2)。numpy の配列の次元と比べる。
+    const DEPTH: usize;
+
     fn extract_strict(value: &Bound<'_, PyAny>) -> PyResult<Self>;
 }
 
-/// 数に bool が渡されたら TypeError にする (bool は int の部分型なので、そのままでは 1・0 として読める)。
+/// numpy の bool のスカラー (`numpy.bool_`。numpy 2 では型名 `bool`) か。numpy を import せずに型で判定する。
+fn is_numpy_bool(value: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let kind = value.get_type();
+    let module: String = kind.getattr("__module__")?.extract().unwrap_or_default();
+    let name: String = kind.getattr("__name__")?.extract().unwrap_or_default();
+    Ok(module == "numpy" && (name == "bool" || name == "bool_"))
+}
+
+/// 数に bool (numpy の bool を含む) が渡されたら TypeError にする
+/// (bool は int の部分型で、numpy の bool も `__index__` を持つので、そのままでは 1・0 として読める)。
 fn reject_bool(value: &Bound<'_, PyAny>) -> PyResult<()> {
-    if value.is_instance_of::<PyBool>() {
+    if value.is_instance_of::<PyBool>() || is_numpy_bool(value)? {
         return Err(PyTypeError::new_err(format!(
             "数を指定する (bool は受け付けない): {}",
             value.repr()?
@@ -112,6 +129,8 @@ fn reject_bool(value: &Bound<'_, PyAny>) -> PyResult<()> {
 macro_rules! strict_number {
     ($($t:ty),*) => {$(
         impl Strict for $t {
+            const DEPTH: usize = 0;
+
             fn extract_strict(value: &Bound<'_, PyAny>) -> PyResult<Self> {
                 reject_bool(value)?;
                 value.extract::<$t>()
@@ -121,9 +140,42 @@ macro_rules! strict_number {
 }
 strict_number!(f64, usize, u64, u8);
 
-/// 数の列の要素を順に読む。列が文字列か、順序のある列でなければ TypeError。
-fn sequence_items<'py>(value: &Bound<'py, PyAny>) -> PyResult<Vec<Bound<'py, PyAny>>> {
+/// numpy の配列 (`__array__`・`ndim`・`dtype` を持つ) なら、次元が `depth` で dtype が整数か浮動小数点数かを確かめる。
+/// 配列でなければ `Ok(false)`。
+fn check_array(value: &Bound<'_, PyAny>, depth: usize) -> PyResult<bool> {
+    if !(value.hasattr("__array__")? && value.hasattr("ndim")? && value.hasattr("dtype")?) {
+        return Ok(false);
+    }
+    let ndim: usize = value.getattr("ndim")?.extract()?;
+    let kind: String = value.getattr("dtype")?.getattr("kind")?.extract()?;
+    if kind == "b" {
+        return Err(PyTypeError::new_err(
+            "数の列を指定する (bool の配列は受け付けない)",
+        ));
+    }
+    if !matches!(kind.as_str(), "i" | "u" | "f") {
+        return Err(PyTypeError::new_err(format!(
+            "数の配列は整数か浮動小数点数の dtype で渡す (dtype の種類: {kind:?})"
+        )));
+    }
+    if ndim != depth {
+        return Err(PyTypeError::new_err(format!(
+            "{depth} 次元の配列を渡す ({ndim} 次元の配列を受け取った)"
+        )));
+    }
+    Ok(true)
+}
+
+/// 入れ子の深さ `depth` の列の要素を順に読む。列が文字列か、順序のある列 (または [`check_array`] を満たす配列) でなければ
+/// TypeError。
+fn sequence_items<'py>(
+    value: &Bound<'py, PyAny>,
+    depth: usize,
+) -> PyResult<Vec<Bound<'py, PyAny>>> {
     reject_text_sequence(value)?;
+    if check_array(value, depth)? {
+        return value.try_iter()?.collect();
+    }
     let sequence = value.cast::<PySequence>().map_err(|_| {
         let type_name = value
             .get_type()
@@ -137,8 +189,10 @@ fn sequence_items<'py>(value: &Bound<'py, PyAny>) -> PyResult<Vec<Bound<'py, PyA
 }
 
 impl<T: Strict> Strict for Vec<T> {
+    const DEPTH: usize = T::DEPTH + 1;
+
     fn extract_strict(value: &Bound<'_, PyAny>) -> PyResult<Self> {
-        sequence_items(value)?
+        sequence_items(value, Self::DEPTH)?
             .iter()
             .map(T::extract_strict)
             .collect()
@@ -147,7 +201,7 @@ impl<T: Strict> Strict for Vec<T> {
 
 /// 組 (辺など) を、長さを確かめて読む。
 fn tuple_items<'py>(value: &Bound<'py, PyAny>, len: usize) -> PyResult<Vec<Bound<'py, PyAny>>> {
-    let items = sequence_items(value)?;
+    let items = sequence_items(value, 1)?;
     if items.len() != len {
         return Err(PyTypeError::new_err(format!(
             "長さ {len} の組を渡す (長さ {}): {}",
@@ -159,6 +213,8 @@ fn tuple_items<'py>(value: &Bound<'py, PyAny>, len: usize) -> PyResult<Vec<Bound
 }
 
 impl<A: Strict, B: Strict> Strict for (A, B) {
+    const DEPTH: usize = 1;
+
     fn extract_strict(value: &Bound<'_, PyAny>) -> PyResult<Self> {
         let items = tuple_items(value, 2)?;
         Ok((A::extract_strict(&items[0])?, B::extract_strict(&items[1])?))
@@ -166,6 +222,8 @@ impl<A: Strict, B: Strict> Strict for (A, B) {
 }
 
 impl<A: Strict, B: Strict, C: Strict> Strict for (A, B, C) {
+    const DEPTH: usize = 1;
+
     fn extract_strict(value: &Bound<'_, PyAny>) -> PyResult<Self> {
         let items = tuple_items(value, 3)?;
         Ok((
@@ -215,7 +273,7 @@ fn reject_text_sequence(values: &Bound<'_, PyAny>) -> PyResult<()> {
 /// 有理数の値 (int・Fraction・"8/3"・"0.1") の列を読む。列の検査は [`Arg`] の数の列と同じ
 /// (文字列と、順序のない列は TypeError)。
 fn rational_sequence(values: &Bound<'_, PyAny>) -> PyResult<Vec<Rational>> {
-    sequence_items(values)?.iter().map(rational_of).collect()
+    sequence_items(values, 1)?.iter().map(rational_of).collect()
 }
 
 /// 有理数の値 (int・Fraction・"8/3"・"0.1") の列から、`order` の並びのゲームを作る。
