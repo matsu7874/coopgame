@@ -60,7 +60,8 @@ const USAGE: &str = "\
                       [--solver nucleolus|prenucleolus|shapley]
                       [--tolerance T|auto | --rel-tolerance R]
                       各値が ±R (比。0.1 で ±10%) の一様な誤差を持つときの配分の分布 (平均・標準偏差・5%/95% 点)。
-                      標準エラーに標本の保証の内訳 (guarantees=exact:198,approximate:2 など) を出す
+                      標準エラーに標本の保証の内訳 (guarantees=exact:198,approximate:2 など) を出す。
+                      解の許容誤差が最も狭い区間の幅の半分以上ならエラー (揺れが許容誤差に埋もれる)
   coopgame influence  <v.txt> [--lex] [--solver nucleolus|prenucleolus|shapley] [--levels 2] [--delta D]
                       [--tolerance T|auto | --rel-tolerance R]
                       配分を決めている提携の値に対する配分の感度 dx/dv(S) と、差分に使った解の保証の内訳。

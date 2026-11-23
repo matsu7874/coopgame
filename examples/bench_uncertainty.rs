@@ -15,6 +15,8 @@
 //! - `samples`: `uncertainty` の標本数。`influence` では空
 //! - `mode`: `fixed` は比 `1e-7` の許容誤差で 1 回だけ解く、`auto` は既定の手順
 //! - `solves`: 仁を解いた回数
+//! - `outcome`: `ok` は分析を終えた、`buried` は解の許容誤差が区間の幅の半分以上 (揺れが許容誤差に埋もれる) で
+//!   エラーになった (`seconds` は空、`solves` 以降はエラーまでの数)
 //! - `seconds`: 分析全体の秒 (3 回実行した最小)
 //! - `refined`・`rational`・`approximate`: 解き直した解・有理数の逐次 LP で求めた解・保証が `approximate` の解の数
 
@@ -63,11 +65,15 @@ fn print(
     n: usize,
     setting: &str,
     mode: &str,
-    seconds: f64,
+    seconds: Option<f64>,
     t: &Tally,
 ) {
+    let (outcome, seconds) = match seconds {
+        Some(seconds) => ("ok", format!("{seconds:.3}")),
+        None => ("buried", String::new()),
+    };
     println!(
-        "{analysis},{family},{n},{setting},{mode},{},{seconds:.3},{},{},{}",
+        "{analysis},{family},{n},{setting},{mode},{outcome},{},{seconds},{},{},{}",
         t.solves, t.refined, t.rational, t.approximate
     );
 }
@@ -75,26 +81,32 @@ fn print(
 /// 計測の繰り返し回数。秒は最小の値を出す (他の処理と重なったときの揺れを除く)。
 const REPEATS: usize = 3;
 
-/// `run` を [`REPEATS`] 回実行し、最小の秒と最後の内訳を返す。
-fn best_of(mut run: impl FnMut(&mut Tally)) -> (f64, Tally) {
+/// `run` を [`REPEATS`] 回実行し、最小の秒と最後の内訳を返す。`run` が偽を返したら (分析がエラー)、
+/// 繰り返さずに秒を `None` にする。
+fn best_of(mut run: impl FnMut(&mut Tally) -> bool) -> (Option<f64>, Tally) {
     let mut best = f64::INFINITY;
     let mut tally = Tally::default();
     for _ in 0..REPEATS {
         tally = Tally::default();
         let started = Instant::now();
-        run(&mut tally);
+        if !run(&mut tally) {
+            return (None, tally);
+        }
         best = best.min(started.elapsed().as_secs_f64());
     }
-    (best, tally)
+    (Some(best), tally)
 }
 
 fn measure_uncertainty(family: &str, game: &ExplicitGame, relative: f64, samples: usize) {
     let interval = IntervalGame::around(game, relative).expect("有限の値");
     for (mode, tolerance) in modes() {
         let (seconds, tally) = best_of(|tally| {
-            let result =
-                uncertainty::interval_monte_carlo(&interval, samples, 0, solve(tolerance, tally));
-            assert!(result.is_ok(), "{family}: {result:?}");
+            match uncertainty::interval_monte_carlo(&interval, samples, 0, solve(tolerance, tally))
+            {
+                Ok(_) => true,
+                Err(error) if error.to_string().contains("埋もれる") => false,
+                Err(error) => panic!("{family}: {error}"),
+            }
         });
         let setting = format!("{relative:e},{samples}");
         print(
@@ -118,6 +130,7 @@ fn measure_influence(family: &str, game: &ExplicitGame) {
             let key = uncertainty::key_coalitions(game, x.allocation(), 2).expect("配分の長さ");
             let result = uncertainty::influence(game, &key, delta, solver);
             assert!(result.is_ok(), "{family}: {result:?}");
+            true
         });
         print(
             "influence",
@@ -149,7 +162,7 @@ fn integer_game(n: usize, seed: u64) -> ExplicitGame {
 
 fn main() {
     println!(
-        "analysis,family,players,relative,samples,mode,solves,seconds,refined,rational,approximate"
+        "analysis,family,players,relative,samples,mode,outcome,solves,seconds,refined,rational,approximate"
     );
     for n in [5, 8, 10, 12] {
         let game = generators::bnf(1, n, 1).expect("BNF タイプ 1");

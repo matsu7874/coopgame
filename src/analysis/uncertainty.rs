@@ -206,8 +206,20 @@ const QUANTILES: [f64; 3] = [0.05, 0.5, 0.95];
 pub fn monte_carlo<R: Into<Solved>>(
     samples: usize,
     seed: u64,
+    sample: impl FnMut(&mut SplitMix64) -> Result<ExplicitGame>,
+    solve: impl FnMut(&ExplicitGame) -> Result<R>,
+) -> Result<Distribution> {
+    sample_and_solve(samples, seed, sample, solve, None)
+}
+
+/// [`monte_carlo`] の本体。`narrowest` (区間の幅の半分が最も小さい提携とその値) を与えると、
+/// 標本の解の許容誤差がその値以上のときにエラーにする ([`interval_monte_carlo`])。
+fn sample_and_solve<R: Into<Solved>>(
+    samples: usize,
+    seed: u64,
     mut sample: impl FnMut(&mut SplitMix64) -> Result<ExplicitGame>,
     mut solve: impl FnMut(&ExplicitGame) -> Result<R>,
+    narrowest: Option<(Coalition, f64)>,
 ) -> Result<Distribution> {
     if samples == 0 {
         return Err(Error::InvalidArgument("標本の数は 1 以上".into()));
@@ -235,6 +247,16 @@ pub fn monte_carlo<R: Into<Solved>>(
                 )));
             }
             Ok(solved) => {
+                if let (Some((coalition, half_width)), Some(tolerance)) =
+                    (narrowest, solved.tolerance)
+                    && tolerance >= half_width
+                {
+                    return Err(Error::InvalidArgument(format!(
+                        "標本のゲームを許容誤差 {tolerance:e} で解いたので、提携 {coalition} の区間の幅の半分 \
+                         {half_width:e} の変化が許容誤差に埋もれる \
+                         (区間を広げるか、より小さい許容誤差で解く)"
+                    )));
+                }
                 guarantees.add(solved.guarantee);
                 allocations.push(solved.allocation);
             }
@@ -345,6 +367,18 @@ impl IntervalGame {
         &self.upper
     }
 
+    /// 幅が正の区間のうち、幅の半分が最も小さい提携とその値 (全ての幅が 0 なら `None`)。
+    fn narrowest_half_width(&self) -> Option<(Coalition, f64)> {
+        (1..self.lower.values().len())
+            .map(|mask| {
+                let coalition = Coalition(mask as u64);
+                let width = self.upper.value(coalition) - self.lower.value(coalition);
+                (coalition, width / 2.0)
+            })
+            .filter(|&(_, half)| half > 0.0)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+    }
+
     /// 各提携の値を区間から独立に一様に引いたゲーム。
     pub(crate) fn sample(&self, rng: &mut SplitMix64) -> Result<ExplicitGame> {
         self.lower
@@ -393,13 +427,27 @@ pub fn solver_with(name: &str, tolerance: Tolerance) -> Option<Solver> {
 }
 
 /// 区間ゲームの値を一様に引いて解いた配分の分布。
+///
+/// [`monte_carlo`] のエラーに加えて、解いた標本の解の許容誤差 ([`Solved::tolerance`]) が、幅が正の区間のうち
+/// 最も狭いものの幅の半分以上なら [`Error::InvalidArgument`] を返す (エラーの文章にその提携を書く)。
+/// 幅の半分は、[`influence`] の差分の幅 `delta` (値を `±delta` 動かす) に当たる。[`influence`] は動かす提携のどれか
+/// 1 つでも `delta` が許容誤差に埋もれればエラーにするので、ここでも 1 つの提携でも埋もれればエラーにする。
+/// 埋もれた提携の値の揺れは、配分の分布に許容誤差の扱いとしてしか現れず、分布がその揺れの影響を表さないためである。
+/// 幅が 0 の提携 (値を固定した提携。`IntervalGame::around` では値が 0 の提携) は揺れないので比べない。
+/// [`Tolerance::Auto`] の解は、[`influence`] と同じく返した配分を求めた逐次 LP の許容誤差で比べる。
 pub fn interval_monte_carlo<R: Into<Solved>>(
     game: &IntervalGame,
     samples: usize,
     seed: u64,
     solve: impl FnMut(&ExplicitGame) -> Result<R>,
 ) -> Result<Distribution> {
-    monte_carlo(samples, seed, |rng| game.sample(rng), solve)
+    sample_and_solve(
+        samples,
+        seed,
+        |rng| game.sample(rng),
+        solve,
+        game.narrowest_half_width(),
+    )
 }
 
 /// 感度 `dx / dv(S)` を求めた差分の取り方。`x(v)` は値 `v` のゲームを解いた配分、`δ` は動かす幅。
@@ -896,5 +944,35 @@ mod tests {
         let err = interval_monte_carlo(&interval, 0, 1, solve_nucleolus).unwrap_err();
         assert!(matches!(err, Error::InvalidArgument(_)), "{err:?}");
         assert!(err.to_string().contains("1 以上"), "{err}");
+    }
+
+    /// 区間の幅の半分が解の許容誤差以下の提携があれば、揺れが許容誤差に埋もれるのでエラーにする。
+    #[test]
+    fn interval_rejects_width_buried_in_tolerance() {
+        let game = large();
+        // 各値 ±1e-13 倍 (最も狭い幅の半分は 0.2 程度)。比 1e-7 の許容誤差は約 4e5。
+        let interval = IntervalGame::around(&game, 1e-13).unwrap();
+        let fast = solver_with("nucleolus", Tolerance::Relative(1e-7)).unwrap();
+        let err = interval_monte_carlo(&interval, 3, 0, fast).unwrap_err();
+        assert!(matches!(err, Error::InvalidArgument(_)), "{err:?}");
+        assert!(err.to_string().contains("埋もれる"), "{err}");
+        // 1 つの提携だけが狭くてもエラーにする (値が 0 の提携は幅 0 なので比べない)。
+        let mut upper = game.clone();
+        for mask in 1..16u64 {
+            let s = Coalition(mask);
+            let width = if mask == 3 { 1.0 } else { 1e9 };
+            upper = upper.with_value(s, game.value(s) + width).unwrap();
+        }
+        let interval = IntervalGame::new(game.clone(), upper).unwrap();
+        let fast = solver_with("nucleolus", Tolerance::Relative(1e-7)).unwrap();
+        let err = interval_monte_carlo(&interval, 3, 0, fast).unwrap_err();
+        assert!(err.to_string().contains("{0, 1}"), "{err}");
+        // 幅が許容誤差より広ければ求める。
+        let interval = IntervalGame::around(&game, 0.1).unwrap();
+        let fast = solver_with("nucleolus", Tolerance::Relative(1e-7)).unwrap();
+        assert!(interval_monte_carlo(&interval, 3, 0, fast).is_ok());
+        // 許容誤差を報告しない解き方では比べない。
+        let interval = IntervalGame::around(&game, 1e-13).unwrap();
+        assert!(interval_monte_carlo(&interval, 3, 0, |g| Ok(values::shapley(g))).is_ok());
     }
 }

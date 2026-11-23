@@ -95,8 +95,17 @@ fn rejects_extra_positional_arguments() {
     cli.run(&["nucleolus", "v.txt", "--pre"]).output();
     cli.run(&["verify", "v.txt", "sol.txt"]).output();
     cli.run(&["airport", "--costs", "1,2,3"]).output();
-    cli.run(&["uncertainty", "v.txt", "--samples", "3", "--seed", "1"])
-        .output();
+    cli.run(&[
+        "uncertainty",
+        "v.txt",
+        "--relative",
+        "0.1",
+        "--samples",
+        "3",
+        "--seed",
+        "1",
+    ])
+    .output();
 }
 
 /// --seed はサンプリング (--samples) の乱数の種なので、--samples なしではエラーにする。

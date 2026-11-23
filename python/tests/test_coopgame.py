@@ -469,12 +469,13 @@ def test_analysis_and_partial_nucleolus_accept_tolerance():
     )
     assert coopgame.nucleolus(large)["rational"] is True
     assert coopgame.nucleolus(large)["allocation"] != coopgame.nucleolus(large, rel_tolerance=1e-7)["allocation"]
-    # uncertainty・influence も、指定しなければ nucleolus と同じ既定の手順で解く。値をほとんど動かさない標本では、
-    # 1 回だけ解いた分布と異なる。
+    # uncertainty・influence も、指定しなければ nucleolus と同じ既定の手順で解く。値をほとんど動かさない標本でも、
+    # 既定の手順なら求められる。比 1e-7 で 1 回だけ解くと、区間の幅の揺れが許容誤差に埋もれるのでエラー。
     narrow = dict(relative=1e-13, samples=3)
     default = coopgame.uncertainty(large, **narrow)
     assert default == coopgame.uncertainty(large, tolerance="auto", **narrow)
-    assert default != coopgame.uncertainty(large, rel_tolerance=1e-7, **narrow)
+    with pytest.raises(ValueError, match="埋もれる"):
+        coopgame.uncertainty(large, rel_tolerance=1e-7, **narrow)
     assert coopgame.influence(large) == coopgame.influence(large, tolerance="auto")
     # tolerance="auto" は、既定の手順を明示して選ぶ。nucleolus では指定しない場合と同じ。
     assert coopgame.nucleolus(large, tolerance="auto") == coopgame.nucleolus(large)

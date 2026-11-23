@@ -575,7 +575,7 @@ fn analysis_commands_accept_tolerance() {
     let explicit = cli.run(&["compare", "large.txt", "--tolerance", "auto"]);
     assert_eq!(explicit.stdout, compare_default.stdout);
     // uncertainty・influence も、指定しなければ nucleolus と同じ既定の手順で解く。値をほとんど動かさない標本
-    // (超過の段の間隔が比 1e-7 の許容誤差より小さいまま) では、1 回だけ解いた分布と異なる。
+    // (超過の段の間隔が比 1e-7 の許容誤差より小さいまま) でも、既定の手順なら求められる。
     let narrow = [
         "uncertainty",
         "large.txt",
@@ -588,9 +588,10 @@ fn analysis_commands_accept_tolerance() {
     assert!(default.success, "{}", default.stderr);
     let auto = cli.run(&[&narrow[..], &["--tolerance", "auto"]].concat());
     assert_eq!(auto.stdout, default.stdout);
+    // 比 1e-7 の許容誤差 (約 4e5) で 1 回だけ解くと、区間の幅 (半分で 0.2 程度) の揺れが許容誤差に埋もれるのでエラー。
     let single = cli.run(&[&narrow[..], &["--rel-tolerance", "1e-7"]].concat());
-    assert!(single.success, "{}", single.stderr);
-    assert_ne!(single.stdout, default.stdout);
+    assert_eq!(single.code, Some(1));
+    assert!(single.stderr.contains("埋もれる"), "{}", single.stderr);
     let default = cli.run(&["influence", "large.txt"]);
     assert!(default.success, "{}", default.stderr);
     let auto = cli.run(&["influence", "large.txt", "--tolerance", "auto"]);

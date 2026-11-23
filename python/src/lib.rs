@@ -856,6 +856,7 @@ fn guarantee_counts<'py>(
 /// 区間内の一様分布から `samples` 個 (1 以上) のゲームを引いて `solver` で解く。
 /// 戻り値は `mean`・`std`・`quantiles` (`{0.05: [...], 0.5: [...], 0.95: [...]}`)・`samples`・`failures`・
 /// `guarantees` (解けた標本の保証の内訳。`{"exact": 198, "approximate": 2}` など。`approximate` は正しいと言えない解)。
+/// 標本の解の許容誤差が、幅が正の区間のうち最も狭いものの幅の半分以上なら、揺れが許容誤差に埋もれるので ValueError。
 ///
 /// 仁・プレ仁は、`tolerance` (値の単位) も `rel_tolerance` (`max|v(S)|` に対する比) も指定しなければ、
 /// `nucleolus` の既定の手順で解く (有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)。
