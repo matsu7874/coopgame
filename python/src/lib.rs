@@ -235,8 +235,8 @@ fn exact_game(values: &Bound<'_, PyAny>, order: &str) -> PyResult<exact::ExactGa
 /// (提携 `S` の値が `values[mask(S) - 1]`)、`order="lex"` は CoopGame・TUGLab と同じ辞書式順。
 ///
 /// `kind` は値の種類で、`"value"` (既定、提携の価値) か `"cost"` (提携の費用。JSON の `type` と同じ)。
-/// 費用のゲームは、費用を価値として計算しないよう、受け付ける関数を `cost_nucleolus`・`shapley`・`banzhaf`
-/// (どれも費用の分担を返す) と `Game.savings` (節約ゲームに直す) に限る。他の関数に渡すと ValueError。
+/// 費用のゲームは、費用を価値として計算しないよう、受け付ける関数を `cost_nucleolus`・`shapley`・`banzhaf`・
+/// `shapley_sampling`・`banzhaf_sampling` (どれも費用の分担を返す) と `Game.savings` (節約ゲームに直す) に限る。他の関数に渡すと ValueError。
 #[pyclass(module = "coopgame", frozen)]
 struct Game {
     inner: ExplicitGame,
@@ -258,7 +258,7 @@ impl Game {
             io_core::Kind::Value => Ok(()),
             _ => Err(PyValueError::new_err(
                 "費用のゲーム (kind=\"cost\") は、この関数では扱えない (費用を価値として計算しない)。\
-                 費用のゲームを受け付けるのは cost_nucleolus (仁による費用の分担)・shapley・banzhaf (費用の分担)。\
+                 費用のゲームを受け付けるのは cost_nucleolus (仁による費用の分担)・shapley・banzhaf・shapley_sampling・banzhaf_sampling (費用の分担)。\
                  他の解は game.savings() で節約ゲーム s(S) = sum c({i}) - c(S) に直して求める",
             )),
         }
@@ -596,15 +596,29 @@ impl SetFunction for Callback<'_, '_> {
     }
 }
 
+/// [`with_set_function`] が受け付ける値の種類。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kinds {
+    /// 価値のゲームだけ。
+    ValueOnly,
+    /// 費用のゲームも (Shapley 値・Banzhaf 値の推定のように、線形で費用の分担になるもの)。
+    ValueOrCost,
+}
+
 /// [`Game`]・[`GraphGame`]・[`FunctionGame`] のいずれかを受け取り、[`SetFunction`] として計算を実行する。
 ///
 /// [`FunctionGame`] の関数が例外を投げたら、計算を打ち切ってその例外を返す ([`Callback`])。
+/// 費用のゲーム (`kind="cost"` の [`Game`]) は、`kinds` が [`Kinds::ValueOrCost`] (線形な値の推定で、
+/// 費用のゲームでは費用の分担になる) のときだけ受け付ける。
 fn with_set_function<T>(
     game: &Bound<'_, PyAny>,
+    kinds: Kinds,
     run: impl FnOnce(&dyn SetFunction) -> PyResult<T>,
 ) -> PyResult<T> {
     if let Ok(explicit) = game.cast::<Game>() {
-        explicit.get().require_value()?;
+        if kinds == Kinds::ValueOnly {
+            explicit.get().require_value()?;
+        }
         return run(&explicit.get().inner);
     }
     if let Ok(graph) = game.cast::<GraphGame>() {
@@ -1626,6 +1640,7 @@ fn estimate_dict<'py>(py: Python<'py>, estimate: values::Estimate) -> PyResult<B
 /// ランダムな順列 `permutations` 個 (1 以上) で Shapley 値を推定する (Castro et al. 2009)。
 ///
 /// `evaluations` は関数を呼んだ回数 (`permutations * n`。空提携は呼ばない。全体提携は順列ごとに呼ぶ)。
+/// 費用のゲーム (`kind="cost"`) では、`shapley` と同じく費用の分担の推定値を返す (Shapley 値は線形なので)。
 #[pyfunction]
 #[pyo3(signature = (game, permutations, seed = Arg(0)))]
 fn shapley_sampling<'py>(
@@ -1636,7 +1651,7 @@ fn shapley_sampling<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let permutations = permutations.0;
     let seed = seed.0;
-    let estimate = with_set_function(game, |g| {
+    let estimate = with_set_function(game, Kinds::ValueOrCost, |g| {
         values::shapley_sampling(g, permutations, seed).map_err(to_py_err)
     })?;
     estimate_dict(py, estimate)
@@ -1645,6 +1660,7 @@ fn shapley_sampling<'py>(
 /// ランダムな提携 `samples` 個 (1 以上) での限界貢献の平均で Banzhaf 値を推定する。
 ///
 /// `evaluations` は関数を呼んだ回数 (標本あたり最大 `n + 1` 回。空提携は呼ばないので、その分少なくなる)。
+/// 費用のゲーム (`kind="cost"`) では、`banzhaf` と同じく費用の分担の推定値を返す (Banzhaf 値は線形なので)。
 #[pyfunction]
 #[pyo3(signature = (game, samples, seed = Arg(0)))]
 fn banzhaf_sampling<'py>(
@@ -1655,7 +1671,7 @@ fn banzhaf_sampling<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let samples = samples.0;
     let seed = seed.0;
-    let estimate = with_set_function(game, |g| {
+    let estimate = with_set_function(game, Kinds::ValueOrCost, |g| {
         values::banzhaf_sampling(g, samples, seed).map_err(to_py_err)
     })?;
     estimate_dict(py, estimate)
@@ -1674,7 +1690,7 @@ fn sampled_nucleolus<'py>(
     let pairs = pairs.0;
     let seed = seed.0;
     let domain = parse_domain(domain)?;
-    let result = with_set_function(game, |g| {
+    let result = with_set_function(game, Kinds::ValueOnly, |g| {
         sampled::nucleolus(g, pairs, seed, domain).map_err(to_py_err)
     })?;
     let dict = PyDict::new(py);
@@ -1699,7 +1715,7 @@ fn sampled_least_core<'py>(
     let pairs = pairs.0;
     let seed = seed.0;
     let domain = parse_domain(domain)?;
-    let (least, evaluations) = with_set_function(game, |g| {
+    let (least, evaluations) = with_set_function(game, Kinds::ValueOnly, |g| {
         sampled::least_core(g, pairs, seed, domain).map_err(to_py_err)
     })?;
     let dict = PyDict::new(py);
@@ -1903,7 +1919,7 @@ fn convex_nucleolus<'py>(
         .map_err(to_py_err)?;
         return solution_dict(py, &solution, Some(stats));
     }
-    with_set_function(game, |g| {
+    with_set_function(game, Kinds::ValueOnly, |g| {
         let assumed = Assume::convex(g);
         let (unverified, stats) =
             convex::nucleolus_with(&assumed, ConvexOptions::default()).map_err(to_py_err)?;
@@ -1983,7 +1999,7 @@ fn verify_solution<'py>(
     let seed = seed.0;
     let domain = parse_domain(domain)?;
     let reference = parse_reference(reference)?;
-    let check = with_set_function(game, |g| {
+    let check = with_set_function(game, Kinds::ValueOnly, |g| {
         let mut options = VerifyOptions::default();
         options.pairs = pairs;
         options.seed = seed;

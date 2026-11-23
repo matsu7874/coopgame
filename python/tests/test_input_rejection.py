@@ -103,7 +103,6 @@ def test_parsed_cost_game_is_not_used_as_value_game():
         lambda g: coopgame.nucleolus(g),
         lambda g: coopgame.least_core(g),
         lambda g: coopgame.dual(g),
-        lambda g: coopgame.shapley_sampling(g, 10),
         lambda g: coopgame.convex_nucleolus(g, assume=True),
         lambda g: coopgame.auto_nucleolus(g),
         lambda g: coopgame.verify_solution(g, [2, 5]),
@@ -117,6 +116,10 @@ def test_parsed_cost_game_is_not_used_as_value_game():
     assert coopgame.cost_nucleolus(cost) == pytest.approx([3, 4])
     assert coopgame.shapley(cost) == pytest.approx([3, 4])
     assert coopgame.banzhaf(cost) == pytest.approx([3, 4])
+    # サンプリング版も線形な値の推定なので、費用の分担の推定値を返す (厳密版と同じ扱い)。
+    for run in (coopgame.shapley_sampling, coopgame.banzhaf_sampling):
+        estimate = run(cost, 200)
+        assert estimate["values"] == pytest.approx([3, 4], abs=0.2)
     # 節約ゲームに直せば、価値のゲームの関数を使える。
     savings = cost.savings()
     assert savings.kind == "value" and savings.values() == [0, 0, 2]
