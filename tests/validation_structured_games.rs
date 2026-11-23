@@ -62,6 +62,37 @@ fn weighted_voting_rejects_zero_quota() {
     assert_eq!(game.value(&PlayerSet::empty(2)), 0.0);
 }
 
+/// `WeightedVotingGame::new` と `generators::weighted_voting` は同じ入力を同じように検査する:
+/// 重みは非負 (u64 の重みは常に満たす)、基準は 0 より大きく重みの和以下 (和を超えると全提携の値が 0 になり、
+/// 全体提携も勝てないので投票ゲームにならない)、重みは 1 つ以上。
+#[test]
+fn weighted_voting_constructors_validate_the_same_way() {
+    use coopgame::generators;
+    let rejected_by_both: [(&[u64], u64); 3] = [(&[1, 2], 0), (&[1, 2], 4), (&[], 1)];
+    for (weights, quota) in rejected_by_both {
+        let err = WeightedVotingGame::new(weights.to_vec(), quota).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidArgument(_)),
+            "{weights:?} {quota}: {err:?}"
+        );
+        let floats: Vec<f64> = weights.iter().map(|&w| w as f64).collect();
+        let err = generators::weighted_voting(&floats, quota as f64).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidArgument(_)),
+            "{weights:?} {quota}: {err:?}"
+        );
+    }
+    // 浮動小数点数の入力でだけ書ける誤り: 負の基準と負の重み。
+    assert!(generators::weighted_voting(&[1.0, 2.0], -1.0).is_err());
+    assert!(generators::weighted_voting(&[3.0, -1.0], 1.0).is_err());
+    assert!(generators::weighted_voting(&[1.0, 2.0], 0.5).is_ok());
+    // 基準が重みの和に等しい (全員一致) のは正しい投票ゲーム。
+    assert!(WeightedVotingGame::new(vec![1, 2], 3).is_ok());
+    assert!(generators::weighted_voting(&[1.0, 2.0], 3.0).is_ok());
+    // 重みの和は u64 であふれても基準と比べられる。
+    assert!(WeightedVotingGame::new(vec![u64::MAX, u64::MAX], 1_000_000).is_ok());
+}
+
 #[test]
 fn bankruptcy_rules_accept_negative_zero() {
     // `-0.0` は 0 と同じ (JSON の `-0` や `0.0 * -1.0` で現れる)。
@@ -89,4 +120,63 @@ fn weighted_voting_generator_rejects_non_finite_inputs() {
     assert!(generators::weighted_voting(&[1.0, 1.0], f64::NAN).is_err());
     assert!(generators::weighted_voting(&[1.0, f64::INFINITY], 1.0).is_err());
     assert!(generators::weighted_voting(&[1.0, 1.0], 2.0).is_ok());
+}
+
+/// 同じ辺を 2 回書いた入力は、重みを黙って足さずにエラーにする (向きだけが違う書き方も同じ辺)。
+#[test]
+fn induced_subgraph_game_rejects_duplicate_edges() {
+    use coopgame::games::graph::InducedSubgraphGame;
+    for edges in [
+        vec![(0, 1, 1.0), (0, 1, 2.0)],
+        vec![(0, 1, 1.0), (1, 0, 1.0)],
+    ] {
+        let err = InducedSubgraphGame::new(3, edges.clone()).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidArgument(_)),
+            "{edges:?}: {err:?}"
+        );
+        assert!(err.to_string().contains("重複"), "{err}");
+    }
+    assert!(InducedSubgraphGame::new(3, vec![(0, 1, 1.0), (1, 2, 1.0)]).is_ok());
+}
+
+/// 費用行列の対角成分 (頂点から自分への費用) は 0。0 以外は行列の書き間違いとしてエラーにする。
+#[test]
+fn spanning_tree_game_rejects_nonzero_diagonal() {
+    use coopgame::games::spanning_tree::SpanningTreeGame;
+    let costs = |diagonal: f64| {
+        vec![
+            vec![0.0, 2.0, 3.0],
+            vec![2.0, diagonal, 1.0],
+            vec![3.0, 1.0, 0.0],
+        ]
+    };
+    let err = SpanningTreeGame::new(costs(5.0)).unwrap_err();
+    assert!(matches!(err, Error::InvalidArgument(_)), "{err:?}");
+    assert!(err.to_string().contains("対角"), "{err}");
+    assert!(SpanningTreeGame::new(costs(0.0)).is_ok());
+}
+
+/// `values()` は空提携を含む長さ `2^n`、`binary_values()` は空提携を除く長さ `2^n - 1` で、
+/// `from_binary` と往復できる。
+#[test]
+fn binary_values_round_trip_with_from_binary() {
+    use coopgame::ExplicitGame;
+    use coopgame::game::exact::ExactGame;
+    let values = [1.0, 2.0, 4.0, 3.0, 5.0, 6.0, 9.0];
+    let game = ExplicitGame::from_binary(&values).unwrap();
+    assert_eq!(game.binary_values(), values);
+    assert_eq!(game.values().len(), values.len() + 1);
+    assert_eq!(
+        ExplicitGame::from_binary(game.binary_values()).unwrap(),
+        game
+    );
+    let exact = ExactGame::from_explicit(&game).unwrap();
+    assert_eq!(exact.binary_values().len(), values.len());
+    assert_eq!(
+        ExactGame::from_binary(exact.binary_values().to_vec())
+            .unwrap()
+            .values(),
+        exact.values()
+    );
 }

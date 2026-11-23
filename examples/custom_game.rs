@@ -90,7 +90,7 @@ fn large() -> coopgame::Result<()> {
     // Shapley 値: ランダムな参加順を 500 通り取り、限界貢献を平均する (seed 固定)。
     // 評価は参加順 1 つにつき人数分なので、数百人でも速い。
     let started = Instant::now();
-    let estimate = values::shapley_sampling(&glove, 500, 1);
+    let estimate = values::shapley_sampling(&glove, 500, 1)?;
     println!(
         "Shapley 値の推定 ({:.2?}、評価 {} 回): 左の平均 {:.4}、右の平均 {:.4}",
         started.elapsed(),

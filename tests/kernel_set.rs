@@ -50,7 +50,7 @@ fn check(name: &str, game: &ExplicitGame, domain: Domain) -> KernelSet {
             assert!(
                 kernel::is_in_kernel(game, vertex, domain, tolerance).unwrap(),
                 "{name} {domain:?}: 頂点 {vertex:?} がカーネル条件を満たさない (violation {})",
-                kernel::kernel_violation(game, vertex, domain)
+                kernel::kernel_violation(game, vertex, domain).unwrap()
             );
         }
         let centroid: Vec<f64> = (0..game.players())

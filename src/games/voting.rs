@@ -83,15 +83,27 @@ impl WeightedVotingGame {
     /// 動的計画法の状態数 `q + 1` が大きすぎないよう、基準の上限を設ける。
     pub const MAX_QUOTA: u64 = 1_000_000;
 
-    /// 重み `weights` と基準 `quota` から作る。基準は 1 以上 [`Self::MAX_QUOTA`] 以下。
+    /// 重み `weights` と基準 `quota` から作る。重みは 1 つ以上、基準は 1 以上で重みの和以下、かつ
+    /// [`Self::MAX_QUOTA`] 以下。検査は [`crate::generators::weighted_voting`] と同じ。
     ///
-    /// 基準が 0 だと空提携も勝利提携になり、空提携の値が 1 になる ([`SetFunction`] の前提に反する)。
+    /// 基準の範囲は、単純ゲームの定義の「空提携は負ける (`v(∅) = 0`)」と「全体提携は勝つ (`v(N) = 1`)」から導いた検査である。
+    /// 基準が 0 だと空提携も勝利提携になり、空提携の値が 1 になる ([`SetFunction`] の前提にも反する)。
+    /// 基準が重みの和を超えると全体提携も勝てず、全ての提携の値が 0 になる。
     /// 重みの和は基準で打ち切って数えるので、和が `u64` を超える重みでも正しく扱う。
     pub fn new(weights: Vec<u64>, quota: u64) -> Result<WeightedVotingGame> {
+        if weights.is_empty() {
+            return Err(Error::InvalidArgument("重みが 1 つもない".into()));
+        }
         if quota == 0 {
             return Err(Error::InvalidArgument(
                 "基準は 1 以上 (0 だと空提携が勝利提携になる)".into(),
             ));
+        }
+        let total = weights.iter().fold(0u64, |acc, &w| acc.saturating_add(w));
+        if quota > total {
+            return Err(Error::InvalidArgument(format!(
+                "基準 {quota} が重みの和 {total} を超える (全体提携も勝てず、全ての提携の値が 0 になる)"
+            )));
         }
         if quota > Self::MAX_QUOTA {
             return Err(Error::InvalidArgument(format!(

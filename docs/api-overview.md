@@ -87,7 +87,7 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 | 対象 | 関数 | 手法 |
 |---|---|---|
 | 配分の説明・比較 | `analysis::explain::{report, render, compare, render_comparison}` | 不満 (超過) の大きい提携の段、コアに属するか、最小コアの値、プレイヤーごとの最も不満な提携。複数の配分を安定性で比べる (結果は入力と同じ順)。文章ではプレイヤーを「プレイヤー 0」、提携を `{0, 2}` と書く |
-| 値の不確かさの分析 | `analysis::uncertainty::{monte_carlo, IntervalGame, interval_monte_carlo, influence, key_coalitions, solver, solver_with}` | 値の分布・区間から配分の分布 (平均・標準偏差・分位点) を求め、どの提携の値が配分を決めているかを感度 `dx/dv(S)` で示す。解く関数は `solver` (仁は比 `1e-7` の許容誤差で 1 回) か `solver_with` (許容誤差の決め方を指定) で選ぶ |
+| 値の不確かさの分析 | `analysis::uncertainty::{monte_carlo, IntervalGame, interval_monte_carlo, influence, key_coalitions, solver, solver_with, Solved, GuaranteeCounts}` | 値の分布・区間から配分の分布 (平均・標準偏差・分位点) を求め、どの提携の値が配分を決めているかを感度 `dx/dv(S)` で示す。解く関数は `solver` (仁は既定の手順 `Tolerance::Auto`) か `solver_with` (許容誤差の決め方を指定。1 回だけ解いて速くする) で選ぶ。解く関数が保証つきの結果 (`NucleolusResult`・`Solution`) を返すと、結果 (`Distribution`・`Influence`) に解の保証の内訳 (`GuaranteeCounts`) が残り、`influence` は差分の幅が解の許容誤差以下ならエラーにする |
 | 配分集合の図 | `analysis::plot::{imputation_figure, PlotOptions, core_vertices}` | 3-4 人のゲームの配分集合 (三角形・四面体) にコア・カーネル・仁・Shapley 値・任意の点 (`PlotOptions::points`) を描いた SVG。頂点のラベルはプレイヤーの番号。ライト・ダークの両方に対応 |
 | 反例の探索と縮小 | `analysis::search::{search, shrink}` | 性質を満たさないゲームをランダムに探し、プレイヤーの除去・値の単純化で反例を小さくする。実例は `examples/study_counterexamples.rs`・`data/analysis/counterexamples.txt` |
 

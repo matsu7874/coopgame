@@ -57,13 +57,16 @@ const USAGE: &str = "\
   coopgame explain    <v.txt> <sol.txt> [--lex] [--levels K]   配分の説明 (不満の大きい提携、安定性)
   coopgame compare    <v.txt> [--lex] [--cost] [--tolerance T|auto | --rel-tolerance R]
                       仁・プレ仁・Shapley 値などを安定性で比べる
-  coopgame uncertainty <v.txt> [--lex] [--relative 0.1] [--samples 200] [--seed S]
+  coopgame uncertainty <v.txt> --relative R [--lex] [--samples 200] [--seed S]
                       [--solver nucleolus|prenucleolus|shapley]
                       [--tolerance T|auto | --rel-tolerance R]
-                      各値が ±relative の一様な誤差を持つときの配分の分布 (平均・標準偏差・5%/95% 点)
+                      各値が ±R (比。0.1 で ±10%) の一様な誤差を持つときの配分の分布 (平均・標準偏差・5%/95% 点)。
+                      標準エラーに標本の保証の内訳 (guarantees=exact:198,approximate:2 など) を出す。
+                      解の許容誤差が最も狭い区間の幅の半分以上ならエラー (揺れが許容誤差に埋もれる)
   coopgame influence  <v.txt> [--lex] [--solver nucleolus|prenucleolus|shapley] [--levels 2] [--delta D]
                       [--tolerance T|auto | --rel-tolerance R]
-                      配分を決めている提携の値に対する配分の感度 dx/dv(S)
+                      配分を決めている提携の値に対する配分の感度 dx/dv(S) と、差分に使った解の保証の内訳。
+                      解の許容誤差が --delta 以上ならエラー (変化が許容誤差に埋もれる)
   coopgame talmud     --estate E --claims d1,d2,... [--exact]
   coopgame generate   --type T --n N [--seed S]
   coopgame bench      [--types 1,2,3,4,5] [--n 4..10] [--seeds 3] [--methods nucleolus,nucleolus-full,kernel]
@@ -91,13 +94,13 @@ const USAGE: &str = "\
            9 人以上で満たさないままなら guarantee=approximate で返す (確認は 20 人まで。
            21 人以上は確かめないので approximate。確かめずに 1 回だけ解くなら --rel-tolerance 1e-7)。
            値が 1e12 程度のゲームを 1 単位まで正しく求めるには --exact を使う。
-           uncertainty と influence は何度も解くので、指定しなければ比 1e-7 で 1 回だけ解く。
+           uncertainty と influence も、標本・差分ごとにこの既定の手順で解く (有理数の逐次 LP に切り替わる
+           ゲームでは、解く回数の分だけ時間が延びる。速さを優先するなら --rel-tolerance 1e-7 などで 1 回だけ解く)。
            structure (提携構造つきの仁) は、指定しなければ全体 1 ブロックのとき nucleolus と同じ手順で解き、
            全員が単独なら guarantee=exact、それ以外は比 1e-7 で 1 回だけ解いて guarantee=approximate (確かめない)。
            per-capita・proportional・modiclus・disruption は、指定しなければ比 1e-7 で 1 回だけ解き、
            確かめないので guarantee=approximate。許容誤差を指定すると、どれも 1 回だけ解いて guarantee=exact
-           --tolerance auto は、この既定の手順を明示して選ぶ (uncertainty と influence でも既定の手順で解く。
-           有理数の逐次 LP に切り替わるゲームでは、解く回数の分だけ時間が延びる)
+           --tolerance auto は、この既定の手順を明示して選ぶ
   --samples N  Shapley 値・Banzhaf 値をサンプリングで推定する (順列数・提携数、1 以上)。省略すると厳密計算
   --merge  カーネル全体で、同じ直線上でつながる線分を 1 本にまとめる
   --rational  certify・check で v.txt の値を 10 進数・分数 (8/3) の値どおりの有理数として読む (JSON・CSV の数も字面どおり)
@@ -569,9 +572,9 @@ fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
                     let samples = samples(&args, 1)?;
                     let seed: u64 = args.number("--seed", 0)?;
                     let estimate = if shapley {
-                        values::shapley_sampling(game, samples, seed)
+                        values::shapley_sampling(game, samples, seed)?
                     } else {
-                        values::banzhaf_sampling(game, samples, seed)
+                        values::banzhaf_sampling(game, samples, seed)?
                     };
                     eprintln!(
                         "time={:.6}s evaluations={} standard_errors={:?}",
@@ -960,7 +963,7 @@ fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
             println!(
                 "kernel={} (violation={:e})",
                 in_kernel,
-                kernel::kernel_violation(&game, &x, domain)
+                kernel::kernel_violation(&game, &x, domain)?
             );
         }
         "bargaining" => {
@@ -1074,24 +1077,39 @@ fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
                 ],
             )?;
             let game = read_game(&args, 0)?;
-            let relative: f64 = args.number("--relative", 0.1)?;
+            // 誤差の幅は結果を左右するので、黙って既定の幅を使わない。
+            let Some(relative) = args.value("--relative")? else {
+                return Err(
+                    "--relative で各値の誤差の幅を指定する (例: --relative 0.1 で各値 ±10%)".into(),
+                );
+            };
+            let relative: f64 = relative
+                .parse()
+                .map_err(|_| format!("--relative の値 {relative:?} が不正"))?;
             let samples = samples(&args, 200)?;
             let seed: u64 = args.number("--seed", 0)?;
             let solve = solver(&args)?;
             let interval = uncertainty::IntervalGame::around(&game, relative)?;
             let d = uncertainty::interval_monte_carlo(&interval, samples, seed, solve)?;
+            let quantiles = d.quantiles();
             println!("player\tmean\tstd\tq05\tq50\tq95");
             for i in 0..game.players() {
                 println!(
                     "{i}\t{:.6}\t{:.6}\t{:.6}\t{:.6}\t{:.6}",
-                    d.mean[i],
-                    d.std[i],
-                    d.quantiles[0].1[i],
-                    d.quantiles[1].1[i],
-                    d.quantiles[2].1[i]
+                    d.mean()[i],
+                    d.std()[i],
+                    quantiles[0].1[i],
+                    quantiles[1].1[i],
+                    quantiles[2].1[i]
                 );
             }
-            eprintln!("samples={} failures={}", d.samples, d.failures);
+            // guarantees: 解けた標本の保証の内訳 (approximate は正しいと言えない解)。
+            eprintln!(
+                "samples={} failures={} guarantees={}",
+                d.samples(),
+                d.failures(),
+                d.guarantees()
+            );
         }
         "influence" => {
             args.check_options(
@@ -1111,20 +1129,25 @@ fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
             let x = solve(&game)?;
             let levels: usize = args.number("--levels", 2)?;
             let delta: f64 = args.number("--delta", 1e-4 * game.max_abs_value().max(1.0))?;
-            let key = uncertainty::key_coalitions(&game, &x, levels)?;
+            let key = uncertainty::key_coalitions(&game, x.allocation(), levels)?;
             let mut rows = uncertainty::influence(&game, &key, delta, solve)?;
             rows.sort_by(|a, b| b.magnitude().total_cmp(&a.magnitude()));
             // difference: central (中心差分)、forward・backward (片側のゲームが解けないときの片側差分)。
-            println!("coalition\tmax|dx/dv|\tdx/dv (プレイヤー順)\tdifference");
+            // guarantees: 差分に使った 2 つの解の保証の内訳。
+            println!("coalition\tmax|dx/dv|\tdx/dv (プレイヤー順)\tdifference\tguarantees");
             for row in rows {
-                let values: Vec<String> =
-                    row.sensitivity.iter().map(|v| format!("{v:.4}")).collect();
+                let values: Vec<String> = row
+                    .sensitivity()
+                    .iter()
+                    .map(|v| format!("{v:.4}"))
+                    .collect();
                 println!(
-                    "{}\t{:.4}\t{}\t{}",
-                    row.coalition,
+                    "{}\t{:.4}\t{}\t{}\t{}",
+                    row.coalition(),
                     row.magnitude(),
                     values.join(" "),
-                    row.difference
+                    row.difference(),
+                    row.guarantees()
                 );
             }
         }
@@ -1460,13 +1483,12 @@ fn samples(args: &Args, default: usize) -> CliResult<usize> {
 
 /// uncertainty・influence の解き方 (`--solver`。既定は nucleolus)。
 ///
-/// 仁・プレ仁は、指定がなければ max|v(S)| の 1e-7 倍の許容誤差で 1 回だけ解く (標本や差分のために何度も解くので、
-/// 既定の手順の解き直しはしない)。`--tolerance`・`--rel-tolerance` で許容誤差を指定でき、`--tolerance auto` で
-/// 既定の手順を選べる。
+/// 仁・プレ仁は、指定がなければ nucleolus と同じ既定の手順で解く。`--tolerance`・`--rel-tolerance` で許容誤差を
+/// 指定すると、確かめずに 1 回だけ解く (速いが、値の大きいゲームでは仁と異なりうる)。
 fn solver(args: &Args) -> CliResult<uncertainty::Solver> {
     let name = args.value("--solver")?.unwrap_or("nucleolus");
     let tolerance = match tolerance(args)? {
-        None => Tolerance::Relative(1e-7),
+        None => Tolerance::Auto,
         Some(specified) => {
             if name == "shapley" {
                 return Err(
@@ -1614,18 +1636,18 @@ fn bench_one(game: &ExplicitGame, method: &str) -> CliResult<String> {
             )
         })
     } else {
-        nucleolus::nucleolus_with(game, options).map(|r| {
+        nucleolus::nucleolus_with(game, options).and_then(|r| {
             let seconds = started.elapsed().as_secs_f64();
             let verified = verify::kohlberg(game, r.allocation(), domain)
                 .map(|report| report.satisfied)
                 .unwrap_or(false);
-            format!(
+            Ok(format!(
                 "{seconds:.6},{},{},{},{verified},{:e},",
                 r.lp_solves(),
                 r.rows_added(),
                 r.levels().len(),
-                kernel::kernel_violation(game, r.allocation(), domain)
-            )
+                kernel::kernel_violation(game, r.allocation(), domain)?
+            ))
         })
     };
     Ok(row.unwrap_or_else(|err| {

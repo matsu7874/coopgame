@@ -346,6 +346,9 @@ def test_variants_documented_examples():
         assert solve(tolerance=1e-6)["tolerance"] == 1e-6
         with pytest.raises(ValueError):
             solve(tolerance=1e-6, rel_tolerance=1e-7)
+        # 数の引数は bool を数として読まない (Arg<T> の方針)。
+        with pytest.raises(TypeError):
+            solve(rel_tolerance=True)
     with pytest.raises(ValueError):
         coopgame.proportional_nucleolus(coopgame.Game([-1, 0, 1, 3, 4, 2, 5], order="lex"))
 
@@ -456,7 +459,7 @@ def test_nucleolus_tolerance():
 
 def test_analysis_and_partial_nucleolus_accept_tolerance():
     game = coopgame.Game([0, 0, 0, 4, 3, 2, 6], order="lex")
-    # uncertainty と influence は、指定しなければ比 1e-7 の許容誤差で 1 回だけ解く。
+    # uncertainty と influence も、許容誤差を指定できる (指定すると 1 回だけ解く)。
     default = coopgame.influence(game)
     assert coopgame.influence(game, rel_tolerance=1e-7) == default
     assert coopgame.influence(game, tolerance=6e-7) == default
@@ -484,17 +487,16 @@ def test_analysis_and_partial_nucleolus_accept_tolerance():
     )
     assert coopgame.nucleolus(large)["rational"] is True
     assert coopgame.nucleolus(large)["allocation"] != coopgame.nucleolus(large, rel_tolerance=1e-7)["allocation"]
-    assert coopgame.influence(large) == coopgame.influence(large, rel_tolerance=1e-7)
-    assert coopgame.uncertainty(large, relative=0.1, samples=5) == coopgame.uncertainty(
-        large, relative=0.1, samples=5, rel_tolerance=1e-7
-    )
+    # uncertainty・influence も、指定しなければ nucleolus と同じ既定の手順で解く。値をほとんど動かさない標本でも、
+    # 既定の手順なら求められる。比 1e-7 で 1 回だけ解くと、区間の幅の揺れが許容誤差に埋もれるのでエラー。
+    narrow = dict(relative=1e-13, samples=3)
+    default = coopgame.uncertainty(large, **narrow)
+    assert default == coopgame.uncertainty(large, tolerance="auto", **narrow)
+    with pytest.raises(ValueError, match="埋もれる"):
+        coopgame.uncertainty(large, rel_tolerance=1e-7, **narrow)
+    assert coopgame.influence(large) == coopgame.influence(large, tolerance="auto")
     # tolerance="auto" は、既定の手順を明示して選ぶ。nucleolus では指定しない場合と同じ。
     assert coopgame.nucleolus(large, tolerance="auto") == coopgame.nucleolus(large)
-    # uncertainty・influence では、1 回だけ解く既定の代わりに既定の手順で解く。値をほとんど動かさない標本では、
-    # 1 回だけ解いた分布と異なる。
-    narrow = dict(relative=1e-13, samples=3)
-    assert coopgame.uncertainty(large, tolerance="auto", **narrow) != coopgame.uncertainty(large, **narrow)
-    assert coopgame.influence(large, tolerance="auto")
     with pytest.raises(ValueError, match="auto"):
         coopgame.influence(game, tolerance="fast")
     with pytest.raises(ValueError, match="どちらか一方"):
@@ -599,6 +601,32 @@ def test_uncertainty_and_influence():
         coopgame.uncertainty(game)
     with pytest.raises(ValueError):
         coopgame.influence(game, coalitions=[[]])  # 空提携の値は 0 に固定
+    # 標本は 1 以上 (0 個を「全て失敗」とは扱わない)。
+    with pytest.raises(ValueError, match="1 以上"):
+        coopgame.uncertainty(game, relative=0.1, samples=0)
+
+
+def test_uncertainty_and_influence_report_guarantees():
+    game = coopgame.Game([0, 0, 0, 0, 5, 5, 8, 9, 10, 8, 13, 15, 16, 17, 21], order="lex")
+    # 解けた標本の保証の内訳。既定の手順で全て確かめられた。
+    assert coopgame.uncertainty(game, relative=0.1, samples=20, seed=1)["guarantees"] == {"exact": 20}
+    assert coopgame.uncertainty(game, relative=0.1, samples=5, solver="shapley")["guarantees"] == {"exact": 5}
+    # 感度の行は、差分に使った 2 つの解の保証の内訳を持つ。
+    assert all(row[3] == {"exact": 2} for row in coopgame.influence(game))
+
+
+def test_influence_rejects_delta_buried_in_tolerance():
+    # 値が 1e12 程度の 4 人の整数ゲーム。比 1e-7 の許容誤差は約 4e5。
+    large = coopgame.Game(
+        [0, 0, 2000000000002, 0, 2000000000001, 2000000000006, 3000000000002, 0]
+        + [2000000000006, 2000000000006, 3000000000005, 2000000000005, 3000000000002, 3000000000002, 4000000000002]
+    )
+    with pytest.raises(ValueError, match="埋もれる"):
+        coopgame.influence(large, coalitions=[[2, 3]], delta=10, rel_tolerance=1e-7)
+    # 既定の手順 (このゲームは有理数の逐次 LP で許容誤差 0) なら、同じ delta で求められる。
+    [(coalition, sensitivity, difference, guarantees)] = coopgame.influence(large, coalitions=[[2, 3]], delta=10)
+    assert (coalition, difference, guarantees) == ([2, 3], "central", {"exact": 2})
+    assert sensitivity == pytest.approx([-0.1875, -0.1625, 0.1625, 0.1875])
 
 
 def test_nucleolus_exact():
