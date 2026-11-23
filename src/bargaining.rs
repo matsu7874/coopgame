@@ -29,7 +29,7 @@ use crate::Domain;
 use crate::error::{Error, Result};
 use crate::game::allocation::feasibility_violation;
 use crate::game::scale::check_tolerance;
-use crate::game::{Coalition, ExplicitGame, default_tolerance};
+use crate::game::{Coalition, ExplicitGame, verification_tolerance};
 use crate::lp::{self, Cmp, Counter};
 
 /// [`check`] (と [`is_in_bargaining_set`]) が扱うプレイヤー数の上限。
@@ -137,10 +137,11 @@ pub fn check(
     })
 }
 
-/// 既定の許容誤差 (`1e-7 * max |v|` の 10 倍。全ての値が 0 なら `1e-6`) で判定する。
+/// 検証の既定の許容誤差 ([`crate::game::verification_tolerance`]、`max|v(S)|` の `1e-11` 倍) で判定する。
+/// Kohlberg 基準 ([`crate::verify::kohlberg`]) やカーネル条件の既定と同じ幅である。
 /// プレイヤー数の上限は [`check`] と同じ。
 pub fn is_in_bargaining_set(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<bool> {
-    Ok(check(game, x, domain, 10.0 * default_tolerance(game))?.is_member())
+    Ok(check(game, x, domain, verification_tolerance(game))?.is_member())
 }
 
 /// 異議の余裕 `delta` を最大化する。最適値と、そのときの `y` (`S` 以外は `x`) を返す。

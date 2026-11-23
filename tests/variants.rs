@@ -120,13 +120,16 @@ fn kernel_points_lie_in_bargaining_set() {
                             .unwrap(),
                         "type{kind} n={n} seed={seed} {domain:?} 仁"
                     );
-                    let point =
-                        kernel::kernel_point(&game, domain, None, TransferOptions::for_game(&game))
-                            .unwrap();
+                    let transfer = TransferOptions::for_game(&game);
+                    let point = kernel::kernel_point(&game, domain, None, transfer).unwrap();
                     assert!(point.converged());
+                    // transfer scheme の点は、不釣り合いが transfer.tolerance 以下になった近似の点なので、
+                    // 検証の既定の許容誤差 (1e-11 max|v|) ではなく、その精度に合わせた許容誤差で判定する。
+                    let report =
+                        bargaining::check(&game, point.allocation(), domain, transfer.tolerance)
+                            .unwrap();
                     assert!(
-                        bargaining::is_in_bargaining_set(&game, point.allocation(), domain)
-                            .unwrap(),
+                        report.is_member(),
                         "type{kind} n={n} seed={seed} {domain:?} カーネル"
                     );
                 }
