@@ -18,6 +18,7 @@
 //! - `players` (人数) を省くと、現れた最大の番号 + 1 人とする。
 //! - 他のトップレベルのキーは無視する (説明などを書き添えてよい)。ただし `"tpye"` や `"Players"` のように
 //!   上の 3 つの書き間違いらしいキー (大文字小文字の違い、1 文字の違い・隣り合う 2 文字の入れ替え) はエラーにする。
+//!   配列形式の要素のキーも同じく、`coalition`・`value` 以外は無視し、`"vlaue"` のような書き間違いらしいキーはエラーにする。
 //!   Python の `parse_game` が値の種類を返す名前 `kind` も、`type` の書き間違いとしてエラーにする。
 //! - 値は数で書く。[`parse_json_exact`] は数の字面を 10 進数の値どおりの有理数として読む。
 //! - 同じオブジェクトの中で同じキーを 2 回書くとエラーにする (後の値で黙って上書きしない)。
@@ -306,6 +307,36 @@ const JSON_KEYS: [&str; 3] = ["players", "type", "values"];
 /// 入力での正しいキー。Python の `parse_game`・`partial_nucleolus` は値の種類を `kind` で返す。
 const OUTPUT_NAMES: [(&str, &str); 1] = [("kind", "type")];
 
+/// JSON の `values` を配列で書いたときの要素のキー。これ以外のキーは無視する。
+const ELEMENT_KEYS: [&str; 2] = ["coalition", "value"];
+
+/// `keys` のうち、`known` のどれでもなく、その書き間違いらしいか `output_names` の出力の名前であるキーをエラーにする。
+/// 他の未知のキーは無視する (説明などを書き添えられるように)。`place` はエラーで示す場所 (トップレベルは空)。
+fn reject_misspelled_keys<'k>(
+    keys: impl IntoIterator<Item = &'k String>,
+    known: &[&str],
+    output_names: &[(&str, &str)],
+    place: &str,
+) -> Result<()> {
+    for key in keys {
+        if known.contains(&key.as_str()) {
+            continue;
+        }
+        let output_name = output_names
+            .iter()
+            .find(|(name, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, known)| known);
+        if let Some(intended) =
+            output_name.or_else(|| known.iter().find(|known| looks_like(key, known)))
+        {
+            return Err(parse_error(format!(
+                "{place}未知のキー {key:?} ({intended:?} の書き間違いではないか)"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// `key` が `known` の書き間違いらしいか (大文字小文字の違い、または 1 文字の挿入・削除・置換・隣り合う 2 文字の入れ替え)。
 fn looks_like(key: &str, known: &str) -> bool {
     let a: Vec<char> = key.to_lowercase().chars().collect();
@@ -393,22 +424,7 @@ fn raw_json(text: &str) -> Result<RawGame> {
     let root = serde_json::from_str::<RawMembers>(strip_bom(text))
         .map_err(|e| parse_error(format!("JSON のオブジェクトとして読めない: {e}")))?
         .unique("トップレベル")?;
-    for key in root.keys() {
-        if JSON_KEYS.contains(&key.as_str()) {
-            continue;
-        }
-        let output_name = OUTPUT_NAMES
-            .iter()
-            .find(|(name, _)| key.eq_ignore_ascii_case(name))
-            .map(|(_, known)| known);
-        if let Some(known) =
-            output_name.or_else(|| JSON_KEYS.iter().find(|known| looks_like(key, known)))
-        {
-            return Err(parse_error(format!(
-                "未知のキー {key:?} ({known:?} の書き間違いではないか)"
-            )));
-        }
-    }
+    reject_misspelled_keys(root.keys(), &JSON_KEYS, &OUTPUT_NAMES, "")?;
     let kind = match root.get("type") {
         None => Kind::Value,
         Some(raw) => {
@@ -464,7 +480,9 @@ fn raw_json(text: &str) -> Result<RawGame> {
             parse_error("values の各要素は {\"coalition\": [番号, ...], \"value\": 値} の形")
         })?;
         for (k, item) in list.into_iter().enumerate() {
-            let item = item.unique(&format!("values の {k} 番目の要素"))?;
+            let place = format!("values の {k} 番目の要素");
+            let item = item.unique(&place)?;
+            reject_misspelled_keys(item.keys(), &ELEMENT_KEYS, &[], &format!("{place}の"))?;
             let members: Vec<usize> = item
                 .get("coalition")
                 .and_then(|raw| serde_json::from_str(raw.get()).ok())
@@ -1194,6 +1212,21 @@ mod tests {
         // 書き間違いらしくないキーは無視する (説明などを書き添えられる)。
         let data = parse_json(r#"{"name": "例", "description": "x", "values": {"0": 1}}"#).unwrap();
         assert_eq!(data.kind, Kind::Value);
+    }
+
+    #[test]
+    fn rejects_misspelled_keys_in_list_elements() {
+        // 配列形式の要素でも、既知のキーの書き間違いらしいキーは無視せずエラーにする。
+        for key in ["vlaue", "Value", "coalitions", "colition"] {
+            let text = format!(r#"{{"values": [{{"coalition": [0], "value": 1, "{key}": 2}}]}}"#);
+            let err = parse_json(&text).unwrap_err().to_string();
+            assert!(err.contains("書き間違い"), "{key}: {err}");
+            assert!(err.contains("0 番目の要素"), "{key}: {err}");
+        }
+        // 書き間違いらしくないキーは、トップレベルと同じく無視する。
+        let data =
+            parse_json(r#"{"values": [{"coalition": [0], "value": 1, "note": "x"}]}"#).unwrap();
+        assert_eq!(data.known.len(), 1);
     }
 
     #[test]

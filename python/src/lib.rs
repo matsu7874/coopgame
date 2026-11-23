@@ -177,7 +177,7 @@ impl Game {
 
     /// ビット順のベクトル (空提携を除く)。
     fn values(&self) -> Vec<f64> {
-        self.inner.values()[1..].to_vec()
+        self.inner.binary_values().to_vec()
     }
 
     fn is_superadditive(&self) -> bool {
