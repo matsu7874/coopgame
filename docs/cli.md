@@ -96,9 +96,10 @@ coopgame convex-nucleolus v.txt             # 凸ゲームの手法で仁 (凸�
 | `--missing zero\|ignore` | JSON・CSV で値が分からない提携の扱い ([入力形式](input-format.md#値が分からない提携))。`ignore` は `nucleolus` (`--exact` なし) だけで使える。1 行 1 値のファイルには使えない |
 
 `--tolerance`・`--rel-tolerance` を指定しなければ、正しい仁を返すことを優先する。
-比 `1e-7` の許容誤差で解いた配分が、Kohlberg 基準を細かい許容誤差でも満たすかを確かめる (20 人まで)。
+比 `1e-7` の許容誤差で解いた配分が、Kohlberg 基準を細かい許容誤差でも満たすかを確かめる (20 人まで。21 人以上は確かめないので `approximate` で返す)。
 満たさなければ許容誤差を下げて解き直し、それでも満たさなければ 8 人以下は有理数の逐次 LP で求める (10 秒ほどかかることがある)。
 9 人以上で満たさないままなら、保証を `approximate` にして返す。
+21 人以上で、1 回だけ解いた配分を確かめずに使うなら `--rel-tolerance 1e-7` を指定する (保証は `exact`)。
 値が `1e12` 程度のゲームを 1 単位まで正しく求めるには `--exact` を使う
 (手順・計測・見分けられない場合は [性能と制約](performance.md) の「仁の許容誤差の決め方」)。
 `--missing ignore` で値が分かる提携だけを使うときは、指定がなくても 1 回だけ解く。
@@ -117,7 +118,7 @@ time=0.000167s lp_solves=3 rows_added=0 solver=lp tolerance=6e-7 refinements=0 g
 | `solver` | `lp` (逐次 LP)、`rational` (有理数の逐次 LP に切り替えた) |
 | `tolerance` | 返した配分を求めた許容誤差 (値の単位。`rational` では 0) |
 | `refinements` | 許容誤差を下げて解き直しを試みた回数 (失敗した試行を含む) |
-| `guarantee` | `exact`、または Kohlberg 基準を細かい許容誤差では満たさないまま返した `approximate` |
+| `guarantee` | `exact`、または Kohlberg 基準を細かい許容誤差では満たさないまま返した `approximate` (既定の手順で確かめない 21 人以上も `approximate`) |
 
 `least-core`・`kernel`・`shapley`・`banzhaf`・`compare` も `--cost` で費用ゲームを扱う ([費用ゲーム](input-format.md#費用ゲーム))。
 他のコマンドに費用のゲーム (`type` が `cost`) を渡すとエラーにする。

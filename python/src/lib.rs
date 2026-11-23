@@ -422,7 +422,8 @@ fn parse_reference(reference: &str) -> PyResult<Reference> {
 /// 1 回だけ解く。どちらも指定しなければ (`tolerance="auto"` と同じ)、仁を正しく求めることを優先する: 比 `1e-7` の許容誤差で解いた配分が
 /// Kohlberg 基準を細かい許容誤差でも満たすかを確かめ (20 人まで)、満たさなければ許容誤差を下げて解き直し、
 /// それでも満たさなければ 8 人以下は有理数の逐次 LP で求める (10 秒ほどかかることがある)。
-/// 9 人以上で満たさないままなら `guarantee` を `"approximate"` にして返す。
+/// 9 人以上で満たさないままなら `guarantee` を `"approximate"` にして返す。21 人以上は確かめないので `"approximate"`
+/// (1 回だけ解いた配分を確かめずに使うなら `rel_tolerance=1e-7` を指定する)。
 /// 値が `1e12` 程度のゲームを 1 単位まで正しく求めるには `nucleolus_exact` を使う。
 /// 戻り値の `tolerance` (返した配分を求めた許容誤差。有理数で求めたら 0)・`refinements` (解き直しを試みた回数)・`rational`
 /// (有理数の逐次 LP で求めたか) で、どう求めたかが分かる。
@@ -1581,7 +1582,8 @@ fn convex_nucleolus<'py>(
 
 /// 保証のある手法のうち最も速いものを自動で選んで仁を求める。
 ///
-/// `Game` は逐次 LP (`"exact"`)、`InducedSubgraphGame` は凸ゲームの手法 (`"proven(convex)"`)。
+/// `Game` は逐次 LP (`nucleolus` の既定の手順。`"exact"`、21 人以上などでは `"approximate"`)、
+/// `InducedSubgraphGame` は凸ゲームの手法 (`"proven(convex)"`)。
 /// 保証のある手法がない `FunctionGame` は ValueError (仮定付きで試すなら `convex_nucleolus(..., assume=True)`)。
 #[pyfunction]
 fn auto_nucleolus<'py>(py: Python<'py>, game: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyDict>> {
