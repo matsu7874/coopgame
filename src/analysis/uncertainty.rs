@@ -32,6 +32,8 @@ pub struct Solved {
     pub(crate) allocation: Vec<f64>,
     pub(crate) guarantee: Option<Guarantee>,
     pub(crate) tolerance: Option<f64>,
+    /// LP を解かずに決まった仁の結果か ([`NucleolusResult::lp_solves`] が 0)。
+    pub(crate) without_lp: bool,
 }
 
 impl Solved {
@@ -53,6 +55,25 @@ impl Solved {
     pub fn tolerance(&self) -> Option<f64> {
         self.tolerance
     }
+
+    /// 解いたゲーム `game` で、配分が許容誤差によらず決まった解の許容誤差を 0 にする。
+    ///
+    /// LP を解かずに決まった仁 (1 人ゲームと、`sum v({i}) = v(N)` で配分集合が 1 点のゲーム) は、
+    /// 許容誤差を使わずに `x = v(N)`・`x_i = v({i})` と決まるので厳密である。
+    /// `sum v({i})` が `v(N)` を許容誤差以内で超えて配分集合を 1 点とみなしたゲームは、超えた分を等分した配分で、
+    /// 許容誤差の扱いで決まるので、許容誤差をそのまま残す。
+    fn settled(mut self, game: &ExplicitGame) -> Solved {
+        let n = game.players();
+        let exact = n == 1
+            || (0..n)
+                .map(|i| game.value(Coalition::singleton(i)))
+                .sum::<f64>()
+                <= game.value(game.grand());
+        if self.without_lp && self.guarantee == Some(Guarantee::Exact) && exact {
+            self.tolerance = self.tolerance.map(|_| 0.0);
+        }
+        self
+    }
 }
 
 impl From<Vec<f64>> for Solved {
@@ -61,6 +82,7 @@ impl From<Vec<f64>> for Solved {
             allocation,
             guarantee: None,
             tolerance: None,
+            without_lp: false,
         }
     }
 }
@@ -70,6 +92,7 @@ impl From<NucleolusResult> for Solved {
         Solved {
             guarantee: Some(result.guarantee),
             tolerance: Some(result.tolerance),
+            without_lp: result.lp_solves == 0,
             allocation: result.allocation,
         }
     }
@@ -80,6 +103,7 @@ impl From<Solution> for Solved {
         Solved {
             guarantee: Some(solution.guarantee),
             tolerance: None,
+            without_lp: false,
             allocation: solution.allocation,
         }
     }
@@ -239,7 +263,7 @@ fn sample_and_solve<R: Into<Solved>>(
                 game.players()
             )));
         }
-        match solve(&game).map(Into::into) {
+        match solve(&game).map(|r| r.into().settled(&game)) {
             Ok(solved) if solved.allocation.len() != n => {
                 return Err(Error::InvalidArgument(format!(
                     "解いた配分の長さ {} がプレイヤー数 {n} と異なる",
@@ -420,6 +444,7 @@ pub fn solver_with(name: &str, tolerance: Tolerance) -> Option<Solver> {
                 allocation: crate::values::shapley(g),
                 guarantee: Some(Guarantee::Exact),
                 tolerance: None,
+                without_lp: false,
             })
         })),
         _ => None,
@@ -434,7 +459,14 @@ pub fn solver_with(name: &str, tolerance: Tolerance) -> Option<Solver> {
 /// 1 つでも `delta` が許容誤差に埋もれればエラーにするので、ここでも 1 つの提携でも埋もれればエラーにする。
 /// 埋もれた提携の値の揺れは、配分の分布に許容誤差の扱いとしてしか現れず、分布がその揺れの影響を表さないためである。
 /// 幅が 0 の提携 (値を固定した提携。`IntervalGame::around` では値が 0 の提携) は揺れないので比べない。
-/// [`Tolerance::Auto`] の解は、[`influence`] と同じく返した配分を求めた逐次 LP の許容誤差で比べる。
+/// [`Tolerance::Auto`] の解は、[`influence`] と同じく返した配分を求めた逐次 LP の許容誤差で比べる
+/// (LP を解かずに決まった厳密な解は 0)。
+///
+/// 埋もれるかは最も狭い区間で決まるので、次のゲームは許容誤差を小さくしないとエラーになりうる。
+/// 値が丸め誤差程度の非 0 の提携 (`0.1 + 0.2 - 0.3` など) を持つゲームは、[`IntervalGame::around`] の幅がその値に
+/// 比例して極めて狭くなる。値の桁が `1e6` 倍以上離れた提携を持つゲームは、小さい値の提携の幅が、最大の値に比例する
+/// 許容誤差 (既定は `max|v(S)|` の `1e-7` 倍) より狭くなりやすい。どちらも、その提携の揺れは許容誤差に埋もれて
+/// 分布に現れないので、エラーにする。値を 0 に丸めるか、[`IntervalGame::new`] で幅を与えるか、より小さい許容誤差で解く。
 pub fn interval_monte_carlo<R: Into<Solved>>(
     game: &IntervalGame,
     samples: usize,
@@ -519,7 +551,7 @@ fn try_solve<R: Into<Solved>>(
     solve: &mut impl FnMut(&ExplicitGame) -> Result<R>,
     game: &ExplicitGame,
 ) -> Result<std::result::Result<Solved, Error>> {
-    match solve(game).map(Into::into) {
+    match solve(game).map(|r| r.into().settled(game)) {
         Ok(solved) if solved.allocation.len() != game.players() => {
             Err(Error::InvalidArgument(format!(
                 "解いた配分の長さ {} がプレイヤー数 {} と異なる",
@@ -590,7 +622,8 @@ fn check_resolution(solved: &Solved, coalition: Coalition, delta: f64) -> Result
 /// - 差分に使う解の許容誤差 ([`Solved::tolerance`]) が `delta` 以上 (配分の変化が許容誤差に埋もれ、
 ///   感度が許容誤差の扱いで決まってしまう)。`delta` を大きくするか、より小さい許容誤差で解く。
 ///   [`Tolerance::Auto`] で求めた結果の許容誤差は、返した配分を求めた逐次 LP の許容誤差
-///   (有理数の逐次 LP で求めた結果では 0) で比べる。
+///   (有理数の逐次 LP で求めた結果と、LP を解かずに決まった厳密な結果 (1 人ゲーム、`sum v({i}) = v(N)` の
+///   ゲーム) では 0) で比べる。
 ///
 /// `solve` が保証つきの結果を返せば、差分に使った解の保証の内訳を [`Influence::guarantees`] に残す。
 pub fn influence<R: Into<Solved>>(
@@ -974,5 +1007,29 @@ mod tests {
         // 許容誤差を報告しない解き方では比べない。
         let interval = IntervalGame::around(&game, 1e-13).unwrap();
         assert!(interval_monte_carlo(&interval, 3, 0, |g| Ok(values::shapley(g))).is_ok());
+    }
+
+    /// LP を解かずに決まった厳密な解 (配分集合が 1 点、1 人ゲーム) は許容誤差 0 として比べ、小さい delta でも求める。
+    #[test]
+    fn exact_solutions_without_lp_have_no_tolerance() {
+        // 加法的なゲーム: 2 人提携の値を動かしても sum v({i}) = v(N) のままで、配分は (1, 1, 1) に厳密に決まる。
+        let additive = ExplicitGame::from_binary(&[1.0, 1.0, 2.0, 1.0, 2.0, 2.0, 3.0]).unwrap();
+        let pair = Coalition::from_players(&[0, 1]);
+        let rows = influence(&additive, &[pair], 1e-8, solver("nucleolus").unwrap()).unwrap();
+        assert_eq!(rows[0].difference, Difference::Central);
+        assert_eq!(rows[0].sensitivity, vec![0.0; 3]);
+        let one = ExplicitGame::from_binary(&[2.0]).unwrap();
+        let rows = influence(&one, &[one.grand()], 1e-12, solver("nucleolus").unwrap()).unwrap();
+        assert!((rows[0].sensitivity[0] - 1.0).abs() < 1e-3, "{rows:?}");
+        // 1 人提携の値を上げると sum v({i}) が v(N) を許容誤差以内で超え、超えた分を等分した点を配分集合とみなす。
+        // 下げると LP で解く。どちらも許容誤差の扱いで決まるので、許容誤差で比べてエラーにする。
+        let err = influence(
+            &additive,
+            &[Coalition::singleton(0)],
+            1e-8,
+            solver("nucleolus").unwrap(),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("埋もれる"), "{err}");
     }
 }
