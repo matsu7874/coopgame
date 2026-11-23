@@ -41,7 +41,9 @@ per capita 仁・比例仁・disruption nucleolus・交渉集合の判定の上�
 
 結果の `tolerance` (返した配分を求めた許容誤差)・`refinements` (解き直しを試みた回数)・`is_rational` (有理数の逐次 LP で求めたか) で、どう求めたかが分かる
 (CLI は標準エラーの `solver=`・`tolerance=`・`refinements=`・`guarantee=`)。
-21 人以上のゲームは 1. だけを行う。
+21 人以上のゲームは 1. だけを行い、確かめていないので保証を `approximate` にして返す (LP を解かずに決まる配分は `exact`)。
+1 回だけ解いた配分を確かめずに使うなら、許容誤差を指定する (`Tolerance::Relative(1e-7)`、`--rel-tolerance 1e-7`、`rel_tolerance=1e-7`)。
+時間は既定と同じで、保証は `exact` (指定した許容誤差の範囲で成り立つ) になる。
 
 分析のうち、標本や差分のために仁を何度も解くもの (`analysis::uncertainty::solver`、CLI の `uncertainty`・`influence`、Python の同名の関数) は、
 指定しなければ比 `1e-7` の許容誤差で 1 回だけ解く。許容誤差は同じ方法で指定できる (`uncertainty::solver_with`、`--tolerance`・`--rel-tolerance`、`tolerance=`・`rel_tolerance=`)。

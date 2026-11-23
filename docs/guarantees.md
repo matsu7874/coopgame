@@ -15,11 +15,11 @@
 
 | 種類 | 意味 | 例 |
 |---|---|---|
-| `exact` | 定義どおりに計算した (全提携の LP・総当たり。浮動小数点の許容誤差の範囲で) | `nucleolus::nucleolus` (既定では、20 人以下で解いた配分が Kohlberg 基準を細かい許容誤差でも満たすことを確かめ、満たさなければ解き直すか有理数で解く)、全提携について答えるオラクルでのオラクル版の仁 |
+| `exact` | 定義どおりに計算した (全提携の LP・総当たり。浮動小数点の許容誤差の範囲で) | `nucleolus::nucleolus` (既定では、20 人以下で解いた配分が Kohlberg 基準を細かい許容誤差でも満たすことを確かめ、満たさなければ解き直すか有理数で解く。21 人以上は確かめないので `approximate`)、全提携について答えるオラクルでのオラクル版の仁 |
 | `proven(性質)` | 性質が分かっているゲームに、その性質のもとで正しい専用手法を使った | 破産ゲームのタルムード則 (`proven(bankruptcy)`)、凸ゲームの手法 (`proven(convex)`) |
 | `assumed(性質)` | 利用者が宣言した性質のもとで専用手法を使った。性質が成り立たなければ誤りうる | `nucleolus::convex::nucleolus(&Assume::convex(game))` |
 | `certified` | 求めた後に有理数による厳密な検証に合格した | `Unverified::verify` の結果 |
-| `approximate` | サンプリングなどの近似、または反復が収束しなかった | Shapley 値の推定、サンプルした仁、一部の提携だけを扱うオラクルでのオラクル版の仁、既定の設定の `nucleolus::nucleolus` で、許容誤差を下げても解いた配分が Kohlberg 基準を満たさず、有理数の逐次 LP でも求められなかった仁 (有理数に切り替えない 9-20 人のゲームなど) |
+| `approximate` | サンプリングなどの近似、反復が収束しなかった、または既定の仁で解いた配分を Kohlberg 基準で確かめられなかった | Shapley 値の推定、サンプルした仁、一部の提携だけを扱うオラクルでのオラクル版の仁、既定の設定の `nucleolus::nucleolus` で、許容誤差を下げても解いた配分が Kohlberg 基準を満たさず、有理数の逐次 LP でも求められなかった仁 (有理数に切り替えない 9-20 人のゲームなど) と、Kohlberg 基準を確かめない 21 人以上のゲームの仁 |
 
 許容誤差を指定できる関数 (`nucleolus::Options::tolerance` の `Tolerance::Absolute`・`Relative`、`nucleolus::oracle::nucleolus_with` の `tolerance`、
 `nucleolus::convex::ConvexOptions::tolerance`) は、有限で 0 以上でない値 (NaN・負の値・無限大) を `InvalidArgument` として拒む。
@@ -29,8 +29,10 @@
 ([性能と制約](performance.md) の「仁の許容誤差の決め方」)。
 この確認には 2 つの限界がある。
 
-- 確かめるのは 20 人 (`nucleolus::MAX_AUTO_CHECK_PLAYERS`) までである。21 人以上では `max|v(S)|` の `1e-7` 倍の許容誤差で 1 回解いた配分に、確かめずに `exact` を付ける。
-  そのため、同じ種類のゲームで 20 人では `approximate`、21 人では `exact` になることがある。
+- 確かめるのは 20 人 (`nucleolus::MAX_AUTO_CHECK_PLAYERS`) までである。21 人以上では `max|v(S)|` の `1e-7` 倍の許容誤差で 1 回解いた配分を、確かめていないので `approximate` で返す
+  (LP を解かずに決まる配分は `exact`)。BNF・凸のように 1 回解いた配分が仁になるゲームでも `approximate` になる。
+  確かめずに 1 回だけ解いた配分を使うなら、許容誤差を指定する (`Tolerance::Relative(1e-7)` など。保証は `exact` で、指定した許容誤差の範囲で成り立つ)。
+  事後検証 (`verify`) も、この人数では仁であることを確かめられない (組ごとのカーネル条件で否定だけができる。下の「検証の範囲」)。
 - 超過の段の間隔が確認の許容誤差 (`max|v(S)|` の `1e-11` 倍、8 人以下では `1e-12` 倍) より小さいゲームでは、段を取り違えた配分を見分けられず、`exact` が付く。
   値が `1e12` 程度の整数のゲームでは、仁から数単位ずれた配分に `exact` が付いた。
   整数の値で 1 単位まで正しい仁が要るときは、有理数の逐次 LP (`nucleolus::exact::nucleolus`、10 人まで) を使う。
@@ -90,11 +92,11 @@
 
 保証のある手法だけから選ぶ。`Assume` で包んだゲームは自動選択の対象にならない。
 逐次 LP は仁の既定の設定 (`Tolerance::Auto`。[性能と制約](performance.md) の「仁の許容誤差の決め方」) で解く。
-許容誤差を下げても解いた配分が Kohlberg 基準を満たさず、有理数の逐次 LP でも求められなかったとき (有理数に切り替えない 9-20 人のゲームなど) だけ、保証が `approximate` になる。
+許容誤差を下げても解いた配分が Kohlberg 基準を満たさず、有理数の逐次 LP でも求められなかったとき (有理数に切り替えない 9-20 人のゲームなど) と、Kohlberg 基準を確かめない 21 人以上のゲームでは、保証が `approximate` になる。
 
 | 型 | 選ぶ手法 | 保証 |
 |---|---|---|
-| `ExplicitGame` | 逐次 LP + 制約生成 (8 人以下は有理数の逐次 LP に切り替えることがある) | `exact` (上の場合は `approximate`) |
+| `ExplicitGame` | 逐次 LP + 制約生成 (8 人以下は有理数の逐次 LP に切り替えることがある) | `exact` (上の場合と 21 人以上は `approximate`) |
 | `ConvexChecked` | 16 人以下は逐次 LP (同上)、それより多いと凸ゲームの手法 | `exact` (同上) / `proven(convex)` |
 | `BankruptcyGame` | タルムード則 | `proven(bankruptcy)` |
 | `WeightedVotingGame` | オラクルによる制約生成 | `exact` |

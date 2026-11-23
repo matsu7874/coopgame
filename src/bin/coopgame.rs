@@ -86,7 +86,8 @@ const USAGE: &str = "\
            nucleolus と compare は、どちらも指定しなければ仁を正しく求めることを優先する: 比 1e-7 で解いた配分が
            Kohlberg 基準を細かい許容誤差でも満たすかを確かめ、満たさなければ許容誤差を下げて解き直し、
            それでも満たさなければ 8 人以下は有理数の逐次 LP で求める (10 秒ほどかかることがある)。
-           9 人以上で満たさないままなら guarantee=approximate で返す (確認は 20 人まで)。
+           9 人以上で満たさないままなら guarantee=approximate で返す (確認は 20 人まで。
+           21 人以上は確かめないので approximate。確かめずに 1 回だけ解くなら --rel-tolerance 1e-7)。
            値が 1e12 程度のゲームを 1 単位まで正しく求めるには --exact を使う。
            uncertainty と influence は何度も解くので、指定しなければ比 1e-7 で 1 回だけ解く。
            --tolerance auto は、この既定の手順を明示して選ぶ (uncertainty と influence でも既定の手順で解く。

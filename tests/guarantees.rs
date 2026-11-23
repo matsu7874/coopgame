@@ -192,6 +192,23 @@ fn auto_selection_reports_method_and_guarantee() {
     assert_eq!(small.nucleolus_auto().unwrap().method(), "sequential-lp");
 }
 
+/// 既定の逐次 LP が Kohlberg 基準を確かめない人数 (`MAX_AUTO_CHECK_PLAYERS` を超える) では、明示ゲームの自動選択の
+/// 保証は `approximate` になる。凸と確認済みのゲームは凸ゲームの手法を選ぶので `proven(convex)` のまま。
+#[test]
+fn auto_selection_beyond_check_limit() {
+    let n = nucleolus::MAX_AUTO_CHECK_PLAYERS + 1;
+    let explicit = generators::bnf(1, n, 0).unwrap();
+    let solution = explicit.nucleolus_auto().unwrap();
+    assert_eq!(
+        (solution.method(), solution.guarantee()),
+        ("sequential-lp", Guarantee::Approximate)
+    );
+
+    let convex = ConvexChecked::new(generators::random_convex(n, 1).unwrap()).unwrap();
+    let solution = convex.nucleolus_auto().unwrap();
+    assert_eq!(solution.guarantee(), Guarantee::Proven(Property::Convex));
+}
+
 // ---------------------------------------------------------------- 段階 1, 5: 仮定付きの結果と検証
 
 #[test]

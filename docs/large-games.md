@@ -11,6 +11,8 @@
 | 提携のサンプリング | `sampled`、`values::shapley_sampling` | 人数の多いゲーム (データ評価など) | 近似 |
 
 どの手法が使えるかをゲームの型から選ぶには `auto::AutoNucleolus` を使う。
+全提携の表 (`ExplicitGame`) の仁は、既定の設定では 21 人以上で Kohlberg 基準を確かめないので、保証が `approximate` になる
+([性能と制約](performance.md) の「仁の許容誤差の決め方」)。
 保証の種類と、性質を仮定した場合の扱いは [保証の種類と、性質に基づく手法の使い分け](guarantees.md) を参照。
 
 ## オラクル
