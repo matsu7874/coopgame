@@ -69,8 +69,12 @@ impl BargainingReport {
 
 /// `x` が交渉集合 (プレ交渉集合) に属するかを判定する。異議の余裕が `tolerance` 以下なら異議とみなさない。
 ///
+/// 異議の余裕は浮動小数点の LP で求めるので、`tolerance = 0` でも厳密な判定ではない。
+///
 /// プレイヤー数が [`MAX_BARGAINING_SET_PLAYERS`] を超えれば [`Error::TooManyPlayers`]、
 /// `tolerance` が有限で 0 以上でなければ [`Error::InvalidArgument`] を返す。
+/// 異議の LP は数学的には常に実行可能で有界なので、ソルバーが実行不可能・非有界と答えたときは
+/// 異議なしとはみなさず、[`Error::Numerical`] を返す。
 pub fn check(
     game: &ExplicitGame,
     x: &[f64],
@@ -110,10 +114,9 @@ pub fn check(
                 if excess <= tolerance {
                     continue;
                 }
-                if let Some((margin, payoff)) =
-                    best_objection(game, x, objector, target, coalition, &mut counter)?
-                    && margin > tolerance
-                {
+                let (margin, payoff) =
+                    best_objection(game, x, objector, target, coalition, &mut counter)?;
+                if margin > tolerance {
                     return Ok(BargainingReport {
                         objection: Some(Objection {
                             objector,
@@ -148,7 +151,7 @@ fn best_objection(
     target: usize,
     coalition: Coalition,
     counter: &mut Counter,
-) -> Result<Option<(f64, Vec<f64>)>> {
+) -> Result<(f64, Vec<f64>)> {
     let n = game.players();
     let mut problem = lp::maximize();
     let y: Vec<Option<Variable>> = (0..n)
@@ -192,13 +195,17 @@ fn best_objection(
             game.value(counter_coalition) - outside,
         );
     }
+    // delta を十分小さくすれば全ての行を満たすので、LP は常に実行可能で、
     // y_k >= x_k + delta と y(S) = v(S) から delta <= e(S, x) / abs(S) で有界。
-    Ok(counter.solve(&problem)?.map(|solution| {
-        let payoff = (0..n)
-            .map(|k| y[k].map_or(x[k], |var| solution[var]))
-            .collect();
-        (solution[delta], payoff)
-    }))
+    // ソルバーが実行不可能・非有界と答えたら数値的な失敗なので、異議なしとはみなさずエラーにする。
+    let solution = counter.solve_feasible(
+        &problem,
+        &format!("プレイヤー {objector} の {target} への提携 {coalition} での異議の LP "),
+    )?;
+    let payoff = (0..n)
+        .map(|k| y[k].map_or(x[k], |var| solution[var]))
+        .collect();
+    Ok((solution[delta], payoff))
 }
 
 #[cfg(test)]
