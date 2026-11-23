@@ -41,10 +41,10 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 | tau 値・Gately 点 | `compromise::{tau_value, gately_point, utopia_payoffs, minimal_rights}` | 理想の支払い `M_i = v(N) - v(N \ {i})` と最小の権利から閉じた形で求める。tau 値は準平衡なゲームだけで定義し、それ以外はエラー (Tijs 1981、Gately 1974) |
 | Myerson 値 | `communication::{myerson, graph_restricted}` | 通信グラフで制限したゲーム (連結成分ごとの値の和) の Shapley 値 (Myerson 1977) |
 | 投票力指数 | `power::SimpleGame::{johnston, deegan_packel, public_good, coleman_prevent, coleman_initiative, coleman_collectivity}` | 単純ゲームの勝利提携・最小勝利提携・決定票を数えて求める。Shapley–Shubik 指数と Banzhaf 指数は `values` |
-| per capita 仁・比例仁・modiclus | `nucleolus::variants::{per_capita_nucleolus, proportional_nucleolus, modiclus}` | 不満をアフィン関数に一般化した逐次 LP (`nucleolus::variants::lexicographic_minimum`)。比例仁は `v(S) = 0` の提携を、比例超過の後に `-x(S)` で順序づける (Young, Okada & Hashimoto 1982)。modiclus は空提携と全体提携を含む全ての提携の組の超過の差を使う (Sudhölter & Peleg)。per capita 仁・比例仁は 17 人まで、modiclus は 7 人まで |
+| per capita 仁・比例仁・modiclus | `nucleolus::variants::{per_capita_nucleolus, proportional_nucleolus, modiclus}` (許容誤差を指定する `*_with`) | 不満をアフィン関数に一般化した逐次 LP (`nucleolus::variants::lexicographic_minimum`)。既定は確かめないので保証が `approximate`、許容誤差を指定すると `exact` ([保証の設計](guarantees.md#既定の経路ごとの保証))。比例仁は `v(S) = 0` の提携を、比例超過の後に `-x(S)` で順序づける (Young, Okada & Hashimoto 1982)。modiclus は空提携と全体提携を含む全ての提携の組の超過の差を使う (Sudhölter & Peleg)。per capita 仁・比例仁は 17 人まで、modiclus は 7 人まで |
 | disruption nucleolus | `nucleolus::variants::disruption_nucleolus` | 抜ける傾向を、コアの上で `e(S, x) / (v(N) - v(S) - v(N \ S))` の辞書式最小化に直して同じ逐次 LP で解く (Littlechild & Vaidya 1976)。コアが空でないゲームに限る。16 人まで |
 | anti-prenucleolus・anti-nucleolus | `nucleolus::variants::{anti_prenucleolus, anti_nucleolus}`、`ExplicitGame::dual` | 超過を小さい順に辞書式に最大化する解。双対ゲーム `v*(S) = v(N) - v(N \ S)` のプレ仁・仁として求める (Funaki & Meinhardt 2006) |
-| 提携構造・事前の連合 | `partition::{CoalitionStructure, aumann_dreze, owen, nucleolus, quotient_game}` | Aumann–Drèze 値 (ブロック内の Shapley 値)、提携構造つきの仁 (各ブロックで `x(B) = v(B)`)、Owen 値 (事前の連合) |
+| 提携構造・事前の連合 | `partition::{CoalitionStructure, aumann_dreze, owen, nucleolus, nucleolus_with, quotient_game}` | Aumann–Drèze 値 (ブロック内の Shapley 値)、提携構造つきの仁 (各ブロックで `x(B) = v(B)`。既定では 2 ブロック以上を確かめないので保証が `approximate`)、Owen 値 (事前の連合) |
 | 超過・最大余剰 `s_ij` | `surplus::{excess, excesses, excess_order, max_surplus}`、`game::oracle::OracleGame::excess_order` | `excesses` は空でない全提携の超過をビット順に返す。超過の大きい順に見るには `excess_order` (読んだ分だけ並べ替えるイテレーター)。最大余剰も同じく超過の上位の提携だけを並べ替えて走査 |
 
 ## 結果を検証する
@@ -76,7 +76,7 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 | 対象 | 関数 | 手法 |
 |---|---|---|
 | 破産問題の配分規則 | `games::bankruptcy::{talmud_rule, constrained_equal_awards, constrained_equal_losses}`、`games::bankruptcy::BankruptcyGame::nucleolus` | 閉じた形の解 (`O(n log n)`)。タルムード則は破産ゲームの仁に一致する。`f64` と有理数のどちらでも計算できる |
-| 費用ゲーム | `games::cost::CostGame` | 費用 `c(S)` を節約ゲームに直して仁を求め、費用の分担に戻す |
+| 費用ゲーム | `games::cost::CostGame` | 費用 `c(S)` を節約ゲームに直して仁を求め、費用の分担に戻す (`nucleolus`・`nucleolus_with` は保証つきの `NucleolusResult` を返し、配分が費用の分担) |
 | 空港ゲーム | `games::airport::AirportGame` | Shapley 値は Littlechild–Owen の式 (`O(n log n)`)、仁は節約ゲームが凸なので凸ゲームの手法 |
 | 最小全域木ゲーム | `games::spanning_tree::SpanningTreeGame` | Bird 規則 (Prim 法、コアに属する)。仁は一般に NP 困難なので全提携の表の逐次 LP |
 | 線形生産ゲーム | `games::production::LinearProductionGame` | 双対 LP の影の価格による Owen 配分 (コアに属する) |

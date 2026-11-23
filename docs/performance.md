@@ -133,7 +133,11 @@ per capita 仁・比例仁・disruption nucleolus・交渉集合の判定の上�
 - 逐次 LP は、超過が最大超過と許容誤差以内で等しい提携を確定させうる。そのため超過の差が許容誤差より小さい提携があるゲームでは、
   結果が厳密な仁から許容誤差の程度ずれることがある。全提携の表の仁 (`nucleolus::nucleolus`) は、既定でこのずれを確かめて解き直す
   (上の「仁の許容誤差の決め方」)。anti-nucleolus・anti-prenucleolus は双対ゲームの仁・プレ仁なので、同じ手順で解く。
-  オラクル版・最小コア・per capita 仁・比例仁・disruption nucleolus・modiclus・提携構造つきの仁は、既定の許容誤差で 1 回だけ解く。
+  オラクル版の仁は、既定では 20 人以下で全提携の表を作って同じ確認をし、満たさなければ表から仁の既定の手順で求め直す。
+  提携構造つきの仁は、全体 1 ブロックなら仁の既定の手順で解く。
+  最小コア・per capita 仁・比例仁・disruption nucleolus・modiclus・2 ブロック以上の提携構造つきの仁は、既定の許容誤差で 1 回だけ解く。
+  このうち仁の変種と提携構造つきの仁は、確かめていないので保証を `approximate` にする
+  (許容誤差を指定すれば `exact`。[保証の設計](guarantees.md#既定の経路ごとの保証))。
 - `nucleolus::has_nonempty_core` は、浮動小数点の LP で求めた最小コアの `epsilon` が許容誤差の帯 `[-tol, tol]` の外ならその符号で判定する。
   帯の中では、9 人までは値を f64 の値どおりの有理数として `epsilon` を有理数の LP で求め、入力の丸めの大きさ `4 n ε max|v|` 以下なら空でないとする。
   それより多い人数では、帯の中を空でないとする。
@@ -183,6 +187,9 @@ n = 6 (タイプ 1, 2, 4 の各 1 ゲーム) で 0.6-19 秒だった。
 
 `cargo run --release --example bench_oracle -- <bankruptcy|bankruptcy-wide|majority|voting> <人数,...> [seed 数]` で計測した。
 時間 (秒)・段の数・追加した行・差は、それぞれ seed の中の最大である。
+計測したのは、既定の許容誤差で 1 回だけ解く時間 (`oracle::nucleolus_with(game, Domain::Imputation, oracle::default_tolerance(game))`) である。
+既定の `oracle::nucleolus` は、20 人以下では全提携の表を作って Kohlberg 基準を確かめる分 (値の評価 `2^n - 1` 回と、超過の並べ替え・平衡性の LP) の時間とメモリが加わり、
+21 人以上では同じ計算で保証を `approximate` にする。
 環境は Apple M4 Pro、macOS、release ビルド、単一スレッドで、他の重い処理を止めて測った。
 
 | ゲーム | n | seed 数 | 時間 | 段の数 | 制約生成で追加した行 | 検証 |
@@ -209,10 +216,12 @@ n = 6 (タイプ 1, 2, 4 の各 1 ゲーム) で 0.6-19 秒だった。
 1 回の探索で約 `3 * 2^(n-4)` 個を読み、時間とメモリが人数について指数的に増えていた。
 今は、違反する提携の探索 (`Separation::violated_outside_span`) に確定済みの提携を渡し、投票ゲームは
 確定済みの空間に入らない提携だけを、素数を法とする動的計画法で探す (Pashkovich (2022) の分離の方法。
-手順と厳密さの根拠は `src/games/voting.rs` のモジュールの説明)。保証は厳密 (`exact`) のままである。
+手順と厳密さの根拠は `src/games/voting.rs` のモジュールの説明)。探索は厳密で、この変更で結果は変わらない。
+既定の `oracle::nucleolus` の保証は、21 人以上では Kohlberg 基準を確かめないので `approximate` になる (許容誤差を指定して解けば `exact`)。
 
 `cargo build --release --example bench_voting` の `target/release/examples/bench_voting` で、1 件ずつ子プロセスで測った
 (時間は仁の計算、最大メモリは `/usr/bin/time -l` の最大常駐セットサイズ。Apple M4 Pro、macOS、release ビルド)。
+仁は既定の許容誤差で 1 回だけ解いた (上の「オラクル」と同じく、20 人以下の既定の手順が加える確認は含まない)。
 1 件が 120 秒か 6 GB を超えたら止め、同じゲームのそれより大きい人数は測っていない。
 修正前は同じ計測コードを修正前のライブラリ (コミット `a1c3d93`) でビルドした。
 生データは `data/bench/voting-oracle-before.csv` と `data/bench/voting-oracle-after.csv`。

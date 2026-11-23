@@ -120,6 +120,11 @@ time=0.000167s lp_solves=3 rows_added=0 solver=lp tolerance=6e-7 refinements=0 g
 | `refinements` | 許容誤差を下げて解き直しを試みた回数 (失敗した試行を含む) |
 | `guarantee` | `exact`、または Kohlberg 基準を細かい許容誤差では満たさないまま返した `approximate` (既定の手順で確かめない 21 人以上も `approximate`) |
 
+`structure` (提携構造つきの仁) と、仁の変種 (`per-capita`・`proportional`・`modiclus`・`disruption`) も `--tolerance`・`--rel-tolerance` を受け付け、標準エラーに `tolerance` と `guarantee` を出す。
+指定しなければ、`structure` は全体 1 ブロックなら `nucleolus` と同じ既定の手順で解き、全員が単独なら `exact`、それ以外は比 `1e-7` で 1 回だけ解いて、確かめていないので `approximate` にする。
+仁の変種は比 `1e-7` で 1 回だけ解き、確かめていないので `approximate` にする。
+許容誤差を指定すると、どれも 1 回だけ解いて `exact` にする (指定した許容誤差の範囲で成り立つ。[保証の設計](guarantees.md#既定の経路ごとの保証))。
+
 `least-core`・`kernel`・`shapley`・`banzhaf`・`compare` も `--cost` で費用ゲームを扱う ([費用ゲーム](input-format.md#費用ゲーム))。
 他のコマンドに費用のゲーム (`type` が `cost`) を渡すとエラーにする。
 費用のゲームで `--missing zero` を使うと、値が分からない提携の費用を 0 とみなす ([入力形式](input-format.md#値が分からない提携))。
