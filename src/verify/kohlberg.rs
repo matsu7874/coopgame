@@ -1,7 +1,8 @@
 //! Kohlberg 基準による検証 (説明は [`super::kohlberg`])。
 
 use crate::Domain;
-use crate::error::{Error, Result};
+use crate::error::Result;
+use crate::game::allocation::require_allocation;
 use crate::game::{ExplicitGame, default_tolerance};
 use crate::levels::kohlberg_at;
 
@@ -30,14 +31,12 @@ pub struct KohlbergReport {
 /// `D0(x)` の 1 人提携は、階数には数えない。
 ///
 /// 既定の許容誤差で検証する。
+///
+/// # Errors
+///
+/// `x` の長さがプレイヤー数と異なるか、有限でない成分があれば [`crate::Error::InvalidArgument`]。
 pub fn kohlberg(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<KohlbergReport> {
-    let n = game.players();
-    if x.len() != n {
-        return Err(Error::InvalidArgument(format!(
-            "配分の長さ {} がプレイヤー数 {n} と異なる",
-            x.len()
-        )));
-    }
+    require_allocation(game.players(), x)?;
     let check = kohlberg_at(game, x, domain, default_tolerance(game) * 10.0)?;
     Ok(KohlbergReport {
         satisfied: check.satisfied,

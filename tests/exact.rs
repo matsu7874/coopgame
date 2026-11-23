@@ -69,7 +69,9 @@ fn perturbed_nucleoli_are_rejected() {
             moved[0] += r(1, 1000);
             moved[1] -= r(1, 1000);
             assert!(
-                !verify::kohlberg_exact(&exact_game, &moved, Domain::Preimputation).satisfied,
+                !verify::kohlberg_exact(&exact_game, &moved, Domain::Preimputation)
+                    .unwrap()
+                    .satisfied,
                 "type{kind} n={n}"
             );
         }
@@ -171,7 +173,8 @@ fn exact_solver_on_rationally_built_games() {
             &game,
             &result.allocation,
             coopgame::Domain::Imputation,
-        );
+        )
+        .unwrap();
         assert!(report.satisfied, "seed {seed}: {:?}", report.reason);
     }
 }

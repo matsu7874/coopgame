@@ -18,11 +18,20 @@ pub struct InducedSubgraphGame {
 
 impl InducedSubgraphGame {
     /// 辺の重みは非負の有限値、端点は `players` 未満で異なる頂点。
+    ///
+    /// 同じ辺 (向きだけが違う `(u, v)` と `(v, u)` も同じ辺) を 2 回書くとエラーにする
+    /// (重みを黙って足すと、書き間違いが値の違いとして紛れるため)。
     pub fn new(players: usize, edges: Vec<(usize, usize, f64)>) -> Result<InducedSubgraphGame> {
         if players == 0 {
             return Err(Error::InvalidArgument("プレイヤーがいない".into()));
         }
+        let mut seen = std::collections::HashSet::with_capacity(edges.len());
         for &(u, v, w) in &edges {
+            if !seen.insert((u.min(v), u.max(v))) {
+                return Err(Error::InvalidArgument(format!(
+                    "辺 ({u}, {v}) が重複している"
+                )));
+            }
             if u >= players || v >= players || u == v {
                 return Err(Error::InvalidArgument(format!("辺 ({u}, {v}) が不正")));
             }

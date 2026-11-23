@@ -187,12 +187,20 @@ fn valuation(sizes: &[usize], budgets: &[usize], seeds: u64) {
                     );
                 };
                 let started = Instant::now();
-                let shapley = values::shapley_sampling(&game, budget / n, seed);
-                report("shapley", shapley.values(), shapley.evaluations(), started);
+                match values::shapley_sampling(&game, budget / n, seed) {
+                    Ok(shapley) => {
+                        report("shapley", shapley.values(), shapley.evaluations(), started)
+                    }
+                    Err(err) => eprintln!("shapley n={n} seed={seed} budget={budget}: {err}"),
+                }
 
                 let started = Instant::now();
-                let banzhaf = values::banzhaf_sampling(&game, budget / (n + 1), seed);
-                report("banzhaf", banzhaf.values(), banzhaf.evaluations(), started);
+                match values::banzhaf_sampling(&game, budget / (n + 1), seed) {
+                    Ok(banzhaf) => {
+                        report("banzhaf", banzhaf.values(), banzhaf.evaluations(), started)
+                    }
+                    Err(err) => eprintln!("banzhaf n={n} seed={seed} budget={budget}: {err}"),
+                }
 
                 let pairs = budget.saturating_sub(2 * n) / 2;
                 let started = Instant::now();

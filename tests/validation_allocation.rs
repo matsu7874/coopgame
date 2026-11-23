@@ -2,6 +2,8 @@
 //!
 //! 長さの違う配分や NaN を含む配分で、release ビルドで誤った判定を返す・添字でパニックする・
 //! 無限ループする、といった不具合があった。
+//! 配分を受け取る判定・検証の関数は、長さがプレイヤー数と異なる配分と有限でない成分を含む配分を
+//! 全て [`Error::InvalidArgument`] にする (「属さない」「不成立」と答えて誤りを隠さない)。
 
 use coopgame::analysis::plot::{PlotOptions, imputation_figure};
 use coopgame::analysis::uncertainty::{influence, monte_carlo};
@@ -15,15 +17,27 @@ fn pair_game() -> ExplicitGame {
     ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap()
 }
 
+fn assert_invalid<T: std::fmt::Debug>(result: coopgame::Result<T>, expected: &str) {
+    let err = result.unwrap_err();
+    assert!(matches!(err, Error::InvalidArgument(_)), "{err:?}");
+    assert!(err.to_string().contains(expected), "{err}");
+}
+
 #[test]
-fn nan_allocation_is_not_in_kernel() {
+fn nan_allocation_is_rejected_by_kernel_checks() {
     let game = pair_game();
     for domain in [Domain::Imputation, Domain::Preimputation] {
-        assert!(!kernel::is_in_kernel(&game, &[f64::NAN; 3], domain, 1e-6).unwrap());
-        assert!(!kernel::is_in_kernel(&game, &[2.0, 2.0, f64::NAN], domain, 1e-6).unwrap());
-        assert_eq!(
+        assert_invalid(
+            kernel::is_in_kernel(&game, &[f64::NAN; 3], domain, 1e-6),
+            "有限でない",
+        );
+        assert_invalid(
+            kernel::is_in_kernel(&game, &[2.0, 2.0, f64::NAN], domain, 1e-6),
+            "有限でない",
+        );
+        assert_invalid(
             kernel::kernel_violation(&game, &[f64::NAN; 3], domain),
-            f64::INFINITY
+            "有限でない",
         );
     }
     // 許容誤差が NaN なら「属する」とも「属さない」とも判定せず、エラーにする。
@@ -41,21 +55,36 @@ fn nan_allocation_is_rejected_by_bargaining_check() {
 }
 
 #[test]
-fn nan_allocation_terminates_kohlberg_and_check() {
+fn nan_allocation_is_rejected_by_kohlberg_and_check() {
     let game = pair_game();
-    let report = kohlberg(&game, &[f64::NAN; 3], Domain::Imputation).unwrap();
-    assert!(!report.satisfied);
-    assert!(report.reason.unwrap().contains("有限でない"));
-    let report = kohlberg(&game, &[f64::NAN; 3], Domain::Preimputation).unwrap();
-    assert!(!report.satisfied);
-    let check = verify::check(
-        &game,
-        &[f64::NAN; 3],
-        Domain::Imputation,
-        VerifyOptions::default(),
-    )
-    .unwrap();
-    assert!(matches!(check, verify::Check::Refuted(_)), "{check:?}");
+    for domain in [Domain::Imputation, Domain::Preimputation] {
+        assert_invalid(kohlberg(&game, &[f64::NAN; 3], domain), "有限でない");
+        assert_invalid(
+            verify::check(&game, &[f64::NAN; 3], domain, VerifyOptions::default()),
+            "有限でない",
+        );
+        let exact = ExactGame::from_explicit(&game).unwrap();
+        assert_invalid(
+            verify::check_exact(
+                &exact,
+                &[f64::INFINITY; 3],
+                domain,
+                VerifyOptions::default(),
+            ),
+            "有限でない",
+        );
+    }
+    // 長さの違いも同じ扱い。
+    assert_invalid(kohlberg(&game, &[2.0, 2.0], Domain::Imputation), "長さ");
+    assert_invalid(
+        verify::check(
+            &game,
+            &[2.0, 2.0],
+            Domain::Imputation,
+            VerifyOptions::default(),
+        ),
+        "長さ",
+    );
 }
 
 #[test]
@@ -75,12 +104,18 @@ fn plot_rejects_non_finite_points() {
 }
 
 #[test]
-fn core_membership_requires_matching_length() {
+fn core_membership_rejects_wrong_length_and_non_finite_values() {
     let game = pair_game();
     assert!(properties::is_in_core(&game, &[2.0, 2.0, 0.0], 1e-9).unwrap());
-    assert!(!properties::is_in_core(&game, &[2.0, 2.0], 1e-9).unwrap());
-    assert!(!properties::is_in_core(&game, &[2.0, 2.0, 0.0, 0.0], 1e-9).unwrap());
-    assert!(!properties::is_in_core(&game, &[f64::NAN; 3], 1e-9).unwrap());
+    assert_invalid(properties::is_in_core(&game, &[2.0, 2.0], 1e-9), "長さ");
+    assert_invalid(
+        properties::is_in_core(&game, &[2.0, 2.0, 0.0, 0.0], 1e-9),
+        "長さ",
+    );
+    assert_invalid(
+        properties::is_in_core(&game, &[f64::NAN; 3], 1e-9),
+        "有限でない",
+    );
 }
 
 #[test]
@@ -92,25 +127,30 @@ fn kohlberg_exact_rejects_wrong_length() {
         vec![int(2), int(2)],
         vec![int(2), int(2), int(0), int(0)],
     ] {
-        let report = kohlberg_exact(&game, &x, Domain::Imputation);
-        assert!(!report.satisfied, "{x:?}");
-        assert!(report.reason.unwrap().contains("長さ"));
+        assert_invalid(kohlberg_exact(&game, &x, Domain::Imputation), "長さ");
     }
-    assert!(kohlberg_exact(&game, &[int(2), int(2), int(0)], Domain::Imputation).satisfied);
+    assert!(
+        kohlberg_exact(&game, &[int(2), int(2), int(0)], Domain::Imputation)
+            .unwrap()
+            .satisfied
+    );
 }
 
 #[test]
-fn kernel_violation_of_wrong_length_is_infinite() {
+fn kernel_checks_reject_wrong_length() {
     let game = pair_game();
-    assert_eq!(
+    assert_invalid(
         kernel::kernel_violation(&game, &[2.0, 2.0], Domain::Imputation),
-        f64::INFINITY
+        "長さ",
     );
-    assert_eq!(
+    assert_invalid(
         kernel::kernel_violation(&game, &[1.0; 4], Domain::Preimputation),
-        f64::INFINITY
+        "長さ",
     );
-    assert!(!kernel::is_in_kernel(&game, &[2.0, 2.0], Domain::Imputation, 1e-6).unwrap());
+    assert_invalid(
+        kernel::is_in_kernel(&game, &[2.0, 2.0], Domain::Imputation, 1e-6),
+        "長さ",
+    );
 }
 
 #[test]

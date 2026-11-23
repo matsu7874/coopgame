@@ -17,7 +17,7 @@ pub use set::{KernelPiece, KernelSet, MAX_KERNEL_SET_PLAYERS, Row, SetOptions, k
 
 use crate::Domain;
 use crate::error::{Error, Result};
-use crate::game::allocation::{allocation_defect, check_imputation_set, feasibility_violation};
+use crate::game::allocation::{check_imputation_set, feasibility_violation, require_allocation};
 use crate::game::scale::check_tolerance;
 use crate::game::{Coalition, ExplicitGame, default_tolerance};
 use crate::solution::Guarantee;
@@ -83,19 +83,21 @@ impl KernelResult {
 /// 最大余剰の不釣り合い。`x` が(プレ)カーネルに属すれば 0。
 ///
 /// 組 `(i, j)` ごとの値は `2 * delta_ij` で、その最大値を返す。
-/// `x` の長さがプレイヤー数と異なるか、有限でない成分があれば `f64::INFINITY` を返す
-/// (どの許容誤差でもカーネルに属さないと判定されるように)。
-pub fn kernel_violation(game: &ExplicitGame, x: &[f64], domain: Domain) -> f64 {
-    if allocation_defect(game.players(), x).is_some() {
-        return f64::INFINITY;
-    }
-    best_transfer(game, x, domain).map_or(0.0, |(_, _, delta)| 2.0 * delta)
+///
+/// # Errors
+///
+/// `x` の長さがプレイヤー数と異なるか、有限でない成分があれば [`Error::InvalidArgument`]。
+pub fn kernel_violation(game: &ExplicitGame, x: &[f64], domain: Domain) -> Result<f64> {
+    require_allocation(game.players(), x)?;
+    Ok(best_transfer(game, x, domain).map_or(0.0, |(_, _, delta)| 2.0 * delta))
 }
 
 /// `x` が効率性・領域条件を満たし、不釣り合いが `tolerance` 以下かを判定する。
-/// 長さがプレイヤー数と異なる `x` や、有限でない成分 (NaN など) を含む `x` は属さない (`Ok(false)`)。
 ///
-/// `tolerance` が有限で 0 以上でないときは [`Error::InvalidArgument`] を返す。
+/// # Errors
+///
+/// `x` の長さがプレイヤー数と異なるか、有限でない成分 (NaN など) を含むときは [`Error::InvalidArgument`]。
+/// `tolerance` が有限で 0 以上でないときも [`Error::InvalidArgument`] を返す。
 /// 無限大ではどの配分も属することになり、負の値ではカーネルの点も属さないことになるためである。
 pub fn is_in_kernel(
     game: &ExplicitGame,
@@ -104,8 +106,9 @@ pub fn is_in_kernel(
     tolerance: f64,
 ) -> Result<bool> {
     check_tolerance(tolerance)?;
+    require_allocation(game.players(), x)?;
     Ok(feasibility_violation(game, x, domain, tolerance).is_none()
-        && kernel_violation(game, x, domain) <= tolerance)
+        && kernel_violation(game, x, domain)? <= tolerance)
 }
 
 /// 各プレイヤーに `v({i})` を与え、残りを等分した配分。
@@ -213,8 +216,8 @@ mod tests {
         assert!(is_in_kernel(&game, &point, Domain::Imputation, 0.0).unwrap());
         assert!(!is_in_kernel(&game, &[9.0, 9.0, 9.0], Domain::Imputation, 1e-9).unwrap());
         // 不正な配分は、許容誤差が正しければ「属さない」。
-        assert!(!is_in_kernel(&game, &[f64::NAN, 2.0, 1.0], Domain::Imputation, 1e-9).unwrap());
-        assert!(!is_in_kernel(&game, &[3.0, 2.0], Domain::Imputation, 1e-9).unwrap());
+        assert!(is_in_kernel(&game, &[f64::NAN, 2.0, 1.0], Domain::Imputation, 1e-9).is_err());
+        assert!(is_in_kernel(&game, &[3.0, 2.0], Domain::Imputation, 1e-9).is_err());
     }
 
     #[test]
@@ -260,7 +263,8 @@ mod tests {
         let game = ExplicitGame::from_lex(&[0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0]).unwrap();
         assert!(!is_in_kernel(&game, &[1.0, 3.0, 0.0], Domain::Imputation, 1e-6).unwrap());
         assert!(
-            (kernel_violation(&game, &[1.0, 3.0, 0.0], Domain::Imputation) - 2.0).abs() < 1e-12
+            (kernel_violation(&game, &[1.0, 3.0, 0.0], Domain::Imputation).unwrap() - 2.0).abs()
+                < 1e-12
         );
     }
 }
