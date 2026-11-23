@@ -109,9 +109,9 @@ coopgame のモジュールと関数、使っている手法の一覧である�
 | 超過の大きい順に提携を列挙できるゲーム | 厳密 (計算量の保証なし) | 逐次 LP + オラクルによる制約生成 (`nucleolus::oracle`) | 実装済み |
 | 破産ゲーム | 閉じた形、`O(n log n)` | タルムード則 (Aumann & Maschler 1985) | 実装済み (`games::bankruptcy::talmud_rule`) |
 | 凸ゲーム | 厳密 (計算量の上界は示していない) | カーネル = 仁 + 劣モジュラ最小化による transfer scheme | 実装済み (`nucleolus::convex::nucleolus`)。Faigle, Kern & Kuipers (2001) の楕円体法は本文を確認できず未実装 |
-| 重み付き投票ゲーム | 重みについて擬多項式時間 | Pashkovich (2022) | 未実装 |
+| 重み付き投票ゲーム | 重みについて擬多項式時間 | Pashkovich (2022) | 一部のみ。分離の方法 (確定済みの空間に入らない提携の動的計画法) をオラクル版の制約生成で使う (`games::voting`)。LP は単体法で解くので、擬多項式時間の保証はない |
 | 重み付きマッチングゲーム | 多項式時間 | Könemann, Pashkovich, Toth (2020) | 未実装 |
 | 動的計画法で特性関数を書けるゲーム | 枠組み | Könemann & Toth (2020) | 未実装 |
 
-未実装の 3 つは、原論文の本文で保証を確かめられていない (方針は [CONTRIBUTING.md](../CONTRIBUTING.md))。
+未実装の 2 つは、原論文の本文で保証を確かめられていない (方針は [CONTRIBUTING.md](../CONTRIBUTING.md))。
 文献は [references.md](references.md) を参照。
