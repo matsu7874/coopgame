@@ -172,3 +172,74 @@ fn bargaining_set_equals_core_for_convex_games() {
     }
     assert!(outside >= 100, "コアの外の配分が少なすぎる: {outside}");
 }
+
+/// 既定の仁は、既定の許容誤差 (max|v| の 1e-11 倍) の交渉集合の判定で「異議あり」にならない (仁はカーネルに、
+/// カーネルは交渉集合に含まれる)。値が 1 程度の退化した単純ゲームと、値を小さくしたゲームで確かめる。
+#[test]
+fn default_nucleolus_is_in_bargaining_set_with_default_tolerance() {
+    for n in [8, 9] {
+        for quota in [n / 2 + 1, 3, n - 1] {
+            let simple =
+                ExplicitGame::from_fn(n, |s| if s.len() >= quota { 1.0 } else { 0.0 }).unwrap();
+            let tiny: Vec<f64> = simple.values()[1..].iter().map(|v| v * 1e-6).collect();
+            for game in [simple, ExplicitGame::from_binary(&tiny).unwrap()] {
+                for domain in [Domain::Imputation, Domain::Preimputation] {
+                    let result =
+                        nucleolus::nucleolus_with(&game, nucleolus::Options::new(domain)).unwrap();
+                    assert!(
+                        bargaining::is_in_bargaining_set(&game, result.allocation(), domain)
+                            .unwrap(),
+                        "n={n} quota={quota} {domain:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// 既定の仁 (9 人以上は Kohlberg 基準を max|v| の 1e-11 倍の幅で確かめた解) は、同じ幅を既定とする
+/// カーネル条件の判定に合格し、Kohlberg 基準の判定と結論がそろう。保証が approximate の配分 (整数 1e9 で
+/// 確かめに合格しなかった配分) は、どちらの判定でも不合格になる。
+#[test]
+fn default_nucleolus_satisfies_kernel_condition_with_verification_tolerance() {
+    let integer = |n: usize, scale: f64, seed: u64| {
+        let mut rng = SplitMix64::new(seed);
+        ExplicitGame::from_fn(n, |s| {
+            if s.len() == 1 {
+                0.0
+            } else {
+                scale * s.len() as f64 + (rng.next_u64() % 7) as f64
+            }
+        })
+        .unwrap()
+    };
+    let mut approximate = 0;
+    for n in [9, 12] {
+        for seed in 0..2 {
+            for game in [
+                generators::bnf(1, n, seed).unwrap(),
+                generators::random_convex(n, seed).unwrap(),
+                generators::random_weighted_voting(n, seed).unwrap(),
+                integer(n, 1e6, seed),
+                integer(n, 1e9, seed),
+            ] {
+                let result = nucleolus::nucleolus(&game).unwrap();
+                let x = result.allocation();
+                let tolerance = coopgame::game::verification_tolerance(&game);
+                let in_kernel =
+                    kernel::is_in_kernel(&game, x, Domain::Imputation, tolerance).unwrap();
+                let kohlberg = coopgame::verify::kohlberg(&game, x, Domain::Imputation)
+                    .unwrap()
+                    .satisfied;
+                assert_eq!(in_kernel, kohlberg, "n={n} seed={seed}");
+                if result.guarantee() == coopgame::Guarantee::Exact {
+                    assert!(in_kernel, "n={n} seed={seed}");
+                } else {
+                    approximate += 1;
+                }
+            }
+        }
+    }
+    // 整数 1e9 のゲームで、確かめに合格しなかった配分を含む。
+    assert!(approximate > 0);
+}
