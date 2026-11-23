@@ -11,6 +11,7 @@
 //! solidarity 値 (Nowak & Radzik 1994) は、Shapley 値の限界貢献 `v(S) - v(S \ {i})` を、
 //! 提携 `S` のメンバーの限界貢献の平均 `A(S) = (1/|S|) sum_{k in S} (v(S) - v(S \ {k}))` に置き換えた値である。
 
+use crate::error::Result;
 use crate::game::{Coalition, ExplicitGame, PlayerSet, SetFunction};
 use crate::rng::SplitMix64;
 use crate::solution::Guarantee;
@@ -214,14 +215,17 @@ impl Accumulator {
 ///
 /// 評価回数 ([`Estimate::evaluations`]) は `permutations n` (順列ごとに、空でない提携 n 個。全体提携も順列ごとに呼ぶ)。
 ///
-/// `permutations` が 0 なら、推定値は全て 0、標準誤差は全て `inf` になる (評価回数は 0)。
-/// 標本がないことを表す値なので、推定値として使わないこと。
 /// 標準誤差は `permutations` が 2 以上で有限になる (1 なら `inf`)。
+///
+/// # Errors
+///
+/// `permutations` が 0 なら [`crate::Error::InvalidArgument`] (標本がなければ推定値が定まらない)。
 pub fn shapley_sampling<G: SetFunction + ?Sized>(
     game: &G,
     permutations: usize,
     seed: u64,
-) -> Estimate {
+) -> Result<Estimate> {
+    check_samples("permutations", permutations)?;
     let n = game.players();
     let mut rng = SplitMix64::new(seed);
     let mut accumulator = Accumulator::new(n);
@@ -244,7 +248,17 @@ pub fn shapley_sampling<G: SetFunction + ?Sized>(
         }
         accumulator.add(&sample);
     }
-    accumulator.finish(evaluator.evaluations)
+    Ok(accumulator.finish(evaluator.evaluations))
+}
+
+/// 標本の数が 1 以上であることを確かめる。
+fn check_samples(name: &str, count: usize) -> Result<()> {
+    if count == 0 {
+        return Err(crate::Error::InvalidArgument(format!(
+            "{name} は 1 以上 (標本が 0 個では推定値が定まらない)"
+        )));
+    }
+    Ok(())
 }
 
 /// ランダムな提携 `samples` 個に対する各人の限界貢献の平均で Banzhaf 値を推定する。
@@ -254,10 +268,17 @@ pub fn shapley_sampling<G: SetFunction + ?Sized>(
 /// 評価回数 ([`Estimate::evaluations`]) は標本あたり最大 n + 1 回 (`S` と、`S` で 1 人の所属を反転した n 個の提携)。
 /// 空提携は評価しないので、`S` や反転した提携が空になる標本ではこれより少ない。
 ///
-/// `samples` が 0 なら、推定値は全て 0、標準誤差は全て `inf` になる (評価回数は 0)。
-/// 標本がないことを表す値なので、推定値として使わないこと。
 /// 標準誤差は `samples` が 2 以上で有限になる (1 なら `inf`)。
-pub fn banzhaf_sampling<G: SetFunction + ?Sized>(game: &G, samples: usize, seed: u64) -> Estimate {
+///
+/// # Errors
+///
+/// `samples` が 0 なら [`crate::Error::InvalidArgument`] (標本がなければ推定値が定まらない)。
+pub fn banzhaf_sampling<G: SetFunction + ?Sized>(
+    game: &G,
+    samples: usize,
+    seed: u64,
+) -> Result<Estimate> {
+    check_samples("samples", samples)?;
     let n = game.players();
     let mut rng = SplitMix64::new(seed);
     let mut accumulator = Accumulator::new(n);
@@ -283,7 +304,7 @@ pub fn banzhaf_sampling<G: SetFunction + ?Sized>(game: &G, samples: usize, seed:
         }
         accumulator.add(&sample);
     }
-    accumulator.finish(evaluator.evaluations)
+    Ok(accumulator.finish(evaluator.evaluations))
 }
 
 #[cfg(test)]
@@ -344,8 +365,8 @@ mod tests {
         let game = generators::bnf(2, 8, 5).unwrap();
         let exact_shapley = shapley(&game);
         let exact_banzhaf = banzhaf(&game);
-        let shapley_estimate = shapley_sampling(&game, 20_000, 1);
-        let banzhaf_estimate = banzhaf_sampling(&game, 20_000, 2);
+        let shapley_estimate = shapley_sampling(&game, 20_000, 1).unwrap();
+        let banzhaf_estimate = banzhaf_sampling(&game, 20_000, 2).unwrap();
         for i in 0..8 {
             // 標準誤差の 5 倍以内 (正規近似で外れる確率は 1e-6 未満)。
             assert!(
@@ -400,12 +421,12 @@ mod tests {
             };
             for samples in [1, 10, 200] {
                 counting.calls.set(0);
-                let shapley = shapley_sampling(&counting, samples, 3);
+                let shapley = shapley_sampling(&counting, samples, 3).unwrap();
                 assert_eq!(shapley.evaluations(), counting.calls.get());
                 assert_eq!(shapley.evaluations(), samples * n, "n = {n}");
 
                 counting.calls.set(0);
-                let banzhaf = banzhaf_sampling(&counting, samples, 3);
+                let banzhaf = banzhaf_sampling(&counting, samples, 3).unwrap();
                 assert_eq!(banzhaf.evaluations(), counting.calls.get());
                 assert!(banzhaf.evaluations() <= samples * (n + 1));
             }
@@ -413,26 +434,22 @@ mod tests {
         }
     }
 
-    /// 標本が 0 個・1 個のときの戻り値 (文書に書いたとおり)。
+    /// 標本が 0 個ならエラー (以前は推定値 0 を返していた。Python・CLI と同じ扱い)、1 個なら標準誤差が inf。
     #[test]
     fn sampling_with_too_few_samples() {
         let game = generators::bnf(2, 4, 5).unwrap();
-        let none = shapley_sampling(&game, 0, 1);
-        assert_eq!(none.values(), [0.0; 4]);
-        assert_eq!(none.standard_errors(), [f64::INFINITY; 4]);
-        assert_eq!(none.evaluations(), 0);
-        let none = banzhaf_sampling(&game, 0, 1);
-        assert_eq!(none.values(), [0.0; 4]);
-        assert_eq!(none.standard_errors(), [f64::INFINITY; 4]);
-        assert_eq!(none.evaluations(), 0);
+        let err = shapley_sampling(&game, 0, 1).unwrap_err();
+        assert!(err.to_string().contains("permutations は 1 以上"), "{err}");
+        let err = banzhaf_sampling(&game, 0, 1).unwrap_err();
+        assert!(err.to_string().contains("samples は 1 以上"), "{err}");
 
-        let one = shapley_sampling(&game, 1, 1);
+        let one = shapley_sampling(&game, 1, 1).unwrap();
         assert!(one.values().iter().all(|v| v.is_finite()));
         assert_eq!(one.standard_errors(), [f64::INFINITY; 4]);
-        let one = banzhaf_sampling(&game, 1, 1);
+        let one = banzhaf_sampling(&game, 1, 1).unwrap();
         assert!(one.values().iter().all(|v| v.is_finite()));
         assert_eq!(one.standard_errors(), [f64::INFINITY; 4]);
-        let two = banzhaf_sampling(&game, 2, 1);
+        let two = banzhaf_sampling(&game, 2, 1).unwrap();
         assert!(two.standard_errors().iter().all(|e| e.is_finite()));
     }
 }

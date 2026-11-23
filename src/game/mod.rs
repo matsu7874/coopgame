@@ -147,9 +147,14 @@ impl ExplicitGame {
         self.values[coalition.index()]
     }
 
-    /// 空提携を含むビット順の全値 (長さ `2^n`)。
+    /// 空提携を含むビット順の全値 (長さ `2^n`)。[`ExplicitGame::from_binary`] に渡す形は [`ExplicitGame::binary_values`]。
     pub fn values(&self) -> &[f64] {
         &self.values
+    }
+
+    /// 空提携を除くビット順の値 (長さ `2^n - 1`)。[`ExplicitGame::from_binary`] と往復できる。
+    pub fn binary_values(&self) -> &[f64] {
+        &self.values[1..]
     }
 
     /// `v({i})` の列。

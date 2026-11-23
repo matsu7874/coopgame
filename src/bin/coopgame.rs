@@ -544,9 +544,9 @@ fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
                     let samples = samples(&args, 1)?;
                     let seed: u64 = args.number("--seed", 0)?;
                     let estimate = if shapley {
-                        values::shapley_sampling(game, samples, seed)
+                        values::shapley_sampling(game, samples, seed)?
                     } else {
-                        values::banzhaf_sampling(game, samples, seed)
+                        values::banzhaf_sampling(game, samples, seed)?
                     };
                     eprintln!(
                         "time={:.6}s evaluations={} standard_errors={:?}",
@@ -916,7 +916,7 @@ fn run_command(command: &str, args: Args) -> CliResult<ExitCode> {
             println!(
                 "kernel={} (violation={:e})",
                 in_kernel,
-                kernel::kernel_violation(&game, &x, domain)
+                kernel::kernel_violation(&game, &x, domain)?
             );
         }
         "bargaining" => {
@@ -1589,18 +1589,18 @@ fn bench_one(game: &ExplicitGame, method: &str) -> CliResult<String> {
             )
         })
     } else {
-        nucleolus::nucleolus_with(game, options).map(|r| {
+        nucleolus::nucleolus_with(game, options).and_then(|r| {
             let seconds = started.elapsed().as_secs_f64();
             let verified = verify::kohlberg(game, r.allocation(), domain)
                 .map(|report| report.satisfied)
                 .unwrap_or(false);
-            format!(
+            Ok(format!(
                 "{seconds:.6},{},{},{},{verified},{:e},",
                 r.lp_solves(),
                 r.rows_added(),
                 r.levels().len(),
-                kernel::kernel_violation(game, r.allocation(), domain)
-            )
+                kernel::kernel_violation(game, r.allocation(), domain)?
+            ))
         })
     };
     Ok(row.unwrap_or_else(|err| {

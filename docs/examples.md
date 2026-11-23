@@ -702,7 +702,7 @@ fn main() -> coopgame::Result<()> {
 ```python
 import coopgame
 
-costs = coopgame.Game([6, 6, 8, 9, 11, 12, 15], order="lex")
+costs = coopgame.Game([6, 6, 8, 9, 11, 12, 15], order="lex", kind="cost")
 print([round(v, 4) for v in coopgame.cost_nucleolus(costs)])  # => [3.6667, 4.6667, 6.6667]
 print([round(v, 4) for v in coopgame.shapley(costs)])  # => [4.0, 4.5, 6.5]
 ```

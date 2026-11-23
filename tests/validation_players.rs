@@ -41,6 +41,27 @@ fn coalition_rejects_players_beyond_64() {
     assert_eq!(c, Coalition(1));
 }
 
+/// 提携の中の重複した番号は、打ち間違い (`[0, 1, 1]` は `[0, 1, 2]` のつもりかもしれない) として拒否する
+/// (JSON・CSV の読み込みと同じ扱い)。
+#[test]
+fn coalition_and_player_set_reject_duplicate_members() {
+    let err = Coalition::try_from_players(3, &[0, 1, 1]).unwrap_err();
+    assert!(matches!(err, Error::InvalidArgument(_)), "{err:?}");
+    assert!(err.to_string().contains("重複"), "{err}");
+    assert_eq!(
+        Coalition::try_from_players(3, &[2, 0]).unwrap(),
+        Coalition::from_players(&[0, 2])
+    );
+    let err = PlayerSet::try_from_players(130, &[64, 129, 64]).unwrap_err();
+    assert!(err.to_string().contains("重複"), "{err}");
+    let err = PlayerSet::try_from_players(130, &[130]).unwrap_err();
+    assert!(err.to_string().contains("人数 130 以上"), "{err}");
+    assert_eq!(
+        PlayerSet::try_from_players(130, &[129, 0]).unwrap(),
+        PlayerSet::from_players(130, &[0, 129])
+    );
+}
+
 #[test]
 #[should_panic(expected = "64 未満")]
 fn coalition_singleton_panics_beyond_64() {

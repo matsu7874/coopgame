@@ -48,18 +48,27 @@ impl Coalition {
         Coalition(players.iter().fold(0, |mask, &i| mask | bit(i)))
     }
 
-    /// [`Coalition::from_players`] の、番号が `n` 人の範囲 (かつ 64 未満) にあるかを確かめる版。
+    /// [`Coalition::from_players`] の、番号が `n` 人の範囲 (かつ 64 未満) にあり、重複がないかを確かめる版。
+    ///
+    /// 同じ番号を 2 回書いた `[0, 1, 1]` は、打ち間違い (`[0, 1, 2]` のつもりかもしれない) として拒否する
+    /// ([`crate::io`] の読み込みと同じ扱い)。
     pub fn try_from_players(n: usize, players: &[usize]) -> Result<Coalition> {
         let limit = n.min(CAPACITY);
-        match players.iter().find(|&&i| i >= limit) {
-            Some(&i) if i < n => Err(Error::InvalidArgument(format!(
-                "プレイヤー番号 {i} は Coalition で扱える範囲 (64 未満) を超える"
-            ))),
-            Some(i) => Err(Error::InvalidArgument(format!(
-                "プレイヤー番号 {i} が人数 {n} 以上"
-            ))),
-            None => Ok(Coalition::from_players(players)),
+        let mut coalition = Coalition::empty();
+        for &i in players {
+            if i >= limit {
+                return Err(Error::InvalidArgument(if i < n {
+                    format!("プレイヤー番号 {i} は Coalition で扱える範囲 (64 未満) を超える")
+                } else {
+                    format!("プレイヤー番号 {i} が人数 {n} 以上")
+                }));
+            }
+            if coalition.contains(i) {
+                return Err(duplicate_member(i));
+            }
+            coalition.insert(i);
         }
+        Ok(coalition)
     }
 
     /// `members` の部分集合 (ビット `k` が `members[k]` を選ぶ) を全体の番号の提携に直す。
@@ -154,6 +163,11 @@ impl Coalition {
     pub fn sum(self, x: &[f64]) -> f64 {
         self.members().map(|i| x[i]).sum()
     }
+}
+
+/// 提携の中で同じ番号を 2 回書いたときのエラー ([`Coalition::try_from_players`]・[`crate::game::PlayerSet::try_from_players`])。
+pub(crate) fn duplicate_member(player: usize) -> Error {
+    Error::InvalidArgument(format!("提携の中でプレイヤー番号 {player} が重複している"))
 }
 
 /// プレイヤー `player` のビット。64 以上なら (release でも) パニックする。
