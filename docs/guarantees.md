@@ -44,11 +44,12 @@
 許容誤差を指定する入口を使えば、逐次 LP の経路はその許容誤差で 1 回だけ解き、保証は `exact` になる (指定した許容誤差の範囲で成り立つ)。
 空港ゲームの仁は凸ゲームの手法で求めるので、どちらの入口でも `proven(convex)` である。
 LP を解かずに決まる配分 (1 人ゲーム、配分集合が 1 点、全員が単独の提携構造) は、どの経路でも `exact` である。
+ただし一部の提携だけに答えるオラクル (`io::PartialGame`・`nucleolus::sampled::SampledGame` など、`covers_all_coalitions` が `false`) では、元のゲームの仁とは限らないので `approximate` である。
 
 | 経路 | 既定 (許容誤差を指定しない) | 許容誤差を指定する入口 |
 |---|---|---|
 | 仁・プレ仁 (`nucleolus::nucleolus`・`prenucleolus`) | 20 人以下は Kohlberg 基準で確かめ、満たさなければ許容誤差を下げて解き直し、8 人以下は有理数の逐次 LP で求める。確かめられた結果だけ `exact`。21 人以上は `approximate` | `nucleolus::nucleolus_with` (`Options::tolerance`) |
-| オラクル版の仁・プレ仁 (`nucleolus::oracle::nucleolus`・`prenucleolus`) | 20 人以下は全提携の表を作り (値を `2^n - 1` 回評価する)、仁と同じ読みで Kohlberg 基準を確かめる。満たさなければ、その表を仁の既定の手順で求め直す。21 人以上は `approximate`。一部の提携だけに答えるオラクルは、人数によらず `approximate` | `nucleolus::oracle::nucleolus_with` |
+| オラクル版の仁・プレ仁 (`nucleolus::oracle::nucleolus`・`prenucleolus`) | 20 人以下は全提携の表を作り (値を `2^n - 1` 回評価する)、仁と同じ読みで Kohlberg 基準を確かめる。満たさなければ、その表を仁の既定の手順で求め直す。1 回目の逐次 LP が数値的に失敗したときも、表から同じ手順で求め直す。21 人以上は `approximate`。一部の提携だけに答えるオラクルは、人数によらず `approximate` | `nucleolus::oracle::nucleolus_with` |
 | 提携構造つきの仁 (`partition::nucleolus`) | 全体 1 ブロックは仁そのものなので、仁の既定の手順で求める。2 ブロック以上は比 `1e-7` で 1 回だけ解き、確かめていないので `approximate` | `partition::nucleolus_with` |
 | 仁の変種 (`nucleolus::variants` の per capita 仁・比例仁・disruption nucleolus・modiclus) | 比 `1e-7` で 1 回だけ解き、確かめていないので `approximate` | `per_capita_nucleolus_with`・`proportional_nucleolus_with`・`disruption_nucleolus_with`・`modiclus_with` |
 | 費用分担の仁 (`games::cost::CostGame::nucleolus`、`games::spanning_tree::SpanningTreeGame::nucleolus_costs`) | 節約ゲームの仁の既定の手順と同じ (保証つきの結果を返し、配分が費用の分担) | `CostGame::nucleolus_with`・`SpanningTreeGame::nucleolus_costs_with` |

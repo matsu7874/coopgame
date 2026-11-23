@@ -60,6 +60,9 @@ pub fn default_tolerance<G: Separation + ?Sized>(game: &G) -> f64 {
 ///    満たさなければ、その表を既定の仁の手順 ([`crate::nucleolus::nucleolus_with`] の [`crate::nucleolus::Tolerance::Auto`]。
 ///    許容誤差を下げた解き直しと、8 人以下の有理数の逐次 LP) で求め直す。表を作れない (値が有限でない) ときと、
 ///    求め直しが失敗したときは、1. の配分を [`Guarantee::Approximate`] で返す。
+///    最初の逐次 LP (手順 1) が数値的に失敗した ([`Error::Numerical`]・[`Error::Lp`]・[`Error::LimitExceeded`]) ときも、
+///    全提携に答える 20 人以下のオラクルなら、表を同じ手順で求め直す (明示ゲームの既定と同じ回復の経路)。
+///    求め直せなければ、最初の逐次 LP のエラーを返す。
 /// 4. それより多い人数は確かめないので [`Guarantee::Approximate`]。
 ///
 /// 確かめずに 1 回だけ解いた配分を使うなら、許容誤差を指定する ([`nucleolus_with`])。
@@ -74,19 +77,34 @@ pub fn prenucleolus<G: Separation + ?Sized>(game: &G) -> Result<NucleolusResult>
 
 /// [`nucleolus`] の既定の手順。
 fn solve_auto<G: Separation + ?Sized>(game: &G, domain: Domain) -> Result<NucleolusResult> {
-    let mut result = nucleolus_with(game, domain, default_tolerance(game))?;
+    // 全提携の表を作って確かめる・求め直せるのは、全提携に答える 20 人以下のオラクルだけ。
+    let checkable =
+        game.covers_all_coalitions() && game.players() <= crate::nucleolus::MAX_AUTO_CHECK_PLAYERS;
+    let table = || crate::game::ExplicitGame::tabulate(game).ok();
+    // 表を既定の仁の手順 (許容誤差を下げた解き直しと有理数の逐次 LP) で求め直す。
+    let resolve = |table: &crate::game::ExplicitGame| {
+        crate::nucleolus::nucleolus_with(table, crate::nucleolus::Options::new(domain))
+    };
+    let mut result = match nucleolus_with(game, domain, default_tolerance(game)) {
+        Ok(result) => result,
+        // LP の数値的な失敗と行の上限は、明示ゲームの既定の手順と同じく、表から求め直せることがある。
+        // それ以外 (入力の誤り、配分集合が空) は求め直しても変わらない。
+        Err(error @ (Error::Numerical(_) | Error::Lp(_) | Error::LimitExceeded(_))) => {
+            return match checkable.then(table).flatten() {
+                Some(table) => resolve(&table).or(Err(error)),
+                None => Err(error),
+            };
+        }
+        Err(error) => return Err(error),
+    };
     if result.guarantee != Guarantee::Exact || result.lp_solves == 0 {
         return Ok(result);
     }
-    if game.players() <= crate::nucleolus::MAX_AUTO_CHECK_PLAYERS
-        && let Ok(table) = crate::game::ExplicitGame::tabulate(game)
-    {
+    if checkable && let Some(table) = table() {
         if crate::nucleolus::passes_auto_check(&table, &result.allocation, domain) {
             return Ok(result);
         }
-        if let Ok(resolved) =
-            crate::nucleolus::nucleolus_with(&table, crate::nucleolus::Options::new(domain))
-        {
+        if let Ok(resolved) = resolve(&table) {
             return Ok(resolved);
         }
     }

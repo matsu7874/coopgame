@@ -369,3 +369,65 @@ fn airport_nucleolus_keeps_the_guarantee() {
     assert_eq!(fixed.guarantee(), Guarantee::Proven(Property::Convex));
     assert!(max_abs_difference(fixed.allocation(), result.allocation()) < 1e-9);
 }
+
+/// 値の大きさの目安 (`value_scale`) を実際より桁違いに小さく答えるオラクル。値と違反する提携は正しく答える。
+/// 許容誤差がその目安から決まるので、逐次 LP が数値的に失敗する (LP が実行不可能、確定する提携が見つからない)。
+struct UnderstatedScale {
+    inner: ExplicitGame,
+    scale: f64,
+}
+
+impl coopgame::SetFunction for UnderstatedScale {
+    fn players(&self) -> usize {
+        self.inner.players()
+    }
+
+    fn value(&self, coalition: &coopgame::PlayerSet) -> f64 {
+        coopgame::SetFunction::value(&self.inner, coalition)
+    }
+}
+
+impl coopgame::game::oracle::Separation for UnderstatedScale {
+    fn violated(
+        &self,
+        x: &[f64],
+        bound: f64,
+        skip: &dyn Fn(&coopgame::PlayerSet) -> bool,
+        limit: usize,
+    ) -> Vec<(coopgame::PlayerSet, f64)> {
+        self.inner.violated(x, bound, skip, limit)
+    }
+
+    fn value_scale(&self) -> f64 {
+        self.scale
+    }
+}
+
+/// オラクル版の既定は、1 回目の逐次 LP が数値的に失敗しても、20 人以下で全提携に答えるオラクルなら
+/// 全提携の表を作り、既定の仁の手順で求め直す (明示ゲームの既定と同じ回復の経路)。
+#[test]
+fn oracle_default_recovers_from_numerical_failure() {
+    use coopgame::Error;
+    let mut recovered = 0;
+    for seed in 0..10u64 {
+        let game = generators::bnf(1 + (seed % 4) as u8, 6, seed).unwrap();
+        let oracle_game = UnderstatedScale {
+            scale: 1e-12 * game.max_abs_value(),
+            inner: game.clone(),
+        };
+        let once = oracle::nucleolus_with(
+            &oracle_game,
+            Domain::Imputation,
+            oracle::default_tolerance(&oracle_game),
+        );
+        let result = oracle::nucleolus(&oracle_game).unwrap();
+        let expected = nucleolus::nucleolus(&game).unwrap();
+        if matches!(once, Err(Error::Numerical(_) | Error::Lp(_))) {
+            recovered += 1;
+            assert_eq!(result, expected, "seed {seed}");
+        }
+        assert_eq!(result.guarantee(), Guarantee::Exact, "seed {seed}");
+    }
+    // 1 回目が失敗するゲームがある (なければ、回復の経路を通していない)。
+    assert!(recovered >= 5, "{recovered}");
+}
