@@ -9,7 +9,7 @@
 //!
 //! - oracle_take: `OracleGame::excess_order(x).take(k)` を読み切る (`ExplicitGame`)
 //! - surplus_take: `surplus::excess_order(game, x)` の先頭 `k` 個を読む
-//! - nucleolus: `nucleolus::oracle::nucleolus` に `ExplicitGame` を渡す (違反する提携を超過の大きい順に探す)
+//! - nucleolus: `nucleolus::oracle::nucleolus_with` (既定の許容誤差で 1 回だけ解く) に `ExplicitGame` を渡す (違反する提携を超過の大きい順に探す)
 //! - max_surplus: `surplus::max_surplus`
 //! - kernel: `kernel::kernel_point` (transfer scheme。反復ごとに最大余剰を求める)
 
@@ -98,7 +98,15 @@ fn main() {
         println!("max_surplus,{n},,{seconds:.6}");
         if n <= max_solver_n {
             let seconds = median_seconds(reps, || {
-                black_box(oracle::nucleolus(&game).expect("仁"));
+                // 既定の許容誤差で 1 回だけ解く (20 人以下の既定の手順が加える、全提携の表での確認は含めない)。
+                black_box(
+                    oracle::nucleolus_with(
+                        &game,
+                        coopgame::Domain::Imputation,
+                        oracle::default_tolerance(&game),
+                    )
+                    .expect("仁"),
+                );
             });
             println!("nucleolus,{n},,{seconds:.6}");
             let seconds = median_seconds(reps, || {

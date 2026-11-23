@@ -504,6 +504,25 @@ fn solve_auto(
     }
 }
 
+/// [`Tolerance::Auto`] の確認 ([`nucleolus_with`] の手順 2): 元の大きさの配分 `allocation` が、
+/// Kohlberg 基準を細かい許容誤差 (`max|v(S)|` の `1e-11` 倍。[`MAX_AUTO_RATIONAL_PLAYERS`] 人以下では `1e-12` 倍) で満たすか。
+///
+/// オラクル版の既定 ([`oracle::nucleolus`]) が、全提携の表を作って同じ確認をするために使う。
+/// [`MAX_AUTO_CHECK_PLAYERS`] 人を超えるゲームは呼び出し側で除く。
+pub(crate) fn passes_auto_check(game: &ExplicitGame, allocation: &[f64], domain: Domain) -> bool {
+    let (normalized, divisor) = game.normalized();
+    let scale = positive_scale(normalized.max_abs_value());
+    let reading = scale
+        * if game.players() <= MAX_AUTO_RATIONAL_PLAYERS {
+            AUTO_READING_WITH_RATIONAL
+        } else {
+            AUTO_READING
+        };
+    // 2 のべき乗で割るだけなので、丸めは起きない。
+    let x: Vec<f64> = allocation.iter().map(|v| v / divisor).collect();
+    kohlberg_at(&normalized, &x, domain, reading).is_ok_and(|check| check.satisfied)
+}
+
 /// 有理数の逐次 LP で求め、f64 の結果にする。値は f64 の 2 進数の値どおりの有理数として扱う。
 fn solve_rationally(
     game: &ExplicitGame,

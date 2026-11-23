@@ -19,9 +19,12 @@
 //! 1 人提携とその補集合や、確定判定で目的にする提携の補集合であっても、行にしない。
 //! 分離オラクルが値の有限でない提携を返したときは、契約違反として [`Error::InvalidArgument`] を返す。
 //!
-//! 結果の保証は、オラクルが全ての真部分提携について答えるか ([`Separation::covers_all_coalitions`]) で決まる。
-//! 答えるなら [`Guarantee::Exact`]、一部の提携だけなら (サンプルした提携だけを持つ
+//! 結果の保証は、オラクルが全ての真部分提携について答えるか ([`Separation::covers_all_coalitions`]) と、
+//! 許容誤差の決め方で決まる。一部の提携だけなら (サンプルした提携だけを持つ
 //! [`crate::nucleolus::sampled::SampledGame`] など) 元のゲームの仁とは限らないので [`Guarantee::Approximate`]。
+//! 全てに答えるとき、許容誤差を指定した [`nucleolus_with`] は [`Guarantee::Exact`] (許容誤差の範囲で成り立つ)、
+//! 既定の [`nucleolus`]・[`prenucleolus`] は、既定の仁と同じく確かめた結果だけを [`Guarantee::Exact`] にする
+//! (20 人以下は全提携の表で Kohlberg 基準を確かめ、21 人以上は [`Guarantee::Approximate`])。
 
 use std::collections::HashSet;
 
@@ -44,21 +47,59 @@ pub fn default_tolerance<G: Separation + ?Sized>(game: &G) -> f64 {
     1e-7 * positive_scale(game.value_scale())
 }
 
-/// 仁。保証は、オラクルが全提携について答えれば [`Guarantee::Exact`]、そうでなければ [`Guarantee::Approximate`]。
+/// 仁。許容誤差を指定しない既定の手順で求める (保証の規則は [`prenucleolus`] と共通で、ここに書く)。
+///
+/// 既定の仁 ([`crate::nucleolus::nucleolus`]、[`crate::nucleolus::Tolerance::Auto`]) と同じ規則で保証を決める。
+///
+/// 1. 既定の許容誤差 ([`default_tolerance`]) で 1 回解く。
+/// 2. オラクルが一部の提携だけに答える ([`Separation::covers_all_coalitions`] が偽) なら、元のゲームの仁とは限らないので
+///    [`Guarantee::Approximate`]。LP を解かずに決まった配分 (1 人ゲーム、配分集合が 1 点) は、オラクルが全提携に答えれば
+///    [`Guarantee::Exact`]。
+/// 3. [`crate::nucleolus::MAX_AUTO_CHECK_PLAYERS`] 人以下なら、全提携の表を作り (値を `2^n - 1` 回評価する)、
+///    解いた配分が Kohlberg 基準を細かい許容誤差で満たすかを既定の仁と同じ読みで確かめる。満たせば [`Guarantee::Exact`]。
+///    満たさなければ、その表を既定の仁の手順 ([`crate::nucleolus::nucleolus_with`] の [`crate::nucleolus::Tolerance::Auto`]。
+///    許容誤差を下げた解き直しと、8 人以下の有理数の逐次 LP) で求め直す。表を作れない (値が有限でない) ときと、
+///    求め直しが失敗したときは、1. の配分を [`Guarantee::Approximate`] で返す。
+/// 4. それより多い人数は確かめないので [`Guarantee::Approximate`]。
+///
+/// 確かめずに 1 回だけ解いた配分を使うなら、許容誤差を指定する ([`nucleolus_with`])。
 pub fn nucleolus<G: Separation + ?Sized>(game: &G) -> Result<NucleolusResult> {
-    nucleolus_with(game, Domain::Imputation, default_tolerance(game))
+    solve_auto(game, Domain::Imputation)
 }
 
-/// プレ仁。保証は [`nucleolus`] と同じ。
+/// プレ仁。保証の規則は [`nucleolus`] と同じ。
 pub fn prenucleolus<G: Separation + ?Sized>(game: &G) -> Result<NucleolusResult> {
-    nucleolus_with(game, Domain::Preimputation, default_tolerance(game))
+    solve_auto(game, Domain::Preimputation)
+}
+
+/// [`nucleolus`] の既定の手順。
+fn solve_auto<G: Separation + ?Sized>(game: &G, domain: Domain) -> Result<NucleolusResult> {
+    let mut result = nucleolus_with(game, domain, default_tolerance(game))?;
+    if result.guarantee != Guarantee::Exact || result.lp_solves == 0 {
+        return Ok(result);
+    }
+    if game.players() <= crate::nucleolus::MAX_AUTO_CHECK_PLAYERS
+        && let Ok(table) = crate::game::ExplicitGame::tabulate(game)
+    {
+        if crate::nucleolus::passes_auto_check(&table, &result.allocation, domain) {
+            return Ok(result);
+        }
+        if let Ok(resolved) =
+            crate::nucleolus::nucleolus_with(&table, crate::nucleolus::Options::new(domain))
+        {
+            return Ok(resolved);
+        }
+    }
+    result.guarantee = Guarantee::Approximate;
+    Ok(result)
 }
 
 /// `tolerance` はゲームの値と同じ単位。配分集合の扱いは [`crate::nucleolus::Tolerance`] の説明と同じ。
 ///
 /// `tolerance` が有限で 0 以上でないとき、またはゲームの値の大きさで割ると有限でない (値に比べて大きすぎる) ときは
 /// [`Error::InvalidArgument`] を返す。
-/// 結果は許容誤差の範囲で成り立つ。保証の種類 ([`nucleolus`] と同じ) は許容誤差の大きさを反映しない。
+/// 指定した許容誤差で 1 回だけ解く。結果は許容誤差の範囲で成り立つものとして、保証は、オラクルが全ての真部分提携について
+/// 答えれば [`Guarantee::Exact`]、一部の提携だけなら [`Guarantee::Approximate`]。保証の種類は許容誤差の大きさを反映しない。
 ///
 /// 配分や各段の最大超過が `f64` の範囲を超える (値が `f64` の上限に近い) ときは [`Error::Numerical`] を返す。
 pub fn nucleolus_with<G: Separation + ?Sized>(
@@ -74,7 +115,9 @@ pub fn nucleolus_with<G: Separation + ?Sized>(
         .scaled_by(divisor)
 }
 
-/// 最小コア。1 人ゲームの `epsilon` は `f64::NEG_INFINITY` ([`LeastCore::epsilon`])。保証は [`nucleolus`] と同じ。
+/// 最小コア。1 人ゲームの `epsilon` は `f64::NEG_INFINITY` ([`LeastCore::epsilon`])。
+/// 明示ゲームの [`crate::nucleolus::least_core`] と同じく LP を 1 回解き、保証は、オラクルが全提携について答えれば
+/// [`Guarantee::Exact`]、一部の提携だけなら [`Guarantee::Approximate`]。
 ///
 /// 2 人以上で、配分や `epsilon` が `f64` の範囲を超えるときは [`Error::Numerical`] を返す。
 pub fn least_core<G: Separation + ?Sized>(game: &G, domain: Domain) -> Result<LeastCore> {
