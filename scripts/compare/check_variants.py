@@ -1,7 +1,10 @@
 """per capita 仁・比例仁を CoopGame と照合する。
 
 使い方 (リポジトリのルートで、R_LIBS を setup.sh の出力どおりに設定して実行):
-  python3 scripts/compare/check_variants.py
+  python3 scripts/compare/check_variants.py [--csv 出力.csv]
+
+--csv を付けると、ゲームと解ごとの結果 (一致・両方とも計算しない・不一致と相対差) を CSV に書く
+(data/compare/variants.csv。scripts/verify_claims.py が docs/comparison.md の数値と照合する)。
 
 BNF タイプ 1, 2, 4、n = 3, 4, 5、seed 0-3 のゲームと、CoopGame のヘルプにある例で、
 coopgame-rs の `per-capita`・`proportional` と CoopGame 0.2.2 の結果を比べる。
@@ -11,9 +14,11 @@ variants.R は modiclus (M) も出力するが、照合しない。CoopGame の 
 空でない真部分提携に限り、coopgame-rs は空提携と全体提携を含む組を使う (文献の定義) ので、値が異なる
 (docs/comparison.md)。
 """
-import os, subprocess, sys, tempfile
+import csv, os, subprocess, sys, tempfile
 
 here = os.path.dirname(os.path.abspath(__file__))
+csv_path = sys.argv[sys.argv.index("--csv") + 1] if "--csv" in sys.argv else None
+records = []
 rust = os.environ.get("COOPGAME", "target/release/coopgame")
 # CoopGame のヘルプの例 (辞書式順)
 EXAMPLES = {
@@ -61,26 +66,37 @@ with tempfile.TemporaryDirectory() as work:
             continue
         result = subprocess.run([rust, commands[kind], os.path.join(work, name)], capture_output=True, text=True)
         ours = [float(v) for v in result.stdout.split()] if result.returncode == 0 else None
+        game = name[:-len(".txt")]
         if values == ["NA"]:
             if ours is None:
                 tally[kind]["both_na"] += 1
+                records.append((game, commands[kind], "both_na", ""))
             else:
                 tally[kind]["mismatch"].append((name, "CoopGame は計算しない", ours))
+                records.append((game, commands[kind], "mismatch", ""))
             continue
         reference = [float(v) for v in values]
         if ours is None:
             tally[kind]["mismatch"].append((name, reference, result.stderr.strip()))
+            records.append((game, commands[kind], "mismatch", ""))
             continue
         scale = max(1.0, max(abs(v) for v in reference))
         diff = max(abs(a - b) for a, b in zip(ours, reference)) / scale
         if diff <= 1e-6:
             tally[kind]["match"] += 1
             worst = max(worst, diff)
+            records.append((game, commands[kind], "match", f"{diff:.3e}"))
         else:
             tally[kind]["mismatch"].append((name, reference, ours))
+            records.append((game, commands[kind], "mismatch", f"{diff:.3e}"))
     for kind, t in tally.items():
         print(f"{commands[kind]}: 一致 {t['match']}、両方とも計算しない {t['both_na']}、不一致 {len(t['mismatch'])}")
         for m in t["mismatch"]:
             print("  ", *m)
     print(f"一致したものの最大の相対差 {worst:.1e}")
+    if csv_path:
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f, lineterminator="\n")
+            writer.writerow(["game", "solution", "status", "relative_difference"])
+            writer.writerows(records)
     sys.exit(1 if any(t["mismatch"] for t in tally.values()) else 0)
