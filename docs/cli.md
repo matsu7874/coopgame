@@ -80,7 +80,7 @@ coopgame tau v.txt                          # tau 値 (準平衡でなければ�
 coopgame gately v.txt                       # Gately 点
 coopgame myerson v.txt --edges 0-1,1-2      # 通信グラフ (プレイヤーの番号の組) のもとでの Myerson 値 (辺のないグラフは --edges "")
 coopgame power v.txt                        # 単純ゲームの投票力指数の表 (Shapley–Shubik・Banzhaf・Johnston・Deegan–Packel・Public Good・Coleman)
-coopgame per-capita v.txt                   # per capita 仁 (proportional で比例仁、modiclus で modiclus)
+coopgame per-capita v.txt                   # per capita 仁 (proportional で比例仁、modiclus で modiclus)。既定は配分集合の版で、原典の準配分の版は --pre
 coopgame structure v.txt --blocks "0,1|2"   # 提携構造の Aumann–Drèze 値・提携構造つきの仁・Owen 値
 coopgame convex-nucleolus v.txt             # 凸ゲームの手法で仁 (凸でなければエラー。--assume で凸と仮定して試し、事後検証する)
 ```
