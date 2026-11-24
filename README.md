@@ -43,7 +43,7 @@ To use the library:
 
 ```toml
 [dependencies]
-coopgame = "0.7"
+coopgame = "0.8"
 ```
 
 Enable the `io` feature for the `io` module, which reads and writes games as JSON and CSV.
