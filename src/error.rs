@@ -35,7 +35,10 @@ impl fmt::Display for Error {
             Error::Parse { line: 0, message } => write!(f, "入力が不正: {message}"),
             Error::Parse { line, message } => write!(f, "{line} 行目: {message}"),
             Error::InvalidArgument(message) => write!(f, "引数が不正: {message}"),
-            Error::EmptyImputationSet => write!(f, "配分集合が空 (sum v({{i}}) > v(N))"),
+            Error::EmptyImputationSet => write!(
+                f,
+                "配分集合が空 (sum v({{i}}) > v(N))。個人合理性を課さずに解くには、定義域に準配分 (preimputation、CLI は --pre) を指定する"
+            ),
             Error::Lp(message) => write!(f, "LP ソルバーのエラー: {message}"),
             Error::Numerical(message) => write!(f, "数値計算の失敗: {message}"),
             Error::LimitExceeded(message) => write!(f, "規模の上限を超えた: {message}"),

@@ -278,15 +278,29 @@ def test_callback_non_finite_value_is_rejected(bad):
 def test_sampled_nucleolus_with_all_coalitions_is_exact():
     game = coopgame.Game.bnf(4, 7, 11)
     exact = coopgame.prenucleolus(game)["allocation"]
-    result = coopgame.sampled_nucleolus(coopgame.FunctionGame(7, game.value), 2000, seed=5)
+    result = coopgame.sampled_nucleolus(
+        coopgame.FunctionGame(7, game.value), 2000, seed=5, domain="preimputation"
+    )
     assert result["evaluations"] == 2**7 - 1
     assert close(result["allocation"], exact, 1e-6 * max(map(abs, game.values())))
 
 
 def test_sampled_least_core_is_efficient():
     game = coopgame.FunctionGame(30, lambda coalition: math.sqrt(len(coalition)))
-    result = coopgame.sampled_least_core(game, 200, seed=1)
+    result = coopgame.sampled_least_core(game, 200, seed=1, domain="preimputation")
     assert math.isclose(sum(result["allocation"]), math.sqrt(30), rel_tol=1e-9)
+
+
+def test_sampled_solutions_default_to_imputations_like_other_nucleolus_functions():
+    # 他の仁・最小コアの関数と同じく、既定は配分集合。配分集合が空なら、準配分を案内するエラー。
+    game = coopgame.Game.bnf(1, 5, 3)
+    for run in (coopgame.sampled_nucleolus, coopgame.sampled_least_core):
+        default = run(coopgame.FunctionGame(5, game.value), 1000, seed=2)
+        explicit = run(coopgame.FunctionGame(5, game.value), 1000, seed=2, domain="imputation")
+        assert default["allocation"] == explicit["allocation"], run.__name__
+        root = coopgame.FunctionGame(30, lambda coalition: math.sqrt(len(coalition)))
+        with pytest.raises(ValueError, match="preimputation"):
+            run(root, 50, seed=1)
 
 
 # ---------------------------------------------------------------- 入力の検査

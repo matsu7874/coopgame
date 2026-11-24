@@ -1869,9 +1869,12 @@ fn banzhaf_sampling<'py>(
     estimate_dict(py, estimate)
 }
 
-/// 提携を `pairs` 組 (補集合と組で) サンプルし、サンプルした提携だけで仁 (既定はプレ仁) を求める。
+/// 提携を `pairs` 組 (補集合と組で) サンプルし、サンプルした提携だけで仁を求める。
+///
+/// 他の仁の関数と同じく、既定は配分集合 (`domain="imputation"`) の仁。プレ仁は `domain="preimputation"`。
+/// 学習のスコアなど 1 人ずつの値の和が全体の値を超えるゲームでは配分集合が空になるので、プレ仁を使う。
 #[pyfunction]
-#[pyo3(signature = (game, pairs, seed = Arg(0), domain = "preimputation"))]
+#[pyo3(signature = (game, pairs, seed = Arg(0), domain = "imputation"))]
 fn sampled_nucleolus<'py>(
     py: Python<'py>,
     game: &Bound<'py, PyAny>,
@@ -1895,8 +1898,10 @@ fn sampled_nucleolus<'py>(
 }
 
 /// 提携を `pairs` 組サンプルし、サンプルした提携だけで最小コアの配分を 1 つ求める (Yan & Procaccia 2021)。
+///
+/// 他の最小コアの関数と同じく、既定は配分集合 (`domain="imputation"`)。個人合理性を課さないなら `domain="preimputation"`。
 #[pyfunction]
-#[pyo3(signature = (game, pairs, seed = Arg(0), domain = "preimputation"))]
+#[pyo3(signature = (game, pairs, seed = Arg(0), domain = "imputation"))]
 fn sampled_least_core<'py>(
     py: Python<'py>,
     game: &Bound<'py, PyAny>,

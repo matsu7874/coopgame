@@ -44,7 +44,7 @@ coopgame.nucleolus(loaded["game"])["allocation"]            # [2.0, 2.0]
 # 全提携を列挙できないゲームは Python の関数で与える (提携はプレイヤー番号のタプル)。
 majority = coopgame.FunctionGame(101, lambda s: float(len(s) >= 51))
 coopgame.shapley_sampling(majority, 2000, seed=0)           # values, standard_errors, evaluations
-coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした提携だけで解いたプレ仁
+coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした提携だけで解いた仁
 ```
 
 ## API
@@ -79,7 +79,7 @@ coopgame.sampled_nucleolus(majority, 500, seed=0)           # サンプルした
 | `gately_point(game)` | Gately 点 (Gately 1974) |
 | `myerson(game, edges)`, `graph_restricted(game, edges)` | 通信グラフ (プレイヤー番号の組の列) のもとでの Myerson 値と、グラフ制限ゲーム |
 | `power_indices(game)` | 単純ゲームの Johnston・Deegan–Packel・Public Good (Holler)・Coleman の指数、決定票の数、最小勝利提携 |
-| `sampled_nucleolus`, `sampled_least_core` | サンプルした提携による仁・最小コア |
+| `sampled_nucleolus`, `sampled_least_core` | サンプルした提携による仁・最小コア (既定は他の仁と同じく配分集合。プレ仁・準配分の最小コアは `domain="preimputation"`) |
 | `talmud`, `constrained_equal_awards`, `constrained_equal_losses` | 破産問題の規則 (`exact=True` で `Fraction`) |
 
 - プレイヤーは 0 始まりの番号で表す。提携はプレイヤー番号のリスト (Python の関数にはタプル) で受け渡す。
