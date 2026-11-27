@@ -1101,6 +1101,11 @@ impl<'a> Sequential<'a> {
     /// 最大超過が `level` 以下の配分の中で `x(target)` を最大化する。
     fn maximize_coalition(&mut self, target: Coalition, level: f64) -> Result<(f64, Vec<f64>)> {
         // 最適値の丸め誤差で実行不可能にならないよう、許容誤差の 1% だけ緩める。
+        // 一律に緩めると最大値は「緩めた量 × 双対変数の和」だけ大きく出るので、判定は厳しい側 (確定を見送る側) に倒れる。
+        // 見送った提携は次の段で解き直されるだけで、確定してはいけない提携を確定することはない。
+        // オラクル版 (`oracle::Sequential::maximize_coalition`) は、同じ額を受け取る人が 100 人を超えると
+        // 双対変数の和が大きくなり判定が崩れたので、段の解で押さえる形にしている。全提携の表を扱うこちらは
+        // 30 人までで崩れる例は見つかっておらず、緩める側に変えると確定を誤りうるので、一律の緩めのままにする。
         let bound = level + 0.01 * self.tolerance();
         let build = |this: &Self| {
             let mut problem = lp::maximize();

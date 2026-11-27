@@ -525,6 +525,11 @@ impl Lexicographic<'_> {
         let mut problem = lp::maximize();
         let x = self.add_domain(&mut problem, Some(a));
         // 最適値の丸め誤差で実行不可能にならないよう、許容誤差の 1% だけ緩める。
+        // 一律に緩めると最大値は「緩めた量 × 双対変数の和」だけ大きく出るので、判定は厳しい側 (確定を見送る側) に倒れる。
+        // 見送った提携は次の段で解き直されるだけで、確定してはいけない提携を確定することはない。
+        // オラクル版 (`oracle::Sequential::maximize_coalition`) は、同じ額を受け取る人が 100 人を超えると
+        // 双対変数の和が大きくなり判定が崩れたので、段の解で押さえる形にしている。仁の変種 (全提携の表を扱い、
+        // 人数の上限は 17 人以下) で崩れる例は見つかっておらず、緩める側に変えると確定を誤りうるので、一律の緩めのままにする。
         let relax = 0.01 * self.tolerance;
         self.add_open_rows(&mut problem, &x, Row::AtMost { level, relax });
         let solution = self
